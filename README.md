@@ -125,5 +125,6 @@ Some handy synchronization doodads, such as semaphores.
 build & test
 ------------
 
+    go get gopkg.in/yaml.v2
     go build
     go test . .u* ./golum
