@@ -1,0 +1,2 @@
+needOne: "{{.one}}"
+needTwo: "{{.two}}"
