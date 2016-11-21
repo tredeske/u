@@ -15,6 +15,10 @@ func TODO(format string, args ...interface{}) {
 	}
 }
 
+func Printf(format string, args ...interface{}) {
+	log.Printf(format, args...)
+}
+
 func Warnf(format string, args ...interface{}) {
 	if 0 == len(args) {
 		log.Printf("WARN: " + format)

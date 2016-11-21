@@ -47,6 +47,9 @@ func GetLogName(base string) (rv string) {
 			rv = filepath.Join(Dir, File)
 		}
 
+	} else if strings.ContainsRune(base, '/') {
+		rv = base
+
 	} else {
 		rv = filepath.Join(Dir, base)
 	}

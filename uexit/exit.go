@@ -9,13 +9,18 @@ import (
 	"time"
 )
 
+//
+// Time to wait for stuff to die, if anything registered
+//
+var WaitTime = 5 * time.Second
+
 // invoke from *end* of main thread to turn main thread into signal handler, or
 // invoke as goroutine
 //
 func SimpleSignalHandling() {
 	ExitOnStandardSignals()
 	DumpOnSigQuit()
-	WaitForExit(5 * time.Second)
+	WaitForExit()
 }
 
 func DumpOnSigQuit() {
@@ -39,46 +44,26 @@ type exitHandler_ struct {
 }
 
 var (
-	sigCh_         chan os.Signal     = make(chan os.Signal)
-	exitCh_        chan int           = make(chan int)
-	exitHandlerCh_ chan *exitHandler_ = make(chan *exitHandler_) // sync!
-	exitDoneCh_    chan bool          = make(chan bool, 32)
+	sigC_         chan os.Signal     = make(chan os.Signal)
+	exitC_        chan int           = make(chan int)
+	exitHandlerC_ chan *exitHandler_ = make(chan *exitHandler_) // sync!
+	exitDoneC_    chan bool          = make(chan bool, 32)
+	waitC_        chan bool          = start()
 )
 
-// register to receive exit notifications
-//
-// The exit handler will wait for a brief time for a response on the reply channel
-// from each AtExit registration, then exit.
-//
-func AtExit() (exitNotifyC <-chan int, exitReplyC chan<- bool) {
-	notifyC := make(chan int, 2) // non blocking notifications
-	exitNotifyC = notifyC
-
-	exitHandlerCh_ <- &exitHandler_{ // may block here til WaitForExit
-		ch: notifyC,
-	}
-	return exitNotifyC, exitDoneCh_
+func start() (rv chan bool) {
+	rv = make(chan bool, 2)
+	go manageExit(rv)
+	return
 }
 
-// register signals that should cause process exit
-func ExitOnSignals(sigs ...os.Signal) {
-	signal.Notify(sigCh_, sigs...)
-}
-
-// register the usual signals that should cause process exit
-func ExitOnStandardSignals() {
-	signal.Notify(sigCh_, os.Interrupt, os.Kill, syscall.SIGHUP, syscall.SIGTERM)
-}
-
-// invoke from main thread to turn main thread into signal handler, or
-// invoke as goroutine
-//
-func WaitForExit(wait time.Duration) {
+func manageExit(waitC chan bool) {
 
 	done := 0
 	exitStatus := 0
 	channels := make([]chan<- int, 0, 8)
 
+	//
 	// in case of panic when talking on a chan, exit immediately
 	//
 	defer func() {
@@ -90,70 +75,115 @@ func WaitForExit(wait time.Duration) {
 		}
 	}()
 
+	//
 	// wait for a signal indicating time to die,
 	// or for a goroutine in this process to call Exit(),
 	// or for someone to register to be notified when it is time to die
 	//
-	for {
+	for notify := false; !notify; {
 		//DebugfFor("exit", "waiting for event")
 		select {
-		case exitStatus = <-exitCh_:
-			goto notify
-		case sig := <-sigCh_:
-			log.Printf("\n\nExitting due to signal '%s'\n\n", sig)
-			goto notify
-		case h := <-exitHandlerCh_:
+		case exitStatus = <-exitC_:
+			log.Printf("\n\nReceived exit code %d\n\n", exitStatus)
+			notify = true
+		case sig := <-sigC_:
+			log.Printf("\n\nReceived exit signal '%s'\n\n", sig)
+			notify = true
+		case h := <-exitHandlerC_:
 			channels = append(channels, h.ch)
-		case <-exitDoneCh_:
+		case <-exitDoneC_:
 			done++
 		}
 	}
 
-	// we're dying, so notify anyone interested so that can take care
-	// of any last minute business.
 	//
-notify:
-	//DebugfFor("exit", "notifying channels")
-	for _, ch := range channels {
-		select { // nonblock
-		case ch <- exitStatus:
-		default:
+	// it is now time to die
+	//
+	// we have work to to if there are registered handlers
+	//
+	if 0 != len(channels) {
+		//
+		// we're dying, so notify anyone interested so that can take care
+		// of any last minute business.
+		//
+		//DebugfFor("exit", "notifying channels")
+		for _, ch := range channels {
+			select { // nonblock
+			case ch <- exitStatus:
+			default:
+			}
 		}
-	}
 
-	// wait for any interested parties to chime in
-	//
-	//DebugfFor("exit", "waiting for done")
-	after := time.After(wait)
-	for i := done; i < len(channels); i++ {
-		select {
-		case <-after:
-			goto timeToDie
-		case <-exitDoneCh_:
-			done++
+		// wait for any interested parties to chime in
+		//
+		//DebugfFor("exit", "waiting for done")
+		after := time.After(WaitTime)
+		timeToDie := false
+		for i := done; !timeToDie && i < len(channels); i++ {
+			select {
+			case <-after:
+				timeToDie = true
+			case <-exitDoneC_:
+				done++
+			}
 		}
 	}
 
 	// time to go
 	//
-timeToDie:
+	waitC <- true
 	log.Printf("\n\nExitting with status %d\n\n", exitStatus)
 	os.Exit(exitStatus)
+}
+
+// register to receive exit notifications
+//
+// The exit handler will wait for a brief time for a response on the reply channel
+// from each AtExit registration, then exit.
+//
+func AtExit() (exitNotifyC <-chan int, exitReplyC chan<- bool) {
+	notifyC := make(chan int, 2) // non blocking notifications
+	exitNotifyC = notifyC
+
+	exitHandlerC_ <- &exitHandler_{ // may block here til WaitForExit
+		ch: notifyC,
+	}
+	return exitNotifyC, exitDoneC_
+}
+
+// register signals that should cause process exit
+func ExitOnSignals(sigs ...os.Signal) {
+	signal.Notify(sigC_, sigs...)
+}
+
+//
+// register the usual signals that should cause process exit
+//
+func ExitOnStandardSignals() {
+	signal.Notify(sigC_, os.Interrupt, os.Kill, syscall.SIGHUP, syscall.SIGTERM)
+}
+
+//
+// invoke from main thread to park it until process death
+//
+func WaitForExit() {
+
+	<-waitC_
 }
 
 //
 // cause the process to exit by the deadline
 //
 func ExitWait(code int, wait time.Duration) {
-	exitCh_ <- code
+	exitC_ <- code
 	time.Sleep(wait)
 	log.Printf("Exit handler failed to exit on time - exiting now")
 	os.Exit(code)
 }
 
 //
-// cause the process to exit within 5 seconds
+// cause the process to exit within WaitTime seconds
 //
 func Exit(code int) {
-	ExitWait(code, 5*time.Second)
+	ExitWait(code, WaitTime)
 }

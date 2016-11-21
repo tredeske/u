@@ -55,10 +55,11 @@ func Boot(name string) (err error) {
 
 	version := false
 	show := ""
+	logF := ""
 	flag.StringVar(&ConfigF, "config", "", "config file (config/[NAME].yml)")
 	flag.StringVar(&GlobalF, "globals", "", "global subst params file to load")
 	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled, "turn on debugging")
-	flag.StringVar(&ulog.File, "log", ulog.File,
+	flag.StringVar(&logF, "log", "",
 		"set to 'stdout' or to path of log file (default: log/[NAME].log)")
 	flag.StringVar(&Name, "name", Name, "name of program")
 	flag.BoolVar(&version, "version", version, "print version and exit")
@@ -107,19 +108,18 @@ func Boot(name string) (err error) {
 	// get absolute path to log file
 	// if we're running in 'go test' or if cmdline says so, then output to stdout
 	//
-	ulog.Dir = path.Join(InstallD, "log")
-	if 0 == len(ulog.File) && !Testing {
-		ulog.File = path.Join(ulog.Dir, Name+".log")
-	} else if "stdout" == ulog.File || Testing {
+	if "stdout" == logF || Testing {
 		ulog.File = "stdout"
 		ulog.Dir = ""
-	}
-	if "stdout" != ulog.File {
-		ulog.File, err = filepath.Abs(ulog.File)
+	} else if 0 != len(logF) {
+		ulog.File, err = filepath.Abs(logF)
 		if err != nil {
-			return err
+			return
 		}
 		ulog.Dir = filepath.Dir(ulog.File)
+	} else {
+		ulog.Dir = path.Join(InstallD, "log")
+		ulog.File = path.Join(ulog.Dir, Name+".log")
 	}
 
 	/*
@@ -141,7 +141,7 @@ func Boot(name string) (err error) {
 
 	err = os.Chdir(InstallD)
 	if err != nil {
-		return err
+		return
 	}
 
 	return uconfig.InitEnv()
@@ -163,22 +163,26 @@ func Redirect(stdoutF, logF string, maxSz int64) (err error) {
 	//
 	ulog.Init(logF, maxSz)
 
-	if 0 >= maxSz {
-		maxSz = 40000000
-	}
-
 	//
 	// redirect stdout, stderr to file, if necessary
 	//
-	if 0 != len(stdoutF) && "stdout" != stdoutF && "stdout" != logF {
 
-		stdoutD := ""
-		if strings.Contains(stdoutF, "/") || 0 == len(ulog.Dir) {
-			stdoutD = path.Dir(stdoutF)
+	if 0 == len(stdoutF) {
+		if "stdout" == ulog.File {
+			stdoutF = "stdout"
 		} else {
-			stdoutD = ulog.Dir
-			stdoutF = path.Join(stdoutD, stdoutF)
+			stdoutF = Name + ".stdout"
 		}
+	}
+
+	if "stdout" != stdoutF {
+
+		if maxSz <= 0 {
+			maxSz = 40 * 1024 * 1024
+		}
+
+		stdoutF = ulog.GetLogName(stdoutF)
+		stdoutD := path.Dir(stdoutF)
 		if !uio.FileExists(stdoutD) {
 			if err = os.MkdirAll(stdoutD, 02775); err != nil {
 				return uerr.Chainf(err, "problem creating %s", stdoutD)
