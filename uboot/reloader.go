@@ -41,7 +41,7 @@ func (this *reloader_) reload(f string, fi os.FileInfo, err error) {
 		return
 	}
 
-	config.AddSub("logDir", LogD)
+	config.AddSub("logDir", ulog.Dir)
 	config.AddSub("name", Name)
 	var gconfig *uconfig.Array
 	err = config.GetValidArray(this.components, &gconfig)

@@ -28,8 +28,6 @@ var (
 	ConfigF  = ""             // abs path to config file
 	GlobalF  = ""             // abs path to globals (if any)
 	Globals  *uconfig.Section //
-	LogD     = ""             // where log files go
-	LogF     = ""             // where program log goes
 
 	Testing = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
 
@@ -47,15 +45,6 @@ func pre() bool {
 	return true
 }
 
-func GetLogName(base string) (rv string) {
-	if 0 == len(LogF) || "stdout" == LogF || Testing {
-		rv = "stdout"
-	} else {
-		rv = filepath.Join(LogD, base)
-	}
-	return
-}
-
 //
 // bootstrap process to initial state.  order matters.
 //
@@ -69,7 +58,7 @@ func Boot(name string) (err error) {
 	flag.StringVar(&ConfigF, "config", "", "config file (config/[NAME].yml)")
 	flag.StringVar(&GlobalF, "globals", "", "global subst params file to load")
 	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled, "turn on debugging")
-	flag.StringVar(&LogF, "log", LogF,
+	flag.StringVar(&ulog.File, "log", ulog.File,
 		"set to 'stdout' or to path of log file (default: log/[NAME].log)")
 	flag.StringVar(&Name, "name", Name, "name of program")
 	flag.BoolVar(&version, "version", version, "print version and exit")
@@ -118,18 +107,19 @@ func Boot(name string) (err error) {
 	// get absolute path to log file
 	// if we're running in 'go test' or if cmdline says so, then output to stdout
 	//
-	LogD = path.Join(InstallD, "log")
-	if 0 == len(LogF) && !Testing {
-		LogF = path.Join(LogD, Name+".log")
-	} else if "stdout" == LogF || Testing {
-		LogF = "stdout"
-		LogD = ""
+	ulog.Dir = path.Join(InstallD, "log")
+	if 0 == len(ulog.File) && !Testing {
+		ulog.File = path.Join(ulog.Dir, Name+".log")
+	} else if "stdout" == ulog.File || Testing {
+		ulog.File = "stdout"
+		ulog.Dir = ""
 	}
-	if "stdout" != LogF {
-		if LogF, err = filepath.Abs(LogF); err != nil {
+	if "stdout" != ulog.File {
+		ulog.File, err = filepath.Abs(ulog.File)
+		if err != nil {
 			return err
 		}
-		LogD = filepath.Dir(LogF)
+		ulog.Dir = filepath.Dir(ulog.File)
 	}
 
 	/*
@@ -160,35 +150,21 @@ func Boot(name string) (err error) {
 //
 // Continue boot process: redirect stdin, stdout, stderr and setup logging
 //
+// if logF is empty, then use configured setting, which may be "stdout"
+//
 // invoke after Boot()
 //
-func Redirect(stdoutF, logF string, maxSz int) (err error) {
+func Redirect(stdoutF, logF string, maxSz int64) (err error) {
 
 	syscall.Close(0) // don't need stdin
 
+	//
+	// ulog
+	//
+	ulog.Init(logF, maxSz)
+
 	if 0 >= maxSz {
 		maxSz = 40000000
-	}
-
-	if 0 != len(logF) && "stdout" != logF {
-		logD := ""
-		if strings.ContainsRune(logF, '/') || 0 == len(LogD) {
-			logD = path.Dir(logF)
-		} else {
-			logD = LogD
-		}
-		if !uio.FileExists(logD) {
-			if err = os.MkdirAll(logD, 02775); err != nil {
-				return uerr.Chainf(err, "problem creating %s", logD)
-			}
-		}
-
-		w, err := ulog.NewWriteManager(logF, int64(maxSz))
-		if err != nil {
-			return err
-		} else {
-			log.SetOutput(w)
-		}
 	}
 
 	//
@@ -197,10 +173,10 @@ func Redirect(stdoutF, logF string, maxSz int) (err error) {
 	if 0 != len(stdoutF) && "stdout" != stdoutF && "stdout" != logF {
 
 		stdoutD := ""
-		if strings.Contains(stdoutF, "/") || 0 == len(LogD) {
+		if strings.Contains(stdoutF, "/") || 0 == len(ulog.Dir) {
 			stdoutD = path.Dir(stdoutF)
 		} else {
-			stdoutD = LogD
+			stdoutD = ulog.Dir
 			stdoutF = path.Join(stdoutD, stdoutF)
 		}
 		if !uio.FileExists(stdoutD) {
@@ -319,7 +295,7 @@ func loadComponents(
 
 	// generic component load
 	//
-	config.AddSub("logDir", LogD)
+	config.AddSub("logDir", ulog.Dir)
 	config.AddSub("name", Name)
 	var gconfig *uconfig.Array
 	err = config.GetValidArray(cspec, &gconfig)

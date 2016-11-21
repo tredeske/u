@@ -8,7 +8,9 @@ import (
 	"github.com/tredeske/u/uerr"
 )
 
+//
 // an io.Writer to manage log output file rotation
+//
 type WriteManager struct {
 	name string
 	max  int64
@@ -17,7 +19,9 @@ type WriteManager struct {
 	lock sync.Mutex
 }
 
+//
 // create a new writer to manage a log file, with max bytes per log file
+//
 func NewWriteManager(file string, max int64) (*WriteManager, error) {
 	rv := &WriteManager{
 		name: file,
@@ -26,6 +30,9 @@ func NewWriteManager(file string, max int64) (*WriteManager, error) {
 	return rv, rv.next()
 }
 
+//
+// implement io.Closer
+//
 func (this *WriteManager) Close() error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
@@ -37,10 +44,13 @@ func (this *WriteManager) Close() error {
 	return nil
 }
 
+//
+// implement io.Writer
+//
 func (this *WriteManager) Write(bb []byte) (n int, err error) {
 	n = len(bb)
 	if 0 == n {
-		return 0, nil
+		return
 	}
 	this.lock.Lock()
 	defer this.lock.Unlock()
@@ -77,7 +87,8 @@ func (this *WriteManager) next() (err error) {
 			this.size = 0
 		}
 	}
-	if err = os.MkdirAll(filepath.Dir(this.name), 02775); err != nil {
+	err = os.MkdirAll(filepath.Dir(this.name), 02775)
+	if err != nil {
 		return uerr.Chainf(err, "problem creating dir for %s", this.name)
 	}
 	this.w, err = os.OpenFile(this.name, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0664)
