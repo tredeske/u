@@ -74,6 +74,23 @@ func (this *Chain) EachSectionIf(
 	return this
 }
 
+//
+// get the section specified by key and process it
+//
+func (this *Chain) ASection(
+	key string,
+	visitor func(*Section) error,
+) *Chain {
+	if nil == this.Error {
+		var s *Section
+		this.Error = this.Section.GetValidSection(key, &s)
+		if nil == this.Error {
+			this.Error = visitor(s)
+		}
+	}
+	return this
+}
+
 // if key maps to section, set value to section
 func (this *Chain) GetSection(key string, value **Section,
 ) *Chain {

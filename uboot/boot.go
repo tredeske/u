@@ -152,7 +152,7 @@ func Boot(name string) (err error) {
 //
 // if logF is empty, then use configured setting, which may be "stdout"
 //
-// invoke after Boot()
+// invoke after Boot() or program initialized
 //
 func Redirect(stdoutF, logF string, maxSz int64) (err error) {
 
@@ -237,7 +237,7 @@ Starting
 // - configFile
 // - logDir
 //
-// invoke after Redirect()
+// invoke after Redirect() or logging initialized
 //
 func Configure(
 	cspec string,
@@ -253,13 +253,14 @@ func Configure(
 		return
 	}
 
-	concurrency := 2
+	concurrency := 0
 	err = config.GetInt("concurrency", &concurrency)
 	if err != nil {
 		return
-	} else if runtime.GOMAXPROCS(-1) < concurrency+2 {
-		runtime.GOMAXPROCS(int(concurrency + 2))
+	} else if 0 < concurrency {
+		runtime.GOMAXPROCS(int(concurrency))
 	}
+
 	log.Printf("GOMAXPROCS=%d", runtime.GOMAXPROCS(-1))
 	log.Printf("Env: %#v", os.Environ())
 

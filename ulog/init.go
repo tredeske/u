@@ -69,12 +69,6 @@ func GetWriter(base string, maxSz int64) (name string, rv io.Writer, err error) 
 	if "stdout" == name {
 		rv = os.Stdout
 
-	} else if 0 == len(base) {
-		if nil == W {
-			W, err = NewWriteManager(name, maxSz)
-		}
-		rv = W
-
 	} else {
 		rv, err = NewWriteManager(name, maxSz)
 	}
@@ -90,13 +84,6 @@ func NewLogger(base string, maxSz int64) (name string, rv *log.Logger, err error
 	name, w, err = GetWriter(base, maxSz)
 	if nil == err {
 		rv = log.New(w, "", log.LstdFlags)
-		if nil == L {
-			L = rv
-			log.SetOutput(w)
-			if nil == W {
-				W = w
-			}
-		}
 	}
 	return
 }
@@ -135,7 +122,13 @@ func Init(logF string, maxSz int64) (err error) {
 			}
 		}
 
-		_, _, err = NewLogger(logF, maxSz_)
+		_, W, err = GetWriter(logF, maxSz_)
+		if nil == err {
+			L = log.New(W, "", log.LstdFlags)
+			log.SetOutput(W)
+		}
+	} else {
+		L = log.New(os.Stdout, "", log.LstdFlags)
 	}
 	return
 }

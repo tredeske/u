@@ -127,6 +127,14 @@ func StringEach(s, sep string, f func(string)) {
 	}
 }
 
+func BeforeRune(s string, r rune) (rv string) {
+	idx := strings.IndexRune(s, r)
+	if -1 != idx {
+		rv = s[:idx]
+	}
+	return
+}
+
 //
 //----------------------------------------------------------------------------
 //
