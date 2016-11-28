@@ -28,6 +28,7 @@ var (
 	ConfigF  = ""             // abs path to config file
 	GlobalF  = ""             // abs path to globals (if any)
 	Globals  *uconfig.Section //
+	LogF     = ""
 
 	Testing = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
 
@@ -55,11 +56,11 @@ func Boot(name string) (err error) {
 
 	version := false
 	show := ""
-	logF := ""
+	LogF := ""
 	flag.StringVar(&ConfigF, "config", "", "config file (config/[NAME].yml)")
 	flag.StringVar(&GlobalF, "globals", "", "global subst params file to load")
 	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled, "turn on debugging")
-	flag.StringVar(&logF, "log", "",
+	flag.StringVar(&LogF, "log", "",
 		"set to 'stdout' or to path of log file (default: log/[NAME].log)")
 	flag.StringVar(&Name, "name", Name, "name of program")
 	flag.BoolVar(&version, "version", version, "print version and exit")
@@ -108,18 +109,17 @@ func Boot(name string) (err error) {
 	// get absolute path to log file
 	// if we're running in 'go test' or if cmdline says so, then output to stdout
 	//
-	if "stdout" == logF || Testing {
-		ulog.File = "stdout"
-		ulog.Dir = ""
-	} else if 0 != len(logF) {
-		ulog.File, err = filepath.Abs(logF)
+	if "stdout" == LogF || Testing {
+		ulog.UseStdout = true
+	} else if 0 != len(LogF) {
+		LogF, err = filepath.Abs(LogF)
 		if err != nil {
 			return
 		}
-		ulog.Dir = filepath.Dir(ulog.File)
+		ulog.Dir = filepath.Dir(LogF)
 	} else {
 		ulog.Dir = path.Join(InstallD, "log")
-		ulog.File = path.Join(ulog.Dir, Name+".log")
+		LogF = path.Join(ulog.Dir, Name+".log")
 	}
 
 	/*
@@ -161,6 +161,9 @@ func Redirect(stdoutF, logF string, maxSz int64) (err error) {
 	//
 	// ulog
 	//
+	if 0 == len(logF) {
+		logF = LogF
+	}
 	ulog.Init(logF, maxSz)
 
 	//
@@ -168,7 +171,7 @@ func Redirect(stdoutF, logF string, maxSz int64) (err error) {
 	//
 
 	if 0 == len(stdoutF) {
-		if "stdout" == ulog.File {
+		if ulog.UseStdout {
 			stdoutF = "stdout"
 		} else {
 			stdoutF = Name + ".stdout"

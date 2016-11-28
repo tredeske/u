@@ -25,10 +25,9 @@ var (
 	// file location where log files go
 	// may be set by uboot
 	//
-	Dir  = ""
-	File = ""
+	Dir = ""
 
-	Testing = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
+	UseStdout = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
 
 	maxSz_ = int64(40 * 1024 * 1024)
 )
@@ -38,13 +37,13 @@ var (
 //
 func GetLogName(base string) (rv string) {
 
-	if 0 == len(File) || "stdout" == File || Testing {
+	if UseStdout {
 		rv = "stdout"
 
 	} else if 0 == len(base) {
-		rv = File
+		rv = filepath.Base(os.Args[0]) + ".log"
 		if 0 != len(Dir) {
-			rv = filepath.Join(Dir, File)
+			rv = filepath.Join(Dir, rv)
 		}
 
 	} else if strings.ContainsRune(base, '/') {
@@ -90,7 +89,7 @@ func NewLogger(base string, maxSz int64) (name string, rv *log.Logger, err error
 
 //
 // Initialize log output to go to logF.  If logF is empty, then use
-// ulog.File setting.  If that is empty, then use stdout.
+// ulog.Dir/[prog name] setting.  If that is empty, then use stdout.
 //
 // maxSz is the maximum output file size.  if unset, we use default of 40M.
 //
@@ -98,18 +97,15 @@ func NewLogger(base string, maxSz int64) (name string, rv *log.Logger, err error
 //
 func Init(logF string, maxSz int64) (err error) {
 
-	if 0 >= maxSz {
+	if 0 < maxSz {
 		maxSz_ = maxSz
 	}
 
 	if 0 == len(logF) {
-		logF = File
-		if 0 != len(Dir) {
-			logF = filepath.Join(Dir, File)
-		}
+		logF = GetLogName(logF)
 	}
 
-	if 0 != len(logF) && "stdout" != logF {
+	if 0 != len(logF) && "stdout" != logF && !UseStdout {
 		logD := Dir
 		if strings.ContainsRune(logF, '/') || 0 == len(Dir) {
 			logF, err = filepath.Abs(logF)
@@ -129,6 +125,7 @@ func Init(logF string, maxSz int64) (err error) {
 		}
 	} else {
 		L = log.New(os.Stdout, "", log.LstdFlags)
+		UseStdout = true
 	}
 	return
 }
