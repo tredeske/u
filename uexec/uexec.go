@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 
@@ -42,8 +43,19 @@ type Child struct {
 	ErrOut   string      // set by Wait() if CaptureStderr, or DupStdout
 }
 
+//
+// create a child
+//
 func NewChild(args ...string) (rv *Child) {
 	return &Child{Args: args}
+}
+
+//
+// set the dir child will exec in
+//
+func (this *Child) AtDir(dir string) (rv *Child) {
+	this.Dir = dir
+	return this
 }
 
 var devNull_ *os.File = func() *os.File {
@@ -365,7 +377,14 @@ func (this *Child) Start() (err error) {
 	}
 	this.State = nil
 
-	this.Process, err = os.StartProcess(this.Args[0], this.Args,
+	cmd := this.Args[0]
+	if '/' != cmd[0] && '.' != cmd[0] {
+		cmd, err = exec.LookPath(cmd)
+		if err != nil {
+			return
+		}
+	}
+	this.Process, err = os.StartProcess(cmd, this.Args,
 		&os.ProcAttr{
 			Dir:   this.Dir,
 			Files: this.ChildIo[:],
