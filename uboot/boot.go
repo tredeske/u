@@ -22,77 +22,83 @@ import (
 )
 
 var (
-	pre_     = pre()          // cause this to occur first
-	Name     = ""             // what program calls itself
-	InstallD = ""             // where program is installed
-	ConfigF  = ""             // abs path to config file
-	GlobalF  = ""             // abs path to globals (if any)
-	Globals  *uconfig.Section //
-	LogF     = ""
-
-	Testing = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
-
-	//
-	// set by build system.  example:
-	// go build -ldflags '-X #{GO_PKG}/u/uboot.Version=#{$stamp}-#{REV}'
-	//
-	Version string // set by build system
-
-	theReloader_ *reloader_ //
+	Testing = func() bool {
+		syscall.Umask(002)                            // cause prior to init()
+		return strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
+	}()
 )
 
-func pre() bool {
-	syscall.Umask(002) // cause umask to be set prior to any init() methods
-	return true
+//
+// Control process boot
+//
+type Boot struct {
+	Name     string           // what program calls itself
+	InstallD string           // where program is installed
+	ConfigF  string           // abs path to config file
+	GlobalF  string           // abs path to globals (if any)
+	Globals  *uconfig.Section //
+	LogF     string           // path to log file, or empty/"stdout"
+	StdoutF  string           // path to stdout file, or empty/"stdout" for stdout
+
+	//
+	// set by build system.  examples:
+	// go build -ldflags '-X /import/path.Version=#{$stamp}-#{REV}'
+	// go build -ldflags '-X main.Version=#{$stamp}-#{REV}'
+	//
+	Version string
+
+	reloader *reloader_ //
 }
 
 //
 // bootstrap process to initial state.  order matters.
 //
-func Boot(name string) (err error) {
+func (this *Boot) Boot() (err error) {
 
-	Name = name
-	InstallD = uconfig.InstallD
+	if 0 == len(this.Name) {
+		this.Name = filepath.Base(os.Args[0])
+	}
+	if 0 == len(this.InstallD) {
+		this.InstallD = uconfig.InstallD
+	}
 
 	version := false
 	show := ""
-	LogF := ""
-	flag.StringVar(&ConfigF, "config", "", "config file (config/[NAME].yml)")
-	flag.StringVar(&GlobalF, "globals", "", "global subst params file to load")
+	flag.StringVar(&this.ConfigF, "config", "", "config file (config/[NAME].yml)")
+	flag.StringVar(&this.GlobalF, "globals", "", "global subst params file to load")
 	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled, "turn on debugging")
-	flag.StringVar(&LogF, "log", "",
+	flag.StringVar(&this.LogF, "log", "",
 		"set to 'stdout' or to path of log file (default: log/[NAME].log)")
-	flag.StringVar(&Name, "name", Name, "name of program")
+	flag.StringVar(&this.Name, "name", this.Name, "name of program")
 	flag.BoolVar(&version, "version", version, "print version and exit")
 	flag.StringVar(&show, "show", show, "show settings for named component, or 'all'")
 	flag.Parse()
 
 	if version {
-		fmt.Printf("Version %s\n", Version)
+		fmt.Printf("Version %s\n", this.Version)
 		os.Exit(0)
-	}
-	if 0 != len(show) {
+	} else if 0 != len(show) {
 		golum.Show(show, os.Stdout)
 		os.Exit(0)
 	}
 
-	if 0 == len(Name) {
+	if 0 == len(this.Name) {
 		err = errors.New("Program name (-name param) not specified")
 		return
 	}
-	uconfig.ThisProcess = Name
+	uconfig.ThisProcess = this.Name
 
 	//
 	// verify we have a config file
 	//
-	if 0 == len(ConfigF) {
-		ConfigF = path.Join(InstallD, "config", Name+".yml")
+	if 0 == len(this.ConfigF) {
+		this.ConfigF = path.Join(this.InstallD, "config", this.Name+".yml")
 	}
-	ConfigF, err = filepath.Abs(ConfigF)
+	this.ConfigF, err = filepath.Abs(this.ConfigF)
 	if err != nil {
 		return
 	}
-	_, err = os.Stat(ConfigF)
+	_, err = os.Stat(this.ConfigF)
 	if err != nil {
 		return fmt.Errorf("Config file missing?: %s", err)
 	}
@@ -109,17 +115,17 @@ func Boot(name string) (err error) {
 	// get absolute path to log file
 	// if we're running in 'go test' or if cmdline says so, then output to stdout
 	//
-	if "stdout" == LogF || Testing {
+	if "stdout" == this.LogF || Testing {
 		ulog.UseStdout = true
-	} else if 0 != len(LogF) {
-		LogF, err = filepath.Abs(LogF)
+	} else if 0 != len(this.LogF) {
+		this.LogF, err = filepath.Abs(this.LogF)
 		if err != nil {
 			return
 		}
-		ulog.Dir = filepath.Dir(LogF)
+		ulog.Dir = filepath.Dir(this.LogF)
 	} else {
-		ulog.Dir = path.Join(InstallD, "log")
-		LogF = path.Join(ulog.Dir, Name+".log")
+		ulog.Dir = path.Join(this.InstallD, "log")
+		this.LogF = path.Join(ulog.Dir, this.Name+".log")
 	}
 
 	/*
@@ -139,7 +145,7 @@ func Boot(name string) (err error) {
 		}
 	*/
 
-	err = os.Chdir(InstallD)
+	err = os.Chdir(this.InstallD)
 	if err != nil {
 		return
 	}
@@ -154,51 +160,48 @@ func Boot(name string) (err error) {
 //
 // invoke after Boot() or program initialized
 //
-func Redirect(stdoutF, logF string, maxSz int64) (err error) {
+func (this *Boot) Redirect(maxSz int64) (err error) {
 
 	syscall.Close(0) // don't need stdin
 
 	//
 	// ulog
 	//
-	if 0 == len(logF) {
-		logF = LogF
-	}
-	ulog.Init(logF, maxSz)
+	ulog.Init(this.LogF, maxSz)
 
 	//
 	// redirect stdout, stderr to file, if necessary
 	//
 
-	if 0 == len(stdoutF) {
+	if 0 == len(this.StdoutF) {
 		if ulog.UseStdout {
-			stdoutF = "stdout"
+			this.StdoutF = "stdout"
 		} else {
-			stdoutF = Name + ".stdout"
+			this.StdoutF = this.Name + ".stdout"
 		}
 	}
 
-	if "stdout" != stdoutF {
+	if "stdout" != this.StdoutF {
 
 		if maxSz <= 0 {
 			maxSz = 40 * 1024 * 1024
 		}
 
-		stdoutF = ulog.GetLogName(stdoutF)
-		stdoutD := path.Dir(stdoutF)
+		this.StdoutF = ulog.GetLogName(this.StdoutF)
+		stdoutD := path.Dir(this.StdoutF)
 		if !uio.FileExists(stdoutD) {
 			if err = os.MkdirAll(stdoutD, 02775); err != nil {
 				return uerr.Chainf(err, "problem creating %s", stdoutD)
 			}
 		}
 
-		fi, err := os.Stat(stdoutF)
+		fi, err := os.Stat(this.StdoutF)
 		if err == nil && fi.Size() > int64(maxSz) {
-			dst := stdoutF + ".last"
+			dst := this.StdoutF + ".last"
 			os.Remove(dst)
-			os.Rename(stdoutF, dst)
+			os.Rename(this.StdoutF, dst)
 		}
-		fd, err := syscall.Open(stdoutF,
+		fd, err := syscall.Open(this.StdoutF,
 			syscall.O_WRONLY|syscall.O_APPEND|syscall.O_CREAT, 0664)
 		if err != nil {
 			return err
@@ -209,7 +212,8 @@ func Redirect(stdoutF, logF string, maxSz int64) (err error) {
 		}
 		// add a marker to the stdout so we can triage panics
 		fmt.Printf("\n\n%s: Process started.  Name=%s, Version=%s\n\n",
-			time.Now().UTC().Format("2006/01/02 15:04:05Z"), Name, Version)
+			time.Now().UTC().Format("2006/01/02 15:04:05Z"), this.Name,
+			this.Version)
 	}
 
 	log.Printf(`
@@ -222,7 +226,7 @@ Starting
     Config:     %s
 =================================
 
-`, Name, Version, InstallD, ConfigF)
+`, this.Name, this.Version, this.InstallD, this.ConfigF)
 
 	return nil
 }
@@ -242,7 +246,7 @@ Starting
 //
 // invoke after Redirect() or logging initialized
 //
-func Configure(
+func (this *Boot) Configure(
 	cspec string,
 	beforeStart func(c *uconfig.Section) (err error),
 ) (
@@ -250,8 +254,8 @@ func Configure(
 	err error,
 ) {
 
-	log.Printf("configuring from %s", ConfigF)
-	Globals, config, err = uinit.InitConfig(GlobalF, ConfigF)
+	log.Printf("configuring from %s", this.ConfigF)
+	this.Globals, config, err = uinit.InitConfig(this.GlobalF, this.ConfigF)
 	if err != nil {
 		return
 	}
@@ -267,7 +271,7 @@ func Configure(
 	log.Printf("GOMAXPROCS=%d", runtime.GOMAXPROCS(-1))
 	log.Printf("Env: %#v", os.Environ())
 
-	err = loadComponents(config, cspec, beforeStart)
+	err = this.loadComponents(config, cspec, beforeStart)
 	if err != nil {
 		return
 	}
@@ -277,12 +281,13 @@ func Configure(
 	if err != nil {
 		return
 	} else if autoreload {
-		theReloader_ = &reloader_{
+		this.reloader = &reloader_{
 			components: cspec,
 			interval:   7 * time.Second,
+			boot:       this,
 		}
 		log.Printf("Starting config reloader")
-		theReloader_.Start()
+		this.reloader.Start()
 	}
 	return
 }
@@ -290,7 +295,7 @@ func Configure(
 //
 //
 //
-func loadComponents(
+func (this *Boot) loadComponents(
 	config *uconfig.Section,
 	cspec string,
 	beforeStart func(c *uconfig.Section) (err error),
@@ -304,7 +309,7 @@ func loadComponents(
 	// generic component load
 	//
 	config.AddSub("logDir", ulog.Dir)
-	config.AddSub("name", Name)
+	config.AddSub("name", this.Name)
 	var gconfig *uconfig.Array
 	err = config.GetValidArray(cspec, &gconfig)
 	if err != nil {
