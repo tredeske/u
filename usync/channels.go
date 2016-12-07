@@ -5,7 +5,7 @@ import "time"
 //
 // Ignore any panics.
 //
-// Use: defer u.IgnorePanic()
+// Use: defer usync.IgnorePanic()
 //
 func IgnorePanic() {
 	recover()
@@ -14,13 +14,60 @@ func IgnorePanic() {
 //
 // a channel to signal death
 //
-type DeathChan chan bool
+type DeathChan chan struct{}
 
-func (this *DeathChan) Close() {
+//
+// a new channel of death!
+//
+func NewDeathChan() (rv DeathChan) {
+	return make(chan struct{})
+}
+
+//
+// writer: signal to any reader it's time to die
+//
+func (this DeathChan) Close() {
 	//defer func() { recover() }()
 	defer IgnorePanic()
-	close(*this)
+	close(this)
 }
+
+//
+// reader: check to see if it's time to die
+//
+func (this DeathChan) Check() (timeToDie bool) {
+	select {
+	case _, ok := <-this:
+		timeToDie = !ok
+	default:
+	}
+	return
+}
+
+//
+// reader: wait up to timeout for death to occur
+//
+func (this DeathChan) Wait(timeout time.Duration) (timeToDie bool) {
+	timeToDie = this.Check()
+	if !timeToDie {
+		toc := time.After(timeout)
+		select {
+		case _, ok := <-this:
+			timeToDie = !ok
+		case <-toc:
+		}
+	}
+	return
+}
+
+/*
+
+these are more examples than anything else.
+
+they do not check for channel closed condition, though
+
+
+
 
 // non-blocking read of channel
 //
@@ -149,3 +196,4 @@ func StringChWait(ch chan string, timeout time.Duration) (rv string, gotIt bool)
 	}
 	return
 }
+*/
