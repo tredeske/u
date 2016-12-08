@@ -2,6 +2,7 @@ package ustrings
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 )
 
@@ -151,6 +152,38 @@ func TestCut(t *testing.T) {
 	} else if !reflect.DeepEqual(result, expected) {
 		t.Fatalf("Not Equal (reflect)!  %#v != %#v", result, expected)
 	}
+}
+
+func TestMatch(t *testing.T) {
+
+	source := []string{
+		"c: hello",
+		"b: jello",
+		"a: bello",
+		"a: mello",
+		"b: vello",
+		"c: yello",
+	}
+
+	exists := regexp.MustCompile("mello")
+	existsNot := regexp.MustCompile("blah")
+
+	if !Matches(source, exists) {
+		t.Fatalf("Should exist!")
+	}
+	if Matches(source, existsNot) {
+		t.Fatalf("Should NOT exist!")
+	}
+
+	idx, match := FindFirstSubmatch(source, exists)
+	if nil == match {
+		t.Fatalf("No match found!")
+	} else if 3 != idx {
+		t.Fatalf("Index should be 3, is %d", idx)
+	} else if "mello" != match[0] {
+		t.Fatalf("match should be 'mello', is '%s'", match[0])
+	}
+
 }
 
 func TestSet(t *testing.T) {
