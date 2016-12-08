@@ -218,34 +218,48 @@ func (this *Child) Reset() {
 }
 
 //
-// shell out and run external command, redirecting output to capture lines
+// Shell out and run external command, redirecting output to capture lines
 // of output and appending them to lines.
 //
-// if lines is nil, then a new slice is created
+// If lines is nil, then a new slice is created
 //
-// if splitF is nil, then default to terminate lines on newline
+// If splitF is nil, then default to terminate lines on newline
 //
-// the new lines slice with appended lines is returned
+// If reduceF is !nil, then it will be applied to each line to determine
+// inclusion into the result array.  Empty lineOut will not be included.
+// If reduceF sets an error, then processing stops immediately after appending
+// lineOut.
 //
-// if command exits with a non zero status, an error is returned
+// The new lines slice with appended lines is returned
 //
-func (this *Child) ShToArray(lines []string, splitF bufio.SplitFunc,
+// If command exits with a non zero status, an error is returned
+//
+func (this *Child) ShToArray(
+	lines []string,
+	splitF bufio.SplitFunc,
+	reduceF func(lineIn string) (lineOut string, err error),
 ) (rv []string, err error) {
 
 	err = this.ShToFunc(
 
-		func(stdout *os.File) error {
+		func(stdout *os.File) (err error) {
 			scanner := bufio.NewScanner(stdout)
 			if nil != splitF {
 				scanner.Split(splitF)
 			}
 			for scanner.Scan() {
 				line := scanner.Text()
+				if 0 != len(line) && nil != reduceF {
+					line, err = reduceF(line)
+				}
 				if 0 != len(line) {
 					lines = append(lines, line)
 				}
+				if err != nil {
+					break
+				}
 			}
-			return nil
+			return
 		})
 
 	rv = lines

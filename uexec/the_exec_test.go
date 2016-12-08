@@ -13,7 +13,7 @@ func TestShToArray(t *testing.T) {
 	}
 
 	c.Reset()
-	lines, err := c.ShToArray(nil, nil)
+	lines, err := c.ShToArray(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Problem running cmd: %s", err)
 	} else if 0 == len(lines) {
