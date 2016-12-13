@@ -18,7 +18,7 @@ func InitConfig(globalF, configF string) (
 
 	if 0 != len(globalF) {
 		ulog.Debugf("Loading global config: %s", globalF)
-		global, err = uconfig.EmptySection().LoadYaml(globalF)
+		global, err = uconfig.EmptySection().NewChild(globalF)
 	} else {
 		global, err = uconfig.NewSection(nil)
 	}
@@ -28,7 +28,8 @@ func InitConfig(globalF, configF string) (
 
 	if 0 != len(configF) {
 		ulog.Debugf("Loading service config: %s", configF)
-		if config, err = global.LoadYaml(configF); nil != err {
+		config, err = global.NewChild(configF)
+		if nil != err {
 			return
 		}
 	}

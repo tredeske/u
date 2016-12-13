@@ -67,19 +67,11 @@ type Array struct {
 }
 
 //
-// create a new Section from nil, YAML string, or map[string]interface{}
+// create a new Section from nil, filepath, YAML string, or map[string]interface{}
 //
 func NewSection(it interface{}) (rv *Section, err error) {
-	rv = &Section{
-		expander: make(map[string]string),
-	}
-	m, err := rv.getMap(it)
-	if err != nil {
-		return nil, err
-	}
-	rv.section = m
-	err = rv.addSubs()
-	return
+	tmp := Section{}
+	return tmp.NewChild(it)
 }
 
 //
@@ -104,22 +96,19 @@ func YamlLoad(file string, target interface{}) error {
 }
 
 //
-// Create a new Section based on this one + what's in YAML file
+// create a new Section as a child of this one from nil, filepath,
+// YAML string, or map[string]interface{}
 //
-func (this *Section) LoadYaml(file string) (rv *Section, err error) {
+func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 	rv = &Section{
 		expander: this.expander.clone(),
-		section:  make(map[string]interface{}),
 	}
-	return rv, rv.loadYaml(file)
-}
-
-func (this *Section) loadYaml(file string) (err error) {
-	err = YamlLoad(file, &this.section)
+	rv.section, err = rv.getMap(it)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return this.addSubs()
+	err = rv.addSubs()
+	return
 }
 
 func (this *Section) DumpSubs() (rv string) {
@@ -380,7 +369,12 @@ func (this *Section) getMap(it interface{},
 	case []byte:
 		err = yaml.Unmarshal(val, &rv)
 	case string:
-		err = yaml.Unmarshal([]byte(val), &rv)
+		_, err = os.Stat(val)
+		if nil == err {
+			err = YamlLoad(val, &rv)
+		} else {
+			err = yaml.Unmarshal([]byte(val), &rv)
+		}
 	case map[interface{}]interface{}:
 		rv = make(map[string]interface{}, len(val))
 		for k, v := range val {

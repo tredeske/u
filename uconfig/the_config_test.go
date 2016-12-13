@@ -6,25 +6,22 @@ import (
 	"time"
 )
 
-/*
-func TestSub(t *testing.T) {
-	global := EmptyConfig()
-	global.AddSubs(map[string]string{
-		"one":   "onev",
-		"two":   "twov",
-		"three": "threev",
-	})
-	cwd, _ := os.Getwd()
-	t.Fatalf("%s\n%s", os.Args[0], cwd)
-}
-*/
-
 func TestSubs(t *testing.T) {
+
+	globals, err := NewSection(`
+substitutions:
+    one:        gVal
+
+subbed:         "{{.one}}"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	//
 	// watch out for tabs in this string - no tabs!
 	//
-	config, err := NewSection(
+	config, err := globals.NewChild(
 		`
 substitutions:
     one:        oneVal

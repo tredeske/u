@@ -285,7 +285,7 @@ func addGolum(g *golum_) (err error) {
 
 func loadConfig(include string, parent *uconfig.Section, loaded *Loaded,
 ) (err error) {
-	childConfig, err := parent.LoadYaml(include)
+	childConfig, err := parent.NewChild(include)
 	if err != nil {
 		return err
 	}
