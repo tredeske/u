@@ -41,7 +41,7 @@ const SUBS = "substitutions"
 // go text/template package.  ***NOTE*** Make sure to add a '.' before
 // the key.  As in: {{.key}}.  All golang text template rules apply.
 //
-// subsections of parent sections inherit the substitutions of their parents.
+// Child sections inherit the substitutions of their parents.
 //
 // The following substitutions are automatically added:
 // - home
@@ -67,7 +67,8 @@ type Array struct {
 }
 
 //
-// create a new Section from nil, filepath, YAML string, or map[string]interface{}
+// create a new Section from nil, /path/to/yaml/file, YAML string,
+// or map[string]interface{}
 //
 func NewSection(it interface{}) (rv *Section, err error) {
 	tmp := Section{}
@@ -75,7 +76,7 @@ func NewSection(it interface{}) (rv *Section, err error) {
 }
 
 //
-// create a new Section that has no content or substitutions at all
+// create a new Section that has no content or substitutions
 //
 func EmptySection() (rv *Section) {
 	return &Section{
@@ -85,18 +86,7 @@ func EmptySection() (rv *Section) {
 }
 
 //
-// load the YAML file into target, which may be a ptr to map or ptr to struct
-//
-func YamlLoad(file string, target interface{}) error {
-	content, err := ioutil.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return yaml.Unmarshal(content, target)
-}
-
-//
-// create a new Section as a child of this one from nil, filepath,
+// create a new Section as a child of this one from nil, /path/to/yaml/file,
 // YAML string, or map[string]interface{}
 //
 func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
@@ -130,8 +120,21 @@ func (this *Section) ctx(key string) string {
 	}
 }
 
+//
+// load the YAML file into target, which may be a ptr to map or ptr to struct
+//
+func YamlLoad(file string, target interface{}) error {
+	content, err := ioutil.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal(content, target)
+}
+
+//
 // read in the specified yaml file, performing substitutions on the text, then
 // unmarshal it into target (a ptr to struct)
+//
 func (this *Section) StructFromYaml(file string, target interface{}) error {
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
