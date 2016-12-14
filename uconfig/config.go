@@ -76,16 +76,6 @@ func NewSection(it interface{}) (rv *Section, err error) {
 }
 
 //
-// create a new Section that has no content or substitutions
-//
-func EmptySection() (rv *Section) {
-	return &Section{
-		expander: make(map[string]string),
-		section:  make(map[string]interface{}),
-	}
-}
-
-//
 // create a new Section as a child of this one from nil, /path/to/yaml/file,
 // YAML string, or map[string]interface{}
 //
@@ -98,6 +88,48 @@ func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 		return nil, err
 	}
 	err = rv.addSubs()
+	return
+}
+
+//
+// coerce nil, string, []byte, or map into correct section map type
+//
+func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err error) {
+
+	if nil == it {
+		rv = make(map[string]interface{})
+		return
+	}
+	switch val := it.(type) {
+	case map[string]interface{}:
+		rv = val
+	case []byte:
+		err = yaml.Unmarshal(val, &rv)
+	case string:
+		if 0 == len(val) { // empty string: treat same as nil
+			rv = make(map[string]interface{})
+		} else {
+			_, err = os.Stat(val)
+			if nil == err {
+				err = YamlLoad(val, &rv)
+			} else {
+				err = yaml.Unmarshal([]byte(val), &rv)
+			}
+		}
+	case map[interface{}]interface{}:
+		rv = make(map[string]interface{}, len(val))
+		for k, v := range val {
+			if ks, ok := k.(string); !ok {
+				err = fmt.Errorf("%s contains non string key", this.Context)
+				break
+			} else {
+				rv[ks] = v
+			}
+		}
+	default:
+		err = fmt.Errorf("value not a config map. is a %s",
+			reflect.TypeOf(it))
+	}
 	return
 }
 
@@ -352,45 +384,6 @@ func (this *Section) GetValidSection(key string, val **Section,
 	err = this.GetSection(key, val)
 	if nil == err && nil == *val {
 		err = fmt.Errorf("parsing config: no such section: %s", this.ctx(key))
-	}
-	return
-}
-
-//
-// coerce nil, string, []byte, or map into correct section map type
-//
-func (this *Section) getMap(it interface{},
-) (rv map[string]interface{}, err error) {
-
-	if nil == it {
-		rv = make(map[string]interface{})
-		return
-	}
-	switch val := it.(type) {
-	case map[string]interface{}:
-		rv = val
-	case []byte:
-		err = yaml.Unmarshal(val, &rv)
-	case string:
-		_, err = os.Stat(val)
-		if nil == err {
-			err = YamlLoad(val, &rv)
-		} else {
-			err = yaml.Unmarshal([]byte(val), &rv)
-		}
-	case map[interface{}]interface{}:
-		rv = make(map[string]interface{}, len(val))
-		for k, v := range val {
-			if ks, ok := k.(string); !ok {
-				err = fmt.Errorf("%s contains non string key", this.Context)
-				break
-			} else {
-				rv[ks] = v
-			}
-		}
-	default:
-		err = fmt.Errorf("value not a config map. is a %s",
-			reflect.TypeOf(it))
 	}
 	return
 }

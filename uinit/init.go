@@ -18,7 +18,7 @@ func InitConfig(globalF, configF string) (
 
 	if 0 != len(globalF) {
 		ulog.Debugf("Loading global config: %s", globalF)
-		global, err = uconfig.EmptySection().NewChild(globalF)
+		global, err = uconfig.NewSection(globalF)
 	} else {
 		global, err = uconfig.NewSection(nil)
 	}
