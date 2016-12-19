@@ -1,5 +1,15 @@
 package uio
 
+import "io"
+
+//
+// default BufferPool to use
+//
+var DefaultPool = BufferPool{
+	size: 64 * 1024,
+	bufC: make(chan *Buffer, 32),
+}
+
 //
 // protect the buffer from common mistakes
 //
@@ -8,6 +18,7 @@ type Buffer struct {
 	pool *BufferPool
 }
 
+// set all bytes to 0
 func (this *Buffer) Clear() *Buffer {
 	for i, _ := range this.bb {
 		this.bb[i] = 0
@@ -15,12 +26,14 @@ func (this *Buffer) Clear() *Buffer {
 	return this
 }
 
+// return it to the pool
 func (this *Buffer) Return() {
 	p := this.pool
 	this.pool = nil
 	p.put(this)
 }
 
+// get the slice
 func (this *Buffer) B() []byte {
 	if !this.IsValid() {
 		panic("accessing invalid buffer")
@@ -28,6 +41,7 @@ func (this *Buffer) B() []byte {
 	return this.bb
 }
 
+// get the len
 func (this *Buffer) Len() int {
 	if !this.IsValid() {
 		panic("accessing invalid buffer")
@@ -35,6 +49,7 @@ func (this *Buffer) Len() int {
 	return len(this.bb)
 }
 
+// ok to use this?
 func (this *Buffer) IsValid() bool {
 	return nil != this.pool
 }
@@ -47,10 +62,12 @@ type BufferPool struct {
 	bufC chan *Buffer //
 }
 
+// create a new pool
 func NewBufferPool(size, buffs int) (rv *BufferPool) {
 	return (&BufferPool{}).Construct(size, buffs)
 }
 
+// construct an already allocated pool
 func (this *BufferPool) Construct(size, buffs int) (rv *BufferPool) {
 	if 0 >= size {
 		size = 64 * 1024
@@ -63,6 +80,15 @@ func (this *BufferPool) Construct(size, buffs int) (rv *BufferPool) {
 	return this
 }
 
+// Preallocate the specified number of Buffers
+func (this *BufferPool) Prealloc(buffs int) (rv *BufferPool) {
+	for i := 0; i < buffs; i++ {
+		this.Get().Return()
+	}
+	return this
+}
+
+// get a buffer from the pool, or created if none available
 func (this BufferPool) Get() (rv *Buffer) {
 	select {
 	case rv = <-this.bufC:
@@ -76,9 +102,28 @@ func (this BufferPool) Get() (rv *Buffer) {
 	return
 }
 
+// get a buffer from the pool, waiting forever until one is available
+func (this BufferPool) GetForever() (rv *Buffer) {
+	rv = <-this.bufC
+	rv.pool = &this
+	return
+}
+
 func (this BufferPool) put(b *Buffer) {
 	select { // try to put the buf into the chanel, discard otherwise
 	case this.bufC <- b:
 	default:
 	}
+}
+
+//
+// copy to dst from src using a buffer from this pool
+//
+// just like io.Copy() or io.CopyBuffer
+//
+func (this BufferPool) Copy(dst io.Writer, src io.Reader) (nwrote int64, err error) {
+	b := this.Get()
+	nwrote, err = io.CopyBuffer(dst, src, b.B())
+	b.Return()
+	return
 }
