@@ -280,6 +280,16 @@ func FileCopy(src, dst string) (err error) {
 func CopyToFile(src io.Reader, srcName, dst string, srcSz int64,
 ) (amount int64, err error) {
 
+	return CopyBufferToFile(src, srcName, dst, srcSz, make([]byte, 32*1024))
+}
+
+//
+// copy bytes from src io.Reader to dst file using provided buffer.
+// if srcSz is a positive number, ensure srcSz bytes were copied
+//
+func CopyBufferToFile(src io.Reader, srcName, dst string, srcSz int64, buf []byte,
+) (amount int64, err error) {
+
 	dstF, err := os.Create(dst)
 	if err != nil {
 		err = uerr.Chainf(err, "Creating %s to copy %s", dst, srcName)
@@ -291,7 +301,7 @@ func CopyToFile(src io.Reader, srcName, dst string, srcSz int64,
 			err = uerr.Chainf(cerr, "Closing %s for copying from %s", dst, srcName)
 		}
 	}()
-	amount, err = io.Copy(dstF, src)
+	amount, err = io.CopyBuffer(dstF, src, buf)
 	if err != nil {
 		err = uerr.Chainf(err, "Copying %s to %s", srcName, dst)
 	} else if 0 < srcSz && amount != srcSz {
