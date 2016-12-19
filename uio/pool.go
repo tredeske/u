@@ -7,7 +7,7 @@ import "io"
 //
 var DefaultPool = BufferPool{
 	size: 64 * 1024,
-	bufC: make(chan *Buffer, 32),
+	bufC: make(chan *Buffer, 64),
 }
 
 //

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/tredeske/u/uerr"
+	"github.com/tredeske/u/uio"
 )
 
 var defaultClient_ = &http.Client{}
@@ -320,7 +321,7 @@ func (this *Chained) UploadMultipart(
 func (this *Chained) WriteTo(dst io.Writer) (nwrote int64, err error) {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
-		nwrote, this.Error = io.Copy(dst, this.Response.Body)
+		nwrote, this.Error = uio.DefaultPool.Copy(dst, this.Response.Body)
 	}
 	return nwrote, this.Error
 }
@@ -328,7 +329,7 @@ func (this *Chained) WriteTo(dst io.Writer) (nwrote int64, err error) {
 func (this *Chained) WriteBody(dst io.Writer, nwrote *int64) *Chained {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
-		*nwrote, this.Error = io.Copy(dst, this.Response.Body)
+		*nwrote, this.Error = uio.DefaultPool.Copy(dst, this.Response.Body)
 	}
 	return this
 }

@@ -269,7 +269,7 @@ func FileCopy(src, dst string) (err error) {
 		return
 	}
 
-	_, err = CopyToFile(srcF, src, dst, stat.Size())
+	_, err = CopyBufferToFile(srcF, src, dst, stat.Size(), nil)
 	return
 }
 
@@ -280,7 +280,7 @@ func FileCopy(src, dst string) (err error) {
 func CopyToFile(src io.Reader, srcName, dst string, srcSz int64,
 ) (amount int64, err error) {
 
-	return CopyBufferToFile(src, srcName, dst, srcSz, make([]byte, 32*1024))
+	return CopyBufferToFile(src, srcName, dst, srcSz, nil)
 }
 
 //
@@ -295,12 +295,21 @@ func CopyBufferToFile(src io.Reader, srcName, dst string, srcSz int64, buf []byt
 		err = uerr.Chainf(err, "Creating %s to copy %s", dst, srcName)
 		return
 	}
+	var b *Buffer
+	if 0 == len(buf) {
+		b = DefaultPool.Get()
+		buf = b.B()
+	}
 	defer func() {
+		if nil != b {
+			b.Return()
+		}
 		cerr := dstF.Close()
 		if nil != cerr && err == nil {
 			err = uerr.Chainf(cerr, "Closing %s for copying from %s", dst, srcName)
 		}
 	}()
+
 	amount, err = io.CopyBuffer(dstF, src, buf)
 	if err != nil {
 		err = uerr.Chainf(err, "Copying %s to %s", srcName, dst)
