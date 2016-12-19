@@ -33,6 +33,15 @@ type Manager interface {
 }
 
 //
+// default impl for Managers that do not support start
+//
+type Unstartable struct{}
+
+func (this *Unstartable) StartGolum(name string) (err error) {
+	return nil
+}
+
+//
 // default impl for Managers that do not support stop
 //
 type Unstoppable struct{}
