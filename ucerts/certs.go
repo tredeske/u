@@ -171,15 +171,15 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 		return
 	}
 	setTlsVersion := func(version string, dst *uint16) (err error) {
-		switch tlsMin {
+		switch version {
 		case "": // leave unset, or unchanged from default set above
 		case "ssl3":
 			*dst = tls.VersionSSL30
-		case "1.0":
+		case "1.0", "tls1.0":
 			*dst = tls.VersionTLS10
-		case "1.1":
+		case "1.1", "tls1.1":
 			*dst = tls.VersionTLS11
-		case "1.2":
+		case "1.2", "tls1.2":
 			*dst = tls.VersionTLS12
 		default:
 			err = fmt.Errorf("Unknown TLS version: %s", version)
