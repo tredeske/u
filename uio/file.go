@@ -502,3 +502,30 @@ func FileWatch(
 		}
 	}
 }
+
+//
+// Open file for create, run the filler, then close the file
+// Ensures file closed properly
+//
+func FileCreate(name string, filler func(*os.File) error) (err error) {
+	f, err := os.Create(name)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if nil != f {
+			f.Close()
+		}
+	}()
+
+	if nil != filler {
+		err = filler(f)
+		if err != nil {
+			return
+		}
+	}
+
+	err = f.Close()
+	f = nil
+	return
+}
