@@ -12,8 +12,10 @@ func TestDelay(t *testing.T) {
 	timesC := make(chan time.Time, len(data))
 
 	dc := DelayChan{
-		Delay: 100 * time.Millisecond,
-		Cap:   4,
+		Delayer: Delayer{
+			Delay: 100 * time.Millisecond,
+			Cap:   4,
+		},
 	}
 
 	dc.Open()
