@@ -6,11 +6,10 @@ import "time"
 // A channel with a time delay
 //
 type DelayChan struct {
-	InC      chan Delayed     // where to put things
-	OutC     chan interface{} // where to get delayed things
-	Delay    time.Duration    // amount of time to delay
-	Interval time.Duration    // how often to check (defaults to .1s or Delay/2)
-	Cap      int              // capacity
+	InC   chan Delayed     // where to put things
+	OutC  chan interface{} // where to get delayed things
+	Delay time.Duration    // amount of time to delay
+	Cap   int              // capacity
 }
 
 //
@@ -52,13 +51,6 @@ func (this *DelayChan) Open() {
 		this.OutC = make(chan interface{}, this.Cap)
 	}
 
-	if 0 == this.Interval {
-		this.Interval = 100 * time.Millisecond
-		if this.Interval > this.Delay/2 {
-			this.Interval = this.Delay / 2
-		}
-	}
-
 	go this.run()
 }
 
@@ -67,12 +59,9 @@ func (this *DelayChan) Open() {
 //
 func (this *DelayChan) run() {
 
-	tick := time.NewTicker(this.Interval)
+	var timer *time.Timer
 
-	defer func() {
-		tick.Stop()
-		close(this.OutC)
-	}()
+	defer close(this.OutC)
 
 	for {
 
@@ -87,13 +76,17 @@ func (this *DelayChan) run() {
 		//
 		// send when ready
 		//
-		for {
-			if time.Now().After(delayed.Deadline) {
-				this.OutC <- delayed.Value
-				break
+		delay := delayed.Deadline.Sub(time.Now())
+		if 0 < delay {
+			if nil == timer {
+				timer = time.NewTimer(delay)
+			} else {
+				timer.Stop()
+				timer.Reset(delay)
 			}
-			<-tick.C
+			<-timer.C
 		}
+		this.OutC <- delayed.Value
 	}
 }
 
@@ -124,7 +117,7 @@ func (this DelayChan) TryPut(it interface{}) (ok bool) {
 }
 
 //
-// try to put an item into this waiting no more than specified,
+// try to put an item into this, waiting no more than specified,
 // returning OK if successful
 //
 func (this DelayChan) WaitPut(it interface{}, d time.Duration) (ok bool) {
@@ -143,6 +136,7 @@ func (this DelayChan) WaitPut(it interface{}, d time.Duration) (ok bool) {
 
 //
 // get an item from this, waiting forever
+// false indicates channel closed and not item received
 //
 func (this DelayChan) Get() (rv interface{}, ok bool) {
 	rv, ok = <-this.OutC
@@ -151,6 +145,7 @@ func (this DelayChan) Get() (rv interface{}, ok bool) {
 
 //
 // try to get an item from this, without waiting, returning true if got item
+// false may indicate channel closed
 //
 func (this DelayChan) TryGet() (rv interface{}, ok bool) {
 	select {
@@ -162,7 +157,7 @@ func (this DelayChan) TryGet() (rv interface{}, ok bool) {
 
 //
 // try to get an item from this, waiting at most specified time,
-// returning true if got item
+// returning true if got item, false may indicate channel closed
 //
 func (this DelayChan) WaitGet(d time.Duration) (rv interface{}, ok bool) {
 	rv, ok = this.TryGet()
