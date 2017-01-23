@@ -152,6 +152,9 @@ type DelayChan struct {
 	OutC chan interface{} // where to get delayed things
 }
 
+//
+//
+//
 func (this *DelayChan) Open() {
 	if nil == this.OutC {
 		this.OutC = make(chan interface{}, this.Cap)
@@ -159,6 +162,17 @@ func (this *DelayChan) Open() {
 	this.OnItem = func(v interface{}) { this.OutC <- v }
 	this.OnClose = func() { close(this.OutC) }
 	this.Delayer.Open()
+}
+
+//
+// Close InC, and drain OutC in the background, disgarding all items
+//
+func (this DelayChan) CloseAndDrain() {
+	this.Delayer.Close()
+	go func() {
+		for _ := range this.OutC {
+		}
+	}()
 }
 
 //
