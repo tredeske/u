@@ -18,11 +18,12 @@ type Delayed struct {
 // Delays things
 //
 type Delayer struct {
-	Cap     int                     // capacity - max items to hold
-	Delay   time.Duration           // amount of time to delay each item
-	InC     chan Delayed            // where to put things, or use Put() methods
-	OnItem  func(value interface{}) // call for each item after delay
-	OnClose func()                  // if set, call after InC closed and drained
+	Cap       int                     // capacity - max items to hold
+	Delay     time.Duration           // amount of time to delay each item
+	InC       chan Delayed            // where to put things, or use Put() methods
+	shutdownC chan struct{}           //
+	OnItem    func(value interface{}) // call for each item after delay
+	OnClose   func()                  // if set, call after InC closed and drained
 }
 
 //
@@ -50,6 +51,7 @@ func (this *Delayer) Open() {
 	if nil == this.InC {
 		this.InC = make(chan Delayed, this.Cap)
 	}
+	this.shutdownC = make(chan struct{})
 
 	go this.run()
 }
@@ -57,9 +59,19 @@ func (this *Delayer) Open() {
 //
 // close this down
 //
-// InC will be drained and all items will be processed
+// InC will be drained and all items will be processed with normal delay
 //
 func (this Delayer) Close() {
+	close(this.InC)
+}
+
+//
+// Shutdown this ASAP
+//
+// All items will be discarded and all delays cancelled
+//
+func (this Delayer) Shutdown() {
+	close(this.shutdownC)
 	close(this.InC)
 }
 
@@ -69,15 +81,22 @@ func (this Delayer) Close() {
 func (this Delayer) run() {
 
 	var timer *time.Timer
+	var delayed Delayed
+	var ok bool
 
+loop:
 	for {
 
 		//
 		// await input
 		//
-		delayed, ok := <-this.InC
-		if !ok {
-			break // closed - we're done ////////////////////////////////////////
+		select {
+		case <-this.shutdownC:
+			break loop // shutdown - we're done //////////////////////////
+		case delayed, ok = <-this.InC:
+			if !ok {
+				break loop // closed - we're done //////////////////////////
+			}
 		}
 
 		//
@@ -91,7 +110,12 @@ func (this Delayer) run() {
 				timer.Stop()
 				timer.Reset(delay)
 			}
-			<-timer.C
+			select {
+			case <-this.shutdownC:
+				timer.Stop()
+				break loop // shutdown - we're done //////////////////////////
+			case <-timer.C:
+			}
 		}
 		this.OnItem(delayed.Value)
 	}
@@ -165,12 +189,12 @@ func (this *DelayChan) Open() {
 }
 
 //
-// Close InC, and drain OutC in the background, disgarding all items
+// Shutdown and drain OutC in the background, disgarding all items
 //
-func (this DelayChan) CloseAndDrain() {
-	this.Delayer.Close()
+func (this DelayChan) ShutdownAndDrain() {
+	this.Delayer.Shutdown()
 	go func() {
-		for _ := range this.OutC {
+		for _ = range this.OutC {
 		}
 	}()
 }
