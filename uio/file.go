@@ -48,12 +48,10 @@ func YamlStore(file string, source interface{}) (err error) {
 // store contents of source (a map or a struct) into file as JSON
 //
 func JsonStore(file string, it interface{}) (err error) {
-	f, err := os.Create(file)
-	if nil == err {
-		err = json.NewEncoder(f).Encode(it)
-		f.Close()
-	}
-	return
+	return FileCreate(file,
+		func(f *os.File) error {
+			return json.NewEncoder(f).Encode(it)
+		})
 }
 
 //
