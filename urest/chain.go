@@ -100,8 +100,18 @@ func (this *Chained) ensureReq(method, url string) {
 	}
 }
 
+//
+// set the body and content length.
+//
+func (this *Chained) SetBodyBytes(body []byte) *Chained {
+	this.SetContentLength(int64(len(body)))
+	return this.SetBody(bytes.NewReader(body))
+}
+
+//
 // set the body.  setting nil indicates no data in body.
 // the body will be automatically closed
+//
 func (this *Chained) SetBody(body io.Reader) *Chained {
 	if nil == this.Error && nil != body {
 		rc, ok := body.(io.ReadCloser)
@@ -334,6 +344,9 @@ func (this *Chained) WriteBody(dst io.Writer, nwrote *int64) *Chained {
 	return this
 }
 
+//
+// get the body of the response
+//
 func (this *Chained) Body(body *[]byte) *Chained {
 	if nil != this.Response && nil != this.Response.Body {
 		var err error
