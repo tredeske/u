@@ -128,12 +128,16 @@ loop:
 //
 // put an item into this, waiting forever
 //
+// the item is automatically wrapped in a Delayed
+//
 func (this Delayer) Put(it interface{}) {
 	this.InC <- this.Wrap(it)
 }
 
 //
 // try to put an item into this without waiting, returning OK if successful
+//
+// the item is automatically wrapped in a Delayed
 //
 func (this Delayer) TryPut(it interface{}) (ok bool) {
 	select {
@@ -147,6 +151,8 @@ func (this Delayer) TryPut(it interface{}) (ok bool) {
 //
 // try to put an item into this, waiting no more than specified,
 // returning OK if successful
+//
+// the item is automatically wrapped in a Delayed
 //
 func (this Delayer) WaitPut(it interface{}, d time.Duration) (ok bool) {
 	ok = this.TryPut(it)
