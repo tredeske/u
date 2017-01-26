@@ -107,6 +107,20 @@ func (this Workers) IsDrained() bool {
 }
 
 //
+// Return true when drained.  This can only occur if Drain is set.
+//
+func (this Workers) WaitDrained(deadline time.Duration) bool {
+	return AwaitTrue(deadline, this.IsDrained)
+}
+
+//
+// Return true if requestC currently empty
+//
+func (this Workers) IsEmpty() bool {
+	return 0 == len(this.RequestC)
+}
+
+//
 // did someone set Drain?
 //
 func (this Workers) IsDraining() bool {

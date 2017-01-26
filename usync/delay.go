@@ -51,7 +51,7 @@ func (this *Delayer) Open() {
 	if nil == this.InC {
 		this.InC = make(chan Delayed, this.Cap)
 	}
-	this.shutdownC = make(chan struct{})
+	this.shutdownC = make(chan struct{}) // must be non-buffered
 
 	go this.run()
 }
@@ -76,6 +76,29 @@ func (this Delayer) Shutdown() {
 }
 
 //
+// Cause all items to be discarded
+//
+// Once drained, use Plug() to ready Delayer for use
+//
+func (this Delayer) Drain() {
+	this.shutdownC <- struct{}{} // synchronous
+}
+
+//
+// Are all items drained?
+//
+func (this Delayer) IsDrained() bool {
+	return 0 == len(this.InC)
+}
+
+//
+// Return Delayer to service
+//
+func (this Delayer) Plug() {
+	this.shutdownC <- struct{}{} // synchronous
+}
+
+//
 // main loop
 //
 func (this Delayer) run() {
@@ -83,16 +106,41 @@ func (this Delayer) run() {
 	var timer *time.Timer
 	var delayed Delayed
 	var ok bool
+	var draining bool
 
 loop:
 	for {
+		if draining {
+			this.drain()
+			for draining {
+				select {
+				case _, ok = <-this.InC:
+					if !ok {
+						break loop // closed - we're done //////////////////
+					}
+				case _, ok = <-this.shutdownC:
+					if !ok {
+						break loop // shutdown - we're done //////////////////
+
+					} else { // we've been told to resume
+						draining = false
+					}
+				}
+			}
+		}
 
 		//
 		// await input
 		//
 		select {
-		case <-this.shutdownC:
-			break loop // shutdown - we're done //////////////////////////
+		case _, ok = <-this.shutdownC:
+			if !ok {
+				break loop // shutdown - we're done //////////////////////////
+
+			} else { // we've been told to drain
+				draining = true
+				continue
+			}
 		case delayed, ok = <-this.InC:
 			if !ok {
 				break loop // closed - we're done //////////////////////////
@@ -111,9 +159,15 @@ loop:
 				timer.Reset(delay)
 			}
 			select {
-			case <-this.shutdownC:
+			case _, ok = <-this.shutdownC:
 				timer.Stop()
-				break loop // shutdown - we're done //////////////////////////
+				if !ok {
+					break loop // shutdown - we're done //////////////////////////
+
+				} else { // we've been told to drain
+					draining = true
+					continue
+				}
 			case <-timer.C:
 			}
 		}
@@ -125,6 +179,16 @@ loop:
 	}
 }
 
+func (this Delayer) drain() {
+	for {
+		select {
+		case <-this.InC:
+		default:
+			return
+		}
+	}
+}
+
 //
 // put an item into this, waiting forever
 //
@@ -132,6 +196,22 @@ loop:
 //
 func (this Delayer) Put(it interface{}) {
 	this.InC <- this.Wrap(it)
+}
+
+//
+// put an item into this, waiting forever
+//
+// if chan closed, then return false
+//
+// the item is automatically wrapped in a Delayed
+//
+func (this Delayer) PutRecover(it interface{}) (ok bool) {
+	defer func() {
+		ok = (nil == recover())
+	}()
+	this.InC <- this.Wrap(it)
+	ok = true
+	return
 }
 
 //
