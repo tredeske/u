@@ -107,85 +107,72 @@ func (this Delayer) run() {
 	var delayed Delayed
 	var ok bool
 	var draining bool
+	var send bool
+	var timerC <-chan time.Time
+	inC := this.InC
 
 loop:
 	for {
-		if draining {
-			this.drain()
-			for draining {
-				select {
-				case _, ok = <-this.InC:
-					if !ok {
-						break loop // closed - we're done //////////////////
-					}
-				case _, ok = <-this.shutdownC:
-					if !ok {
-						break loop // shutdown - we're done //////////////////
 
-					} else { // we've been told to resume
-						draining = false
-					}
-				}
-			}
-		}
-
-		//
-		// await input
-		//
 		select {
 		case _, ok = <-this.shutdownC:
 			if !ok {
 				break loop // shutdown - we're done //////////////////////////
-
-			} else { // we've been told to drain
-				draining = true
-				continue
 			}
-		case delayed, ok = <-this.InC:
+
+			//
+			// toggle drain/resume
+			//
+			draining = !draining
+			if nil != timerC {
+				timer.Stop()
+				timerC = nil
+			}
+			inC = this.InC // make sure input enabled
+			send = false
+			continue
+
+		case delayed, ok = <-inC:
 			if !ok {
 				break loop // closed - we're done //////////////////////////
+			} else if draining {
+				continue
 			}
-		}
+			inC = nil // disable input
 
-		//
-		// send when ready
-		//
-		delay := delayed.Deadline.Sub(time.Now())
-		if 100 < delay {
-			if nil == timer {
-				timer = time.NewTimer(delay)
-			} else {
-				timer.Stop()
-				timer.Reset(delay)
-			}
-			select {
-			case _, ok = <-this.shutdownC:
-				timer.Stop()
-				if !ok {
-					break loop // shutdown - we're done //////////////////////////
-
-				} else { // we've been told to drain
-					draining = true
-					continue
+			//
+			// compute delay til when we should release the item
+			//
+			delay := delayed.Deadline.Sub(time.Now())
+			if 100 < delay {
+				if nil == timer {
+					timer = time.NewTimer(delay)
+				} else {
+					timer.Stop()
+					timer.Reset(delay)
 				}
-			case <-timer.C:
+				timerC = timer.C
+			} else {
+				send = true
 			}
+
+		case <-timerC:
+			timerC = nil // disable timer chan select
+			send = true
 		}
-		this.OnItem(delayed.Value)
+
+		if send {
+			this.OnItem(delayed.Value)
+			send = false
+			inC = this.InC // enable input
+		}
 	}
 
+	if nil != timerC {
+		timer.Stop()
+	}
 	if nil != this.OnClose {
 		this.OnClose()
-	}
-}
-
-func (this Delayer) drain() {
-	for {
-		select {
-		case <-this.InC:
-		default:
-			return
-		}
 	}
 }
 
