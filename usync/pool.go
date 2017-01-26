@@ -1,5 +1,7 @@
 package usync
 
+/*
+
 import (
 	"sync"
 
@@ -32,8 +34,8 @@ import (
 //
 type WorkPool struct {
 	stopNow   AtomicBool
-	RequestC  chan interface{}
-	ResponseC chan interface{}
+	RequestC  ItChan
+	ResponseC ItChan
 }
 
 //
@@ -137,3 +139,4 @@ func (this *WorkPool) Next(rv interface{}) (err error) {
 	}
 	return
 }
+*/

@@ -27,7 +27,6 @@ func NewDeathChan() (rv DeathChan) {
 // writer: signal to any reader it's time to die
 //
 func (this DeathChan) Close() {
-	//defer func() { recover() }()
 	defer IgnorePanic()
 	close(this)
 }
@@ -50,150 +49,170 @@ func (this DeathChan) Check() (timeToDie bool) {
 func (this DeathChan) Wait(timeout time.Duration) (timeToDie bool) {
 	timeToDie = this.Check()
 	if !timeToDie {
-		toc := time.After(timeout)
+		t := time.NewTimer(timeout)
 		select {
 		case _, ok := <-this:
 			timeToDie = !ok
-		case <-toc:
+			t.Stop()
+		case <-t.C:
 		}
 	}
 	return
 }
 
-/*
-
-these are more examples than anything else.
-
-they do not check for channel closed condition, though
-
-
-
-
-// non-blocking read of channel
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
 //
-func ChannelCheck(ch chan interface{}) (rv interface{}, gotIt bool) {
+// ---------------------------------------------------------------------
+//
+//
+
+//
+// A generic channel
+//
+type ItChan chan interface{}
+
+func NewItChan(capacity int) (rv ItChan) {
+	return make(chan interface{}, capacity)
+}
+
+//
+// close this, ignoring any panic if already closed
+//
+func (this ItChan) Close() {
+	defer recover()
+	close(this)
+}
+
+//
+// get an item, wait forever or until closed.  return false if closed
+//
+func (this ItChan) Get() (rv interface{}, ok bool) {
+	rv, ok = <-this
+	return
+}
+
+//
+// try to get an item, returning immediately, return true of got an item
+//
+func (this ItChan) GetTry() (rv interface{}, ok bool) {
 	select {
-	case rv = <-ch:
-		gotIt = true
+	case rv, ok = <-this:
 	default:
 	}
 	return
 }
 
-// get item from channel or timeout
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
+// try to get an item, waiting up to duration time, return true of got an item
 //
-func ChannelWait(ch chan interface{}, timeout time.Duration) (rv interface{}, gotIt bool) {
-	rv, gotIt = ChannelCheck(ch)
-	if !gotIt {
-		toc := time.After(timeout)
+func (this ItChan) GetWait(d time.Duration) (rv interface{}, ok bool) {
+	rv, ok = this.GetTry()
+	if !ok && 0 != d {
+		t := time.NewTimer(d)
 		select {
-		case rv = <-ch:
-			gotIt = true
-		case <-toc:
+		case rv, ok = <-this:
+			t.Stop()
+		case <-t.C:
 		}
 	}
 	return
 }
 
-// non-blocking read of channel
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
+// put an item into this, waiting forever
 //
-func BoolChCheck(ch chan bool) (rv bool, gotIt bool) {
+// the item is automatically wrapped in a Delayed
+//
+func (this ItChan) Put(it interface{}) {
+	this <- it
+}
+
+//
+// put an item into this, waiting forever, recover in case of chan close,
+// returning false if chan closed
+//
+// in general, the writer should 'know' the chan is closed because they
+// closed it, but there are sometimes cases where this is not true
+//
+func (this ItChan) PutRecover(it interface{}) (ok bool) {
+	defer func() {
+		ok = (nil == recover())
+	}()
+	this <- it
+	ok = true
+	return
+}
+
+//
+// try to put an item into this without waiting, returning OK if successful
+//
+func (this ItChan) PutTry(it interface{}) (ok bool) {
 	select {
-	case rv = <-ch:
-		gotIt = true
+	case this <- it:
+		ok = true
 	default:
 	}
 	return
 }
 
-// get item from channel or timeout
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
+// try to put an item into this without waiting, returning OK if successful
 //
-func BoolChWait(ch chan bool, timeout time.Duration) (rv bool, gotIt bool) {
-	rv, gotIt = BoolChCheck(ch)
-	if !gotIt {
-		toc := time.After(timeout)
-		select {
-		case rv = <-ch:
-			gotIt = true
-		case <-toc:
-		}
-	}
-	return
-}
-
-// non-blocking read of channel
+// in case chan closed, recover and return false
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
+// in general, the writer should 'know' the chan is closed because they
+// closed it, but there are sometimes cases where this is not true
 //
-func ErrorChCheck(ch chan error) (rv error, gotIt bool) {
+func (this ItChan) PutTryRecover(it interface{}) (ok bool) {
+	defer func() {
+		ok = (nil == recover())
+	}()
 	select {
-	case rv = <-ch:
-		gotIt = true
+	case this <- it:
+		ok = true
 	default:
 	}
 	return
 }
 
-// get item from channel or timeout
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
+// try to put an item into this, waiting no more than specified,
+// returning OK if successful
 //
-func ErrorChWait(ch chan error, timeout time.Duration) (rv error, gotIt bool) {
-	rv, gotIt = ErrorChCheck(ch)
-	if !gotIt {
-		toc := time.After(timeout)
+func (this ItChan) PutWait(it interface{}, d time.Duration) (ok bool) {
+	ok = this.PutTry(it)
+	if !ok && 0 != d {
+		t := time.NewTimer(d)
 		select {
-		case rv = <-ch:
-			gotIt = true
-		case <-toc:
+		case this <- it:
+			ok = true
+			t.Stop()
+		case <-t.C:
 		}
 	}
 	return
 }
 
-// non-blocking read of channel
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
+// try to put an item into this, waiting no more than specified,
+// returning OK if successful and not closed
 //
-func StringChCheck(ch chan string) (rv string, gotIt bool) {
-	select {
-	case rv = <-ch:
-		gotIt = true
-	default:
-	}
-	return
-}
-
-// get item from channel or timeout
+// in general, the writer should 'know' the chan is closed because they
+// closed it, but there are sometimes cases where this is not true
 //
-// note: there does not appear to be a way to cast channels, so your channel
-// will need to be as specified
-//
-func StringChWait(ch chan string, timeout time.Duration) (rv string, gotIt bool) {
-	rv, gotIt = StringChCheck(ch)
-	if !gotIt {
-		toc := time.After(timeout)
+func (this ItChan) PutWaitRecover(it interface{}, d time.Duration) (ok bool) {
+	ok = this.PutTryRecover(it)
+	if !ok && 0 != d {
+		defer func() {
+			ok = (nil == recover())
+		}()
+		t := time.NewTimer(d)
 		select {
-		case rv = <-ch:
-			gotIt = true
-		case <-toc:
+		case this <- it:
+			ok = true
+			t.Stop()
+		case <-t.C:
 		}
 	}
 	return
 }
-*/

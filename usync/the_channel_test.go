@@ -1,47 +1,61 @@
 package usync
 
 import (
-	"fmt"
-	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestBoolCh(t *testing.T) {
-	oneCh := make(chan string, 2)
-	twoCh := make(chan bool)
+func TesItChan(t *testing.T) {
+
+	times := 17
+	var ch ItChan
+	ch = make(chan interface{}, 8)
+
+	//
+	// test get from empty chan
+	//
+	it, ok := ch.GetTry()
+	if ok {
+		t.Fatalf("Got something from chan when shouldn't have")
+	}
+
+	it, ok = ch.GetWait(time.Millisecond)
+	if ok {
+		t.Fatalf("Got something from chan when shouldn't have")
+	}
+
+	//
+	// test PutWait
+	//
+	var wg sync.WaitGroup
+	wg.Add(1)
 
 	go func() {
-		ok := true
-		for s := range oneCh {
-			fmt.Printf("From one: %s\n", s)
-			time.Sleep(100 * time.Millisecond)
-			fmt.Printf("Putting onto two\n")
-			twoCh <- ok
-			fmt.Printf("End of loop\n")
-		}
-		fmt.Printf("Done!\n")
-		close(twoCh)
-	}()
-
-	ok := true
-	for i := 0; i < 5 && ok; i++ {
-		fmt.Printf("Putting into one: %d\n", i)
-		oneCh <- strconv.Itoa(i)
-		if 0 != i {
-			fmt.Printf("Waiting on two\n")
-			ok = <-twoCh
-			fmt.Printf("From two: %t\n", ok)
-			if !ok {
-				t.Error("got %t at %d", ok, i)
+		for i := 0; i < times; i++ {
+			if i < len(ch) {
+				ch.Put(i)
+			} else {
+				ch.PutWait(i, time.Second)
 			}
 		}
+		ok := ch.PutRecover(-1)
+		if ok {
+			t.Fatalf("should not have been successful")
+		}
+		wg.Done()
+	}()
+
+	for i := 0; i < times; i++ {
+		it, ok = ch.Get()
+		if !ok {
+			t.Fatalf("channel unreadable!")
+		}
+		v := it.(int)
+		if v != i {
+			t.Fatalf("incorrect value!")
+		}
 	}
-	close(oneCh)
-	fmt.Printf("Closed\n")
-	ok = <-twoCh
-	fmt.Printf("After close, Got %t\n", ok)
-	if !ok {
-		t.Error("got %t", ok)
-	}
+	close(ch) // force feeder to pop out of PutRecover
+	wg.Wait() // wait for feeder
 }

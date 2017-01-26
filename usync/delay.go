@@ -139,7 +139,7 @@ func (this Delayer) Put(it interface{}) {
 //
 // the item is automatically wrapped in a Delayed
 //
-func (this Delayer) TryPut(it interface{}) (ok bool) {
+func (this Delayer) PutTry(it interface{}) (ok bool) {
 	select {
 	case this.InC <- this.Wrap(it):
 		ok = true
@@ -154,8 +154,8 @@ func (this Delayer) TryPut(it interface{}) (ok bool) {
 //
 // the item is automatically wrapped in a Delayed
 //
-func (this Delayer) WaitPut(it interface{}, d time.Duration) (ok bool) {
-	ok = this.TryPut(it)
+func (this Delayer) PutWait(it interface{}, d time.Duration) (ok bool) {
+	ok = this.PutTry(it)
 	if !ok && 0 != d {
 		t := time.NewTimer(d)
 		select {
@@ -179,7 +179,7 @@ func (this Delayer) WaitPut(it interface{}, d time.Duration) (ok bool) {
 //
 type DelayChan struct {
 	Delayer
-	OutC chan interface{} // where to get delayed things
+	OutC ItChan // where to get delayed things
 }
 
 //
@@ -218,27 +218,14 @@ func (this DelayChan) Get() (rv interface{}, ok bool) {
 // try to get an item from this, without waiting, returning true if got item
 // false may indicate channel closed
 //
-func (this DelayChan) TryGet() (rv interface{}, ok bool) {
-	select {
-	case rv, ok = <-this.OutC:
-	default:
-	}
-	return
+func (this DelayChan) GetTry() (rv interface{}, ok bool) {
+	return this.OutC.GetTry()
 }
 
 //
 // try to get an item from this, waiting at most specified time,
 // returning true if got item, false may indicate channel closed
 //
-func (this DelayChan) WaitGet(d time.Duration) (rv interface{}, ok bool) {
-	rv, ok = this.TryGet()
-	if !ok && 0 != d {
-		t := time.NewTimer(d)
-		select {
-		case rv, ok = <-this.OutC:
-		case <-t.C:
-		}
-		t.Stop()
-	}
-	return
+func (this DelayChan) GetWait(d time.Duration) (rv interface{}, ok bool) {
+	return this.OutC.GetWait(d)
 }
