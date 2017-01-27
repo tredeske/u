@@ -15,6 +15,8 @@ func (this *testSchedulable_) OnSchedule() {
 
 func ScheduleTest(t *testing.T) {
 	s := NewScheduler()
+	s.Start()
+	defer s.Stop()
 
 	dummy := &testSchedulable_{}
 
@@ -41,6 +43,22 @@ func ScheduleTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to add job: %s", err)
 	}
+
+	//
+	// AddFunc
+	//
+	s.Min = time.Millisecond
+	c := make(chan struct{})
+	f := func() {
+		c <- struct{}{}
+	}
+
+	err = s.AddFunc("testFunc", "@every 10ms", f)
+	if err != nil {
+		t.Fatalf("Unable to add func: %s", err)
+	}
+
+	<-c
 }
 
 func ChanJobTest(t *testing.T) {

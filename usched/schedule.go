@@ -25,6 +25,13 @@ type Schedulable interface {
 }
 
 //
+// a func that is schedulable
+//
+type SchedulableFunc func()
+
+func (this SchedulableFunc) OnSchedule() { this() }
+
+//
 // Use this to schedule jobs
 //
 // Manages job scheduling so that each job is unique by name.
@@ -118,6 +125,13 @@ func (this *Scheduler) Start() (self *Scheduler) {
 func (this *Scheduler) Stop() {
 	this.running = false
 	this.theCron.Stop()
+}
+
+//
+// Schedule or reschedule a func as a job
+//
+func (this *Scheduler) AddFunc(name, interval string, f func()) (err error) {
+	return this.Add(name, interval, SchedulableFunc(f))
 }
 
 //
