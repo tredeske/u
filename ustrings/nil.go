@@ -1,0 +1,15 @@
+package ustrings
+
+import "reflect"
+
+//
+// deal with golang nil crazyness for interfaces
+//
+func ItIsNil(it interface{}) bool {
+	if nil == it {
+		return true
+	}
+	v := reflect.ValueOf(it)
+	k := v.Kind()
+	return (k == reflect.Ptr || k == reflect.Map) && v.IsNil()
+}

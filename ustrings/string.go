@@ -58,7 +58,7 @@ func BeforeRune(s string, r rune) (rv string) {
 //
 // do these two differ?  especially useful for *regexp.Regexp and a few others
 //
-func StringersDiffer(lhs, rhs fmt.Stringer) bool {
-	return nil == lhs && nil != rhs ||
-		nil != lhs && (nil == rhs || lhs.String() != rhs.String())
+func StringersDiffer(lhs, rhs fmt.Stringer) (rv bool) {
+	lNil, rNil := ItIsNil(lhs), ItIsNil(rhs)
+	return lNil && !rNil || !lNil && (rNil || lhs.String() != rhs.String())
 }

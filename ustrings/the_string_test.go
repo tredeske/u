@@ -1,6 +1,7 @@
 package ustrings
 
 import (
+	"fmt"
 	"reflect"
 	"regexp"
 	"testing"
@@ -246,5 +247,61 @@ func TestStringSplit(t *testing.T) {
 	split = SplitNonEmpty(s, ":")
 	if 3 != len(split) {
 		t.Fatalf("not correct number of split: %d", len(split))
+	}
+}
+
+func TestStringersDiffer(t *testing.T) {
+	var isNil fmt.Stringer
+	var containsNil fmt.Stringer = (*regexp.Regexp)(nil)
+	var notNil fmt.Stringer = regexp.MustCompile(".")
+
+	if !ItIsNil(nil) {
+		t.Fatalf("nil should be nil")
+	} else if !ItIsNil(isNil) {
+		t.Fatalf("isNil should be nil")
+	} else if !ItIsNil(containsNil) {
+		t.Fatalf("containsNil should be nil")
+	} else if ItIsNil(notNil) {
+		t.Fatalf("notNil should not be nil")
+	}
+
+	if StringersDiffer(nil, nil) {
+		t.Fatalf("nils should be the same")
+	} else if StringersDiffer(nil, isNil) {
+		t.Fatalf("nils should be the same")
+	} else if StringersDiffer(nil, containsNil) {
+		t.Fatalf("nils should be the same")
+	} else if !StringersDiffer(nil, notNil) {
+		t.Fatalf("nils should be the same")
+	}
+
+	if StringersDiffer(isNil, nil) {
+		t.Fatalf("nils should be the same")
+	} else if StringersDiffer(isNil, isNil) {
+		t.Fatalf("nils should be the same")
+	} else if StringersDiffer(isNil, containsNil) {
+		t.Fatalf("nils should be the same")
+	} else if !StringersDiffer(isNil, notNil) {
+		t.Fatalf("nils should be the same")
+	}
+
+	if StringersDiffer(containsNil, nil) {
+		t.Fatalf("nils should be the same")
+	} else if StringersDiffer(containsNil, isNil) {
+		t.Fatalf("nils should be the same")
+	} else if StringersDiffer(containsNil, containsNil) {
+		t.Fatalf("nils should be the same")
+	} else if !StringersDiffer(containsNil, notNil) {
+		t.Fatalf("nils should be the same")
+	}
+
+	if !StringersDiffer(notNil, nil) {
+		t.Fatalf("nils should differ")
+	} else if !StringersDiffer(notNil, isNil) {
+		t.Fatalf("nils should differ")
+	} else if !StringersDiffer(notNil, containsNil) {
+		t.Fatalf("nils should differ")
+	} else if StringersDiffer(notNil, notNil) {
+		t.Fatalf("nils should be the same")
 	}
 }
