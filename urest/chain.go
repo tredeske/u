@@ -65,6 +65,13 @@ func Chain(client *http.Client) (rv *Chained) {
 	return rv
 }
 
+func (this *Chained) SetBasicAuth(user, pass string) *Chained {
+	if nil == this.Error {
+		this.Request.SetBasicAuth(user, pass)
+	}
+	return this
+}
+
 func (this *Chained) SetMethod(method string) *Chained {
 	if nil == this.Error && 0 != len(method) {
 		this.Request.Method = method
