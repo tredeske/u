@@ -11,5 +11,10 @@ func ItIsNil(it interface{}) bool {
 	}
 	v := reflect.ValueOf(it)
 	k := v.Kind()
-	return (k == reflect.Ptr || k == reflect.Map) && v.IsNil()
+	return (k == reflect.Ptr ||
+		k == reflect.Map ||
+		k == reflect.Slice ||
+		k == reflect.Chan ||
+		k == reflect.Func ||
+		k == reflect.Interface) && v.IsNil()
 }
