@@ -65,8 +65,11 @@ func Chain(client *http.Client) (rv *Chained) {
 	return rv
 }
 
+//
+// set basic auth info.  if user is "", then do not actually set the info
+//
 func (this *Chained) SetBasicAuth(user, pass string) *Chained {
-	if nil == this.Error {
+	if nil == this.Error && 0 != len(user) {
 		this.Request.SetBasicAuth(user, pass)
 	}
 	return this
