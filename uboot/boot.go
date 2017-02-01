@@ -64,14 +64,26 @@ func (this *Boot) Boot() (err error) {
 
 	version := false
 	show := ""
-	flag.StringVar(&this.ConfigF, "config", "", "config file (config/[NAME].yml)")
-	flag.StringVar(&this.GlobalF, "globals", "", "global subst params file to load")
-	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled, "turn on debugging")
+
+	flag.StringVar(&this.ConfigF, "config", this.ConfigF,
+		"config file (config/[NAME].yml)")
+
+	flag.StringVar(&this.GlobalF, "globals", this.GlobalF,
+		"global subst params file to load")
+
+	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled,
+		"turn on debugging")
+
 	flag.StringVar(&this.LogF, "log", "",
 		"set to 'stdout' or to path of log file (default: log/[NAME].log)")
+
 	flag.StringVar(&this.Name, "name", this.Name, "name of program")
+
 	flag.BoolVar(&version, "version", version, "print version and exit")
-	flag.StringVar(&show, "show", show, "show settings for named component, or 'all'")
+
+	flag.StringVar(&show, "show", show,
+		"show settings for named component, or 'all'")
+
 	flag.Parse()
 
 	if version {
