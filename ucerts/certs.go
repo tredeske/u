@@ -79,10 +79,16 @@ func Load(
 	return
 }
 
-func IsTlsServer(tlsConfig *tls.Config) (rv bool) {
+//
+// Does the config have TLS certs loaded?
+//
+func HasTlsCerts(tlsConfig *tls.Config) (rv bool) {
 	return nil != tlsConfig && nil != tlsConfig.Certificates
 }
 
+//
+// for uboot/golum -show
+//
 func ShowTlsConfig(name string, help *uconfig.Help) {
 	p := help
 	if 0 != len(name) {
@@ -138,7 +144,7 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			GetString("publicCert", &publicCert).
 			GetString("caCerts", &cacerts).
 			GetString("tlsMin", &tlsMin).
-			GetString("tlsMax", &tlsMin).
+			GetString("tlsMax", &tlsMax).
 			Error
 		if err != nil {
 			return

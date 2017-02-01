@@ -58,6 +58,12 @@ func InitEnv() (err error) {
 	LocalAddrs["localhost"] = true
 	for _, a := range addrs {
 		addr := strings.Split(a.String(), "/")[0]
+
+		//
+		// this may take a while...
+		//
+		// to avoid delays, ensure /etc/hosts can resolve all interfaces
+		//
 		names, err := net.LookupAddr(addr)
 		if err == nil && 0 != len(names) {
 			LocalAddrs[addr] = true
