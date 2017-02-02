@@ -110,7 +110,7 @@ func (this Workers) IsDrained() bool {
 // Return true when drained.  This can only occur if Drain is set.
 //
 func (this Workers) WaitDrained(deadline time.Duration) bool {
-	return AwaitTrue(deadline, this.IsDrained)
+	return AwaitTrue(deadline, 0, this.IsDrained)
 }
 
 //

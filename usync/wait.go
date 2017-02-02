@@ -11,17 +11,16 @@ var TimeoutError = errors.New("Operation timed out")
 // invoke done until it returns true or error, or the timeout occurs.
 // return error if done errors or timeout occurs
 //
-func Await(timeout time.Duration, done func() (bool, error)) error {
+func Await(timeout, interval time.Duration, done func() (bool, error)) error {
 
-	deadline := time.Now().Add(timeout)
-	interval := 100 * time.Millisecond
-	if interval*10 > timeout {
-		interval = timeout / 10
-	}
-	for deadline.After(time.Now()) {
+	var deadline time.Time
+	deadline, interval = setDeadline(timeout, interval)
+	for {
 		complete, err := done()
 		if err != nil || complete {
 			return err
+		} else if !deadline.After(time.Now()) {
+			break
 		}
 		time.Sleep(interval)
 	}
@@ -32,19 +31,35 @@ func Await(timeout time.Duration, done func() (bool, error)) error {
 // invoke done() until it returns true, or the timeout occurs.
 // return true iff done() returns true before timeout
 //
-func AwaitTrue(timeout time.Duration, done func() bool) (rv bool) {
+func AwaitTrue(timeout, interval time.Duration, done func() bool) (rv bool) {
 
-	deadline := time.Now().Add(timeout)
-	interval := 100 * time.Millisecond
-	if interval*10 > timeout {
-		interval = timeout / 10
-	}
-	for deadline.After(time.Now()) {
+	var deadline time.Time
+	deadline, interval = setDeadline(timeout, interval)
+	for {
 		rv = done()
-		if rv {
+		if rv || !deadline.After(time.Now()) {
 			break
 		}
 		time.Sleep(interval)
+	}
+	return
+}
+
+func setDeadline(timeout, i time.Duration,
+) (deadline time.Time, interval time.Duration) {
+
+	deadline = time.Now().Add(timeout)
+	interval = i
+	if 0 == interval {
+		interval = timeout / 10
+		if interval < 100*time.Millisecond {
+			interval = 100 * time.Millisecond
+			if interval > timeout {
+				interval = timeout
+			}
+		}
+	} else if interval > timeout {
+		interval = timeout
 	}
 	return
 }
