@@ -13,7 +13,7 @@ func (this *testSchedulable_) OnSchedule() {
 	this.times++
 }
 
-func ScheduleTest(t *testing.T) {
+func TestSchedule(t *testing.T) {
 	s := NewScheduler()
 	s.Start()
 	defer s.Stop()
@@ -35,6 +35,11 @@ func ScheduleTest(t *testing.T) {
 	err = s.Add("test", "@every 1m", dummy)
 	if nil == err {
 		t.Fatalf("Did not get expected error")
+	}
+
+	err = s.ValidInterval("0 7 * * *") // daily at 0700
+	if err != nil {
+		t.Fatalf("Interval should be valid.  err=%s", err)
 	}
 
 	s.Min = time.Second
@@ -61,8 +66,9 @@ func ScheduleTest(t *testing.T) {
 	<-c
 }
 
-func ChanJobTest(t *testing.T) {
+func TestChanJob(t *testing.T) {
 	s := NewScheduler()
+	s.Min = time.Millisecond
 	s.Start()
 	defer s.Stop()
 

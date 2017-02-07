@@ -290,9 +290,12 @@ func (this *Scheduler) calcInterval(in string) (out string, err error) {
 		dur = 90 * 24 * time.Hour
 		m, h := this.someHourMin()
 		out = fmt.Sprintf("0 %d %d 1 1,4,7,10 *", m, h)
+
 	case "@yearly", "@annually", "@midnight":
 		return out, fmt.Errorf("Invalid cron interval: %s", in)
+
 	default:
+
 		parts := strings.Split(in, " ")
 		if ("@every" == parts[0] || "@each" == parts[0]) && 2 == len(parts) {
 			dur, err = time.ParseDuration(parts[1])
@@ -307,6 +310,18 @@ func (this *Scheduler) calcInterval(in string) (out string, err error) {
 				return
 			}
 
+			//
+			// cron format:
+			//
+			//    MM HH DD MM d
+			//    |  |  |  |  +--- day of week (0-7) or '*'
+			//    |  |  |  +------ month of year (1-12) or '*'
+			//    |  |  +--------- day of month (1-31) or '*'
+			//    |  +------------ hour of day (0-23) or '*'
+			//    +--------------- minute of hour (0-59)
+			//
+			// if 6 fields, 1st field is second of minute (0-59)
+			//
 		} else if 5 <= len(parts) { // cron format
 			i := 0
 			if 6 == len(parts) {
@@ -334,16 +349,22 @@ func (this *Scheduler) calcInterval(in string) (out string, err error) {
 			out = in
 		}
 	}
-	_, err = cron.Parse(out)
+	s, err := cron.Parse(out)
 	if err != nil {
 		return
+	}
+	if 0 == dur {
+		tNow := time.Now()
+		tNext := s.Next(tNow)
+		tLater := s.Next(tNext)
+		dur = tLater.Sub(tNext)
 	}
 	err = this.validDur(in, dur)
 	return
 }
 
 func (this *Scheduler) validDur(in string, dur time.Duration) (err error) {
-	if time.Second > this.Min {
+	if 0 == this.Min {
 		this.Min = time.Second
 	}
 	if dur < this.Min {
