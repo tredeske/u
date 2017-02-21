@@ -26,3 +26,14 @@ func TestPool(t *testing.T) {
 	}
 
 }
+
+func TestBytesPool(t *testing.T) {
+	p := (&BytesPool{}).Construct(0)
+
+	bb := p.Get()
+	if 0 == len(bb) {
+		t.Fatalf("Did not get byte slice")
+	}
+
+	p.Put(bb)
+}

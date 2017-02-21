@@ -336,8 +336,8 @@ func FileMoveTo(file, dstDir string) (dst string, err error) {
 		return
 	}
 	srcDir, srcF := path.Split(file)
+	dst = path.Join(dstDir, srcF)
 	if srcDir != dstDir {
-		dst = path.Join(dstDir, srcF)
 		err = os.Rename(file, dst)
 	}
 	return

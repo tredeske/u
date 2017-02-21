@@ -1,6 +1,9 @@
 package uio
 
-import "io"
+import (
+	"io"
+	"sync"
+)
 
 //
 // default BufferPool to use
@@ -126,4 +129,49 @@ func (this BufferPool) Copy(dst io.Writer, src io.Reader) (nwrote int64, err err
 	nwrote, err = io.CopyBuffer(dst, src, b.B())
 	b.Return()
 	return
+}
+
+//
+//
+// ------------------------------------------------------------------
+//
+//
+
+var DefaultBytesPool = (&BytesPool{}).Construct(64 * 1024)
+
+//
+// implement httputil.BufferPool
+//
+type BytesPool struct {
+	size int       // of each slice
+	pool sync.Pool //
+}
+
+//
+// construct the pool. a size of 0 or less will use default size for the
+// size of each []byte slice
+//
+func (this *BytesPool) Construct(size int) *BytesPool {
+	if 0 >= size {
+		size = 64 * 1024
+	}
+	this.size = size
+	this.pool.New = func() interface{} {
+		return make([]byte, size)
+	}
+	return this
+}
+
+//
+// get a byte slice
+//
+func (this *BytesPool) Get() (rv []byte) {
+	return this.pool.Get().([]byte)
+}
+
+//
+// return a byte slice
+//
+func (this *BytesPool) Put(bb []byte) {
+	this.pool.Put(bb[:this.size])
 }
