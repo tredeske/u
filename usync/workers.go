@@ -152,3 +152,102 @@ func (this *Workers) Shutdown() {
 	this.Drain()
 	this.Close()
 }
+
+//
+//
+//
+//
+//
+
+//
+//
+//
+type WorkGang struct {
+	Pool Workers
+
+	//
+	// produce next req for workers, or nil if done.
+	//
+	// returning nil causes pool to Close() and this will no longer be called
+	//
+	// if !ok, pool will be Close()ed and Drain()ed, and this will no
+	// longer be called.  In other words, all work will be aborted ASAP.
+	//
+	// this will be run from a separate goroutine
+	//
+	OnFeed func() (req interface{}, ok bool)
+
+	//
+	// Function called by workers
+	// resp is passed to OnResponse.  if !ok, then entire operation is aborted.
+	//
+	OnRequest func(req interface{}) (resp interface{}, ok bool)
+
+	//
+	// Function called by workers
+	// if !ok, Shutdown() the pool
+	//
+	// this runs in the callers goroutine
+	//
+	OnResponse func(resp interface{}) (ok bool)
+}
+
+//
+// perform the work, returning when done
+//
+func (this *WorkGang) Work(workers int) {
+
+	if nil == this.OnFeed {
+		panic("OnFeed() not set")
+	} else if nil == this.OnRequest {
+		panic("OnRequest() not set")
+	} else if nil == this.OnResponse {
+		panic("OnResponse() not set")
+	} else if 0 >= workers {
+		panic("workers must be positive")
+	}
+
+	defer this.Pool.Shutdown()
+
+	responseC := NewItChan(workers)
+
+	this.Pool.RequestC = nil
+	this.Pool.OnDone = responseC.Close
+	this.Pool.drain.Clear()
+
+	this.Pool.Go(workers,
+		func(req interface{}) {
+			resp, ok := this.OnRequest(req)
+			if !ok {
+				this.Pool.Drain()
+			} else {
+				responseC <- resp
+			}
+		})
+
+	//
+	// create requests and feed them to workers
+	//
+	go func() {
+		defer this.Pool.Close()
+		for !this.Pool.IsDraining() {
+			req, ok := this.OnFeed()
+			if !ok {
+				this.Pool.Drain()
+				break
+			} else if nil == req {
+				break
+			}
+			this.Pool.RequestC <- req
+		}
+	}()
+
+	//
+	// collect worker responses
+	//
+	for resp := range responseC {
+		if !this.OnResponse(resp) {
+			break
+		}
+	}
+}

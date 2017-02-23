@@ -37,3 +37,45 @@ func TestWorkers(t *testing.T) {
 		t.Fatalf("should not happen")
 	}
 }
+
+func TestWorkGang(t *testing.T) {
+
+	maxReqs := 10
+	reqs := 0
+	reqsRx := 0
+	reqsRxHighest := -1
+
+	wg := WorkGang{
+		OnFeed: func() (req interface{}, ok bool) {
+			if reqs < maxReqs {
+				req = reqs
+				reqs++
+			}
+			return req, true
+		},
+
+		OnRequest: func(req interface{}) (resp interface{}, ok bool) {
+			return req, true
+		},
+
+		OnResponse: func(resp interface{}) (ok bool) {
+			v := 0
+			v, ok = resp.(int)
+			if ok {
+				reqsRx++
+				if reqsRxHighest < v {
+					reqsRxHighest = v
+				}
+			}
+			return
+		},
+	}
+
+	wg.Work(3)
+
+	if reqsRx != maxReqs {
+		t.Fatalf("Received %d instead of %d", reqsRx, maxReqs)
+	} else if reqsRxHighest != maxReqs-1 {
+		t.Fatalf("Highest was %d instead of %d", reqsRxHighest, maxReqs-1)
+	}
+}
