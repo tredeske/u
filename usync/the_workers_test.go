@@ -77,5 +77,7 @@ func TestWorkGang(t *testing.T) {
 		t.Fatalf("Received %d instead of %d", reqsRx, maxReqs)
 	} else if reqsRxHighest != maxReqs-1 {
 		t.Fatalf("Highest was %d instead of %d", reqsRxHighest, maxReqs-1)
+	} else if !wg.Pool.IsDrained() {
+		t.Fatalf("Pool not drained")
 	}
 }

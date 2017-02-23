@@ -155,12 +155,12 @@ func (this *Workers) Shutdown() {
 
 //
 //
-//
+// -----------------------------------------------------------------------
 //
 //
 
 //
-//
+// a feeder -> workers -> collector flow
 //
 type WorkGang struct {
 	Pool Workers
@@ -170,22 +170,23 @@ type WorkGang struct {
 	//
 	// returning nil causes pool to Close() and this will no longer be called
 	//
-	// if !ok, pool will be Close()ed and Drain()ed, and this will no
-	// longer be called.  In other words, all work will be aborted ASAP.
+	// if !ok, entire operation is aborted.
 	//
 	// this will be run from a separate goroutine
 	//
 	OnFeed func() (req interface{}, ok bool)
 
 	//
-	// Function called by workers
+	// Function called by worker goroutines to take requests and produce responses
+	//
 	// resp is passed to OnResponse.  if !ok, then entire operation is aborted.
 	//
 	OnRequest func(req interface{}) (resp interface{}, ok bool)
 
 	//
 	// Function called by workers
-	// if !ok, Shutdown() the pool
+	//
+	// if !ok, entire operation is aborted
 	//
 	// this runs in the callers goroutine
 	//
@@ -216,6 +217,7 @@ func (this *WorkGang) Work(workers int) {
 	this.Pool.drain.Clear()
 
 	this.Pool.Go(workers,
+
 		func(req interface{}) {
 			resp, ok := this.OnRequest(req)
 			if !ok {
