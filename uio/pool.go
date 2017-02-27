@@ -132,6 +132,13 @@ func (this BufferPool) Copy(dst io.Writer, src io.Reader) (nwrote int64, err err
 }
 
 //
+// just like io.Copy() or io.CopyBuffer, using DefaultBufferPool
+//
+func Copy(dst io.Writer, src io.Reader) (nwrote int64, err error) {
+	return DefaultPool.Copy(dst, src)
+}
+
+//
 //
 // ------------------------------------------------------------------
 //
