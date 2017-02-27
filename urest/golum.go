@@ -85,3 +85,72 @@ func DefaultHttpClient() (rv *http.Client) {
 	}
 	return it.(*http.Client)
 }
+
+//
+// show params available for building http.Server
+//
+func ShowHttpServer(name string, help *uconfig.Help) {
+	p := help
+	if 0 != len(name) {
+		p = help.Init(name,
+			"HTTP server endpoint info")
+	}
+	p.NewItem("httpAddress",
+		"string",
+		"host:port to listen on.  if not set, endpoint is disabled.").SetOptional()
+	p.NewItem("httpMaxHeaderBytes",
+		"int",
+		"Max number of bytes allowed in request headers").SetOptional()
+	p.NewItem("httpReadTimeout",
+		"duration",
+		"Max time to read entire request").SetOptional()
+	p.NewItem("httpReadHeaderTimeout",
+		"duration",
+		"Max time to read headers in request").SetOptional()
+	p.NewItem("httpWriteTimeout",
+		"duration",
+		"How long to wait for client to accept response").SetOptional()
+	p.NewItem("httpIdleTimeout",
+		"duration",
+		"How long to wait for next req").SetOptional()
+	p.NewItem("httpKeepAlives",
+		"bool",
+		"Enable keepalives?").Set("default", "true")
+	ucerts.ShowTlsConfig("", p)
+}
+
+//
+// build a http.Server using uconfig
+//
+// if c is nil, then build default http.Server
+//
+func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
+	httpServer := &http.Server{}
+	keepAlives := true
+
+	if nil != c {
+		err = c.
+			Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
+			GetValidString("httpAddress", "", &httpServer.Addr).
+			GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
+			GetDuration("httpWriteTimeout", &httpServer.WriteTimeout).
+
+			// TODO
+			//
+			//GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
+			//GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
+			//
+
+			GetInt("httpMaxHeaderBytes", &httpServer.MaxHeaderBytes).
+			GetBool("httpKeepAlives", &keepAlives).
+			Error
+		if err != nil {
+			return
+		}
+		if !keepAlives {
+			httpServer.SetKeepAlivesEnabled(keepAlives)
+		}
+	}
+	rv = httpServer
+	return
+}
