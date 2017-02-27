@@ -154,3 +154,10 @@ func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 	rv = httpServer
 	return
 }
+
+//
+// is the httpServer configured for TLS?
+//
+func IsTlsServer(s *http.Server) bool {
+	return nil != s && ucerts.HasTlsCerts(s.TLSConfig)
+}
