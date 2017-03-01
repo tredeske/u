@@ -107,22 +107,11 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 		"string",
 		"(server) One of: noClientCert, requestClientCert, RequireAnyClientCert, verifyClientCirtIfGiven, requireAndVerifyClientCert").
 		Set("default", "noClientCert")
-	p.NewItem("privateKey",
-		"string",
-		"Path to PEM").
-		SetOptional()
-	p.NewItem("publicCert",
-		"string",
-		"Path to PEM").
-		SetOptional()
-	p.NewItem("tlsMin",
-		"string",
-		"One of: ssl3, 1.0, 1.1, 1.2").
-		Set("default", "1.2")
-	p.NewItem("tlsMax",
-		"string",
-		"One of: ssl3, 1.0, 1.1, 1.2").
-		SetOptional()
+	p.NewItem("privateKey", "string", "Path to PEM").SetOptional()
+	p.NewItem("publicCert", "string", "Path to PEM").SetOptional()
+	p.NewItem("caCerts", "string", "Path to PEM").SetOptional()
+	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2").Set("default", "1.2")
+	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2").SetOptional()
 }
 
 //
@@ -179,8 +168,8 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 	setTlsVersion := func(version string, dst *uint16) (err error) {
 		switch version {
 		case "": // leave unset, or unchanged from default set above
-		case "ssl3":
-			*dst = tls.VersionSSL30
+		//case "ssl3":
+		//	*dst = tls.VersionSSL30
 		case "1.0", "tls1.0":
 			*dst = tls.VersionTLS10
 		case "1.1", "tls1.1":
