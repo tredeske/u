@@ -65,6 +65,11 @@ func Chain(client *http.Client) (rv *Chained) {
 	return rv
 }
 
+func (this *Chained) GetChain(c **Chained) *Chained {
+	*c = this
+	return this
+}
+
 //
 // set basic auth info.  if user is "", then do not actually set the info
 //
@@ -535,6 +540,17 @@ func (this *Chained) Status(status *int) *Chained {
 		}
 	} else {
 		*status = this.Response.StatusCode
+	}
+	return this
+}
+
+func (this *Chained) OnResponse(f func(resp *http.Response) error) *Chained {
+	if nil == this.Error {
+		if nil == this.Response {
+			this.Error = errors.New("No response available for OnResponse")
+		} else {
+			this.Error = f(this.Response)
+		}
 	}
 	return this
 }
