@@ -611,7 +611,9 @@ func (this *Chained) Done() error {
 
 //////////////////////////////////////
 
+//
 // dump out request and response to log
+//
 func (this *Chained) Log() *Chained {
 	this.Client.Transport = &logTransport_{
 		rt: this.Client.Transport,
@@ -623,30 +625,37 @@ type logTransport_ struct {
 	rt http.RoundTripper
 }
 
-func (this *logTransport_) RoundTrip(req *http.Request) (*http.Response, error) {
+func (this *logTransport_) RoundTrip(req *http.Request,
+) (resp *http.Response, err error) {
 	content, err := httputil.DumpRequestOut(req, true)
 	if nil != err {
-		return nil, err
+		return
 	}
-	log.Println(string(content))
+	log.Printf("Request:\n%s", string(content))
 	if nil == this.rt {
 		this.rt = http.DefaultTransport
 	}
-	resp, err := this.rt.RoundTrip(req)
-	var errDump error
-	content, errDump = httputil.DumpResponse(resp, true)
-	if errDump != nil {
-		log.Printf("Unable to get response: %s", errDump)
+	resp, err = this.rt.RoundTrip(req)
+	if nil == resp {
+		log.Printf("No response from RoundTrip.  Err=%s", err)
 	} else {
-		log.Println(string(content))
+		var errDump error
+		content, errDump = httputil.DumpResponse(resp, true)
+		if errDump != nil {
+			log.Printf("Unable to get response: %s", errDump)
+		} else {
+			log.Printf("Response:\n%s", string(content))
+		}
 	}
-	return resp, err
+	return
 }
 
 //////////////////////////////////////
 
+//
 // dump out request and/or response to specified writers.
 // put nil in if you don't want one or the other
+//
 func (this *Chained) Dump(reqW, respW io.Writer) *Chained {
 	this.Client.Transport = &debugTransport_{
 		rt:    this.Client.Transport,
