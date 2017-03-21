@@ -621,6 +621,13 @@ func (this *Chained) Log() *Chained {
 	return this
 }
 
+func (this *Chained) LogIf(on bool) *Chained {
+	if on {
+		return this.Log()
+	}
+	return this
+}
+
 type logTransport_ struct {
 	rt http.RoundTripper
 }
