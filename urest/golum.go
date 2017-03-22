@@ -21,12 +21,24 @@ func ShowHttpClient(name string, help *uconfig.Help) {
 	p.NewItem("httpDisableCompression",
 		"bool",
 		"Turn off compression").Set("default", false)
+	p.NewItem("httpDisableKeepAlives",
+		"bool",
+		"Turn off reuse of connections").Set("default", false)
+	p.NewItem("httpMaxIdleConns",
+		"int",
+		"Max conns to keep around just in case").SetOptional()
 	p.NewItem("httpMaxIdleConnsPerHost",
 		"int",
 		"Max conns to keep around just in case").SetOptional()
 	p.NewItem("httpResponseTimeout",
 		"duration",
-		"How long to wait for a response").SetOptional()
+		"How long to wait for a response (not incl body)").SetOptional()
+	p.NewItem("httpIdleConnTimeout",
+		"duration",
+		"How long to keep idle connections around").SetOptional()
+	p.NewItem("httpExpectContinueTimeout",
+		"duration",
+		"If not zero, emit Expect: 100-continue and wait to send body").SetOptional()
 	p.NewItem("tlsHandshakeTimeout",
 		"duration",
 		"How long to wait for TLS init").Set("default", "17s")
@@ -49,10 +61,15 @@ func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 		Timeout:   67 * time.Second,
 		KeepAlive: 67 * time.Second,
 	}
-	httpTransport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		TLSHandshakeTimeout: 17 * time.Second,
-	}
+	httpTransport := &http.Transport{}
+	*httpTransport = *(http.DefaultTransport.(*http.Transport))
+	httpTransport.TLSHandshakeTimeout = 17 * time.Second
+	/*
+		httpTransport := &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			TLSHandshakeTimeout: 17 * time.Second,
+		}
+	*/
 	httpClient := &http.Client{
 		Transport: httpTransport,
 	}
@@ -61,8 +78,12 @@ func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 		err = c.
 			Build(&httpTransport.TLSClientConfig, ucerts.BuildTlsConfig).
 			GetBool("httpDisableCompression", &httpTransport.DisableCompression).
+			GetBool("httpDisableKeepAlives", &httpTransport.DisableKeepAlives).
 			GetInt("httpMaxIdleConnsPerHost", &httpTransport.MaxIdleConnsPerHost).
+			GetInt("httpMaxIdleConns", &httpTransport.MaxIdleConns).
 			GetDuration("httpResponseTimeout", &httpTransport.ResponseHeaderTimeout).
+			GetDuration("httpIdleConnTimeout", &httpTransport.IdleConnTimeout).
+			GetDuration("httpExpectContinueTimeout", &httpTransport.ExpectContinueTimeout).
 			GetDuration("tlsHandshakeTimeout", &httpTransport.TLSHandshakeTimeout).
 			GetDuration("tcpTimeout", &dialer.Timeout).
 			GetDuration("tcpKeepAlive", &dialer.KeepAlive).
