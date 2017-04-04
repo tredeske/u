@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/user"
 	"path"
@@ -525,5 +526,52 @@ func FileCreate(name string, filler func(*os.File) error) (err error) {
 
 	err = f.Close()
 	f = nil
+	return
+}
+
+//
+// Get the max allowed number of open files
+//
+func FdsMax() (currMax, allowedMax int, err error) {
+	rlim := syscall.Rlimit{}
+	err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim)
+	if err != nil {
+		return
+	}
+	currMax = int(rlim.Cur)
+	allowedMax = int(rlim.Max)
+	return
+}
+
+//
+// Return current valid file descriptors, up to maxFd.
+//
+// If maxFd is non-positive, then determine from rlimit
+//
+func FdsOpen(maxFd int) (fds []int, err error) {
+	if 0 >= maxFd {
+		maxFd, _, err = FdsMax()
+		if err != nil {
+			return
+		}
+	}
+	stat := syscall.Stat_t{}
+	for i := 0; i < maxFd; i++ {
+		statErr := syscall.Fstat(i, &stat)
+		if statErr != nil {
+			errno, ok := statErr.(syscall.Errno)
+			if ok {
+				switch errno {
+				case syscall.EBADF: // nothing to do
+				default:
+					log.Printf("Unable to fstat %d: %#v", i, statErr)
+				}
+			} else {
+				log.Printf("Unable to fstat %d: %#v", i, statErr)
+			}
+		} else {
+			fds = append(fds, i)
+		}
+	}
 	return
 }
