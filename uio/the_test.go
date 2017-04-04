@@ -43,6 +43,9 @@ func TestFdsOpen(t *testing.T) {
 
 	initFds := len(fds)
 
+	//
+	// open 2 fds for pipe
+	//
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("Unable to determine open pipe: %s", err)
