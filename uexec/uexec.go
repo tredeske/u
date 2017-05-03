@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/tredeske/u/uerr"
+	"github.com/tredeske/u/uio"
 )
 
 const (
@@ -152,6 +153,9 @@ func (this *Child) CaptureStderr() (err error) {
 			nread, err := io.ReadFull(stderr, bb[:])
 			if err == io.EOF || err == io.ErrUnexpectedEOF || nil == err {
 				errC <- string(bb[:nread])
+				if nil == err {
+					uio.Drain(stderr)
+				}
 			} else {
 				err = uerr.Chainf(err, "Unable to read stderr (this=%#v) (stderr=%#v)",
 					this, stderr)

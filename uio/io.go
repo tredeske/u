@@ -79,3 +79,20 @@ func (this *NullWriter) Write(b []byte) (rv int, err error) {
 	rv = len(b)
 	return
 }
+
+//
+// read until no more data to read
+//
+func Drain(r io.Reader) (err error) {
+	var bb [1024]byte
+	for {
+		_, err = r.Read(bb[:])
+		if err != nil {
+			if io.EOF == err {
+				err = nil
+			}
+			break
+		}
+	}
+	return
+}
