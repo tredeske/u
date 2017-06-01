@@ -173,6 +173,18 @@ func FileLinkOrCopyTo(file, dir string) (dst string, err error) {
 //
 // move file to specified directory, returning new name
 //
+func FileMoveOrCopyTo(file, dstDir string) (dst string, err error) {
+	dst, err = FileMoveTo(file, dstDir)
+	if err != nil {
+		dst = path.Join(dstDir, path.Base(file))
+		err = FileCopy(file, dst)
+	}
+	return
+}
+
+//
+// move file to specified directory, returning new name
+//
 func FileMoveTo(file, dstDir string) (dst string, err error) {
 	if 0 == len(dstDir) {
 		err = errors.New("dstDir not provided")
