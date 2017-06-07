@@ -114,16 +114,19 @@ func SortByModTime(files []os.FileInfo) {
 	}
 }
 
+//
 // Get listing of dir, sorted by mtime (oldest to youngest)
+//
 func FilesByModTime(dir string) (files []os.FileInfo, err error) {
-	if dirF, err := os.Open(dir); err != nil {
-		return files, err
-	} else {
-		defer dirF.Close()
-		if files, err = dirF.Readdir(0); err != nil {
-			return files, err
-		}
-		SortByModTime(files)
+	dirF, err := os.Open(dir)
+	if err != nil {
+		return
 	}
+	defer dirF.Close()
+	files, err = dirF.Readdir(0)
+	if err != nil {
+		return nil, err
+	}
+	SortByModTime(files)
 	return
 }
