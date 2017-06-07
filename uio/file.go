@@ -173,11 +173,17 @@ func FileLinkOrCopyTo(file, dir string) (dst string, err error) {
 //
 // move file to specified directory, returning new name
 //
+// if dir is on different disk, then a copy is performed, and the original
+// file is removed upon success
+//
 func FileMoveOrCopyTo(file, dstDir string) (dst string, err error) {
 	dst, err = FileMoveTo(file, dstDir)
 	if err != nil {
 		dst = path.Join(dstDir, path.Base(file))
 		err = FileCopy(file, dst)
+		if nil == err {
+			FileRemoveAll(file)
+		}
 	}
 	return
 }
@@ -185,14 +191,16 @@ func FileMoveOrCopyTo(file, dstDir string) (dst string, err error) {
 //
 // move file to specified directory, returning new name
 //
+// file and directory must be on same disk
+//
 func FileMoveTo(file, dstDir string) (dst string, err error) {
 	if 0 == len(dstDir) {
 		err = errors.New("dstDir not provided")
 		return
 	}
-	srcDir, srcF := path.Split(file)
+	srcDir, srcF := path.Split(file) // contains trailing slash
 	dst = path.Join(dstDir, srcF)
-	if srcDir != dstDir {
+	if srcDir != dstDir && dstDir != srcDir[:len(srcDir)-1] {
 		err = os.Rename(file, dst)
 	}
 	return
