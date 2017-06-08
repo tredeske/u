@@ -1,6 +1,9 @@
 package u
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestId(t *testing.T) {
 	b := NewIdBuilder()
@@ -14,5 +17,6 @@ func TestId(t *testing.T) {
 			t.Fatalf("%d: duplicate ID (%s)generated!", i, id)
 		}
 		m[id] = true
+		fmt.Println(id)
 	}
 }
