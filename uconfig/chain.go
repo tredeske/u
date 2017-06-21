@@ -414,7 +414,11 @@ func (this *Chain) BuildFrom(
 	return this
 }
 
-// build value from current config section
+//
+// build value from current config section using builder
+//
+// if builder returns nil, then no assignment is made to value
+//
 func (this *Chain) Build(
 	value interface{},
 	builder func(config *Chain) (rv interface{}, err error),
