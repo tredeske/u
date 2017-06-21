@@ -14,6 +14,9 @@ type IdBuilder struct {
 	counter uint64
 }
 
+//
+// create an IdBuilder
+//
 func NewIdBuilder() (rv IdBuilder) {
 	arr := [8]byte{}
 	s := arr[:]
@@ -25,16 +28,9 @@ func NewIdBuilder() (rv IdBuilder) {
 	}
 }
 
-/*
-func (this *IdBuilder) NewId() (rv string) {
-	u := atomic.AddUint64(&this.counter, 1)
-	arr := [4]byte{}
-	s := arr[:]
-	binary.BigEndian.PutUint32(s, uint32(u))
-	return time.Now().UTC().Format("060102150405") + hex.EncodeToString(s)
-}
-*/
-
+//
+// produce one digit value from byte value 0 - 61
+//
 func base62(b byte) byte {
 	if b < 10 {
 		return byte('0' + b)
@@ -46,6 +42,9 @@ func base62(b byte) byte {
 	panic("integer out of range for base 62 encode")
 }
 
+//
+// produce 2 digit from byte value of 0 - 99
+//
 func base10(b byte) (one, two byte) {
 
 	if b < 10 {
@@ -85,62 +84,45 @@ func base10(b byte) (one, two byte) {
 }
 
 //
-// creates a 16 rune string id
+// creates a 24 rune string id using base62 character set
 //
-// top 9 runes are date/time
+// top 11 runes are date/time
 //
-// bottom 7 runes are counter with random base
+// bottom 13 runes are counter with random base
 //
 func (this *IdBuilder) NewId() (rv string) {
-	arr := [16]byte{}
+	arr := [24]byte{}
 	s := arr[:]
 
 	//
-	// base32 encode (encode 5 bits at a time) 35 bits of counter
+	// base32 encode all 64 bits of counter
+	// - encode 5 bits at a time allows us to use base62 routine to get base32
+	// - we stop at 10 because that's where date/time begins
 	//
 	u := atomic.AddUint64(&this.counter, 1)
-	b := byte(u)
-	s[15] = base62(b & 0x1f)
-	b = byte(u >> 5)
-	s[14] = base62(b & 0x1f)
-	b = byte(u >> 10)
-	s[13] = base62(b & 0x1f)
-	b = byte(u >> 15)
-	s[12] = base62(b & 0x1f)
-	b = byte(u >> 20)
-	s[11] = base62(b & 0x1f)
-	b = byte(u >> 25)
-	s[10] = base62(b & 0x1f)
-	b = byte(u >> 30)
-	s[9] = base62(b & 0x1f)
-
-	/*
-		binary.LittleEndian.PutUint64(arr[:8], u)
-		for i, j := 0, len(s)-1; i < 8; i++ {
-			b := s[i]
-			s[j] = base62(b & 0xf)
-			j--
-			s[j] = base62(b >> 4)
-			j--
-		}
-	*/
+	var shift uint = 0
+	for i := len(arr) - 1; i > 10; i-- {
+		b := byte(u >> shift)
+		shift += 5
+		s[i] = base62(b & 0x1f)
+	}
 
 	//
-	// encode YMDHHMMSS
+	// encode YMMDDHHMMSS
 	//
 	// we need the year as these can get databased
 	//
-	// we want the HHMMSS to be easily human readable
+	// we want the MMDDHHMMSS to be easily human readable
 	//
 	now := time.Now().UTC()
 	year, month, day := now.Date()
 	hour, minute, second := now.Clock()
 	s[0] = base62(byte(year - 2016))
-	s[1] = base62(byte(month))
-	s[2] = base62(byte(day))
-	s[3], s[4] = base10(byte(hour))
-	s[5], s[6] = base10(byte(minute))
-	s[7], s[8] = base10(byte(second))
+	s[1], s[2] = base10(byte(month))
+	s[3], s[4] = base10(byte(day))
+	s[5], s[6] = base10(byte(hour))
+	s[7], s[8] = base10(byte(minute))
+	s[9], s[10] = base10(byte(second))
 
 	return string(s)
 }
