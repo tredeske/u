@@ -79,7 +79,7 @@ func (this *Error) Chainf(format string, args ...interface{}) *Error {
 }
 
 //
-// is this caused by the same KIND of error?
+// is the specified error in the the causal chain of errors?
 //
 func (this *Error) CausedBy(err error) (rv bool) {
 	if nil == err {
@@ -95,15 +95,15 @@ func (this *Error) CausedBy(err error) (rv bool) {
 }
 
 //
-// are these two errors related to one another?
-// - are they the same kind of error or is err caused by relatedToErr?
+// is the one error caused by the other?
 //
-func ErrorRelatedTo(err, relatedToErr error) (rv bool) {
-	if err == relatedToErr {
+func CausedBy(err, causedBy error) (rv bool) {
+	if err == causedBy {
 		rv = true
-	} else if nil != err && nil != relatedToErr {
-		if eerror, ok := err.(*Error); ok {
-			rv = eerror.CausedBy(relatedToErr)
+	} else if nil != err && nil != causedBy {
+		eerror, isUerrError := err.(*Error)
+		if isUerrError {
+			rv = eerror.CausedBy(causedBy)
 		}
 	}
 	return
