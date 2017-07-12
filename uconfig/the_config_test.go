@@ -26,11 +26,18 @@ subbed:         "{{.one}}"
 substitutions:
     one:        oneVal
     two:        twoVal
+    three:      "{{.one}}"
 
 home:           "${HOME}"
 subbed:         "{{.one}}"
+doubleSubbed:   "{{.three}}"
 partial:        "{{.one}} {{.notSubbed}} {{.two}} caboose"
 noMethod:       "{{.NoSuchMethod arg}}"
+include_:       include.yml
+array:
+- A:            A_VAL
+- include_:     array_include.yml
+- Z:            Z_VAL
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +54,13 @@ noMethod:       "{{.NoSuchMethod arg}}"
 		t.Fatal(err)
 	} else if home != s {
 		t.Fatalf("HOME: %s != %s", home, s)
+	}
+
+	err = config.GetString("doubleSubbed", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "oneVal" != s {
+		t.Fatalf("doubleSubbed: %s != oneVal", s)
 	}
 
 	err = config.GetString("subbed", &s)
@@ -68,6 +82,49 @@ noMethod:       "{{.NoSuchMethod arg}}"
 		t.Fatal(err)
 	} else if "{{.NoSuchMethod arg}}" != s {
 		t.Fatalf("noMethod: %s != {{.NoSuchMethod arg}}", s)
+	}
+
+	s = "unset"
+	err = config.GetString("foo", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "bar" != s {
+		t.Fatalf("include: %s != bar", s)
+	}
+
+	var array *Array
+	err = config.GetArray("array", &array)
+	if err != nil {
+		t.Fatal(err)
+	} else if 4 != array.Len() {
+		t.Fatalf("not 4 in len: %#v", array)
+	}
+
+	child := array.Get(0)
+	s = "unset"
+	err = child.GetString("A", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "A_VAL" != s {
+		t.Fatalf("array: %s != A_VAL", s)
+	}
+
+	child = array.Get(2)
+	s = "unset"
+	err = child.GetString("foo", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "bar" != s {
+		t.Fatalf("array entry include: %s != bar", s)
+	}
+
+	child = array.Get(3)
+	s = "unset"
+	err = child.GetString("Z", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "Z_VAL" != s {
+		t.Fatalf("array: %s != Z_VAL", s)
 	}
 }
 

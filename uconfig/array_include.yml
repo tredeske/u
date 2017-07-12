@@ -1,0 +1,3 @@
+- arrayFoo:             bar
+- arrayEntryInclude:    including
+  include_:             include.yml

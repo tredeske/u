@@ -3,6 +3,7 @@ package uconfig
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -22,7 +23,10 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-const SUBS = "substitutions"
+const (
+	SUBS     = "substitutions"
+	include_ = "include_"
+)
 
 //
 // A map of strings to values used for config.
@@ -44,12 +48,14 @@ const SUBS = "substitutions"
 // Child sections inherit the substitutions of their parents.
 //
 // The following substitutions are automatically added:
-// - home
-// - user
-// - host
-// - processName
-// - installDir
-// - initDir
+// - home 			- the home dir of the user
+// - user			- the username of the user
+// - host			- the hostname of the host
+// - processName	- the process name of the process
+// - installDir		- where the process is installed
+//						{{installDir}} / bin / program     - or, if no bin -
+//						{{installDir}} / program
+// - initDir		- where the process is started from
 //
 type Section struct {
 	Context  string
@@ -71,7 +77,7 @@ type Array struct {
 // or map[string]interface{}
 //
 func NewSection(it interface{}) (rv *Section, err error) {
-	tmp := Section{}
+	tmp := Section{expander: newExpander()}
 	return tmp.NewChild(it)
 }
 
@@ -92,9 +98,112 @@ func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 }
 
 //
+// allow a map to be enriched by including another from file
+//
+func stringMapInclude(in map[string]string) (err error) {
+
+	includeF, found := in[include_]
+	if !found {
+		return
+	}
+	var included map[string]interface{}
+	err = YamlLoad(includeF, &included)
+	//included, err := loadYaml(includeF)
+	if err != nil {
+		return
+	}
+
+	recur := false
+	for k, v := range included {
+		if include_ == k {
+			recur = true
+		}
+		_, found = in[k]
+		if !found {
+			str, converted := asString(v, false)
+			if !converted {
+				err = fmt.Errorf("Unable to convert value to string: %#v", v)
+				return
+			}
+			in[k] = str
+		}
+	}
+	if recur {
+		err = stringMapInclude(in)
+	}
+	return
+}
+
+//
+// allow a map to be enriched by including another from file
+//
+func mapInclude(in map[string]interface{}) (err error) {
+
+	include, found := in[include_]
+	if !found {
+		return
+	}
+	includeF, isString := include.(string)
+	if !isString {
+		return
+	}
+	var included map[string]interface{}
+	err = YamlLoad(includeF, &included)
+	//included, err := loadYaml(includeF)
+	if err != nil {
+		return
+	}
+
+	recur := false
+	for k, v := range included {
+		if include_ == k {
+			recur = true
+		}
+		_, found = in[k]
+		if !found {
+			in[k] = v
+		}
+	}
+	if recur {
+		err = mapInclude(in)
+	}
+	return
+}
+
+/*
+func loadYaml(file string) (rv map[string]interface{}, err error) {
+	_, err = os.Stat(file)
+	if err != nil {
+		err = uerr.Chainf(err, "No such file: %s ", file)
+		return
+	}
+	err = YamlLoad(file, &rv)
+	if err != nil {
+		err = uerr.Chainf(err, "Unable to parse %s", file)
+	}
+	return
+}
+*/
+
+//
 // coerce nil, string, []byte, or map into correct section map type
 //
+// if it is a string, then it is taken as a filename to load if the string
+// resolves to a valid filename, or, if not, as YAML to be parsed
+//
 func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err error) {
+
+	rv, err = toMap(it)
+	if err != nil {
+		err = uerr.Chainf(err, this.Context)
+		return
+	} else if 0 != len(rv) {
+		err = mapInclude(rv)
+	}
+	return
+}
+
+func toMap(it interface{}) (rv map[string]interface{}, err error) {
 
 	if nil == it {
 		rv = make(map[string]interface{})
@@ -120,7 +229,7 @@ func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err erro
 		rv = make(map[string]interface{}, len(val))
 		for k, v := range val {
 			if ks, ok := k.(string); !ok {
-				err = fmt.Errorf("%s contains non string key", this.Context)
+				err = errors.New("Non string key in map")
 				break
 			} else {
 				rv[ks] = v
@@ -155,7 +264,14 @@ func (this *Section) ctx(key string) string {
 //
 // load the YAML file into target, which may be a ptr to map or ptr to struct
 //
-func YamlLoad(file string, target interface{}) error {
+func YamlLoad(file string, target interface{}) (err error) {
+	/*
+		_, err = os.Stat(file)
+		if err != nil {
+			err = uerr.Chainf(err, "No such file: %s ", file)
+			return
+		}
+	*/
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
@@ -330,27 +446,13 @@ func (this *Section) GetStruct(key string, dst interface{}) error {
 // add any substitutions for this section in
 //
 func (this *Section) addSubs() (err error) {
-	if 0 == len(this.expander) {
-		if user, home := UserInfo(); "" != user {
-			this.AddSub("user", user)
-			this.AddSub("home", home)
+	var subs map[string]string
+	err = this.GetStringMap(SUBS, &subs)
+	if nil == err && 0 != len(subs) {
+		err = this.expander.addAll(subs)
+		if err != nil {
+			err = uerr.Chainf(err, "parsing config: %s", this.ctx(SUBS))
 		}
-		this.AddSub("installDir", InstallD)
-		this.AddSub("initDir", InitD)
-		this.AddSub("host", ThisHost)
-		this.AddSub("processName", ThisProcess)
-	}
-	var subs *Section
-	err = this.GetSection(SUBS, &subs)
-	if err == nil && nil != subs {
-		err = subs.Each(func(k string, _ interface{}) error {
-			v := ""
-			err = subs.GetString(k, &v)
-			if nil == err {
-				this.AddSub(k, v)
-			}
-			return nil
-		})
 	}
 	return
 }
@@ -379,8 +481,7 @@ func (this *Section) GetSection(key string, val **Section,
 }
 
 // same as GetSection, but val must be non nil when done
-func (this *Section) GetValidSection(key string, val **Section,
-) (err error) {
+func (this *Section) GetValidSection(key string, val **Section) (err error) {
 	err = this.GetSection(key, val)
 	if nil == err && nil == *val {
 		err = fmt.Errorf("parsing config: no such section: %s", this.ctx(key))
@@ -390,30 +491,115 @@ func (this *Section) GetValidSection(key string, val **Section,
 
 // if key is a Array, set val to it
 func (this *Section) GetArray(key string, val **Array) (err error) {
-	if it, ok := this.section[key]; ok {
-		raw, ok := it.([]interface{})
-		if !ok {
-			return fmt.Errorf("parsing config: value of %s not an array",
+	it, ok := this.section[key]
+	if !ok {
+		return
+	}
+	raw, ok := it.([]interface{})
+	if !ok {
+		return fmt.Errorf("parsing config: value of %s not an array",
+			this.ctx(key))
+	}
+	rv := &Array{
+		Context:  this.ctx(key),
+		expander: this.expander.clone(),
+		sections: make([]map[string]interface{}, 0, len(raw)),
+	}
+
+	//
+	// convert to maps and expand includes
+	//
+	isInclude := false
+	var children []map[string]interface{}
+	for i, v := range raw {
+		var child map[string]interface{}
+		child, err = toMap(v)
+		if err != nil {
+			return uerr.Chainf(err, "parsing config: value %d in %s array",
+				i, this.ctx(key))
+		} else if 0 == len(child) {
+			continue
+		}
+		isInclude, err = arrayEntryInclude(child, &children)
+		if err != nil {
+			err = uerr.Chainf(err, "parsing config: value %d in %s array",
+				i, this.ctx(key))
+			return
+		} else if !isInclude {
+			children = append(children, child)
+		}
+	}
+
+	//
+	// convert to section maps
+	//
+	for _, v := range children {
+		var section map[string]interface{}
+		section, err = this.getMap(v)
+		if err != nil {
+			return uerr.Chainf(err, "parsing config: value in %s array",
 				this.ctx(key))
 		}
-		rv := &Array{
-			Context:  this.ctx(key),
-			expander: this.expander.clone(),
-			sections: make([]map[string]interface{}, len(raw)),
-		}
-		for i, v := range raw {
-			rv.sections[i], err = this.getMap(v)
+		rv.sections = append(rv.sections, section)
+	}
+	*val = rv
+	return
+}
+
+//
+// expand includes
+//
+// if a child only has { "include_": "path/to/file" }, then we need to
+// incorporate the inclusion as additional children
+//
+// if a child has more than one key/value mapping, and one of them is
+// "include_", then that is included in the child.  This is done elsewhere.
+//
+func arrayEntryInclude(
+	entry map[string]interface{},
+	addTo *[]map[string]interface{},
+) (isInclude bool, err error) {
+
+	if 1 != len(entry) {
+		return
+	}
+
+	include, found := entry[include_]
+	if !found {
+		return
+	}
+	includeF, isString := include.(string)
+	if !isString {
+		return
+	}
+	isInclude = true
+
+	var included []map[string]interface{}
+	err = YamlLoad(includeF, &included)
+	if err != nil {
+		return
+	}
+
+	for _, v := range included {
+		_, found = v[include_]
+		if found {
+			wasInclude := false
+			wasInclude, err = arrayEntryInclude(v, addTo)
 			if err != nil {
-				return uerr.Chainf(err, "parsing config: value in %s array",
-					this.ctx(key))
+				return
+			} else if !wasInclude {
+				*addTo = append(*addTo, v)
 			}
+		} else {
+			*addTo = append(*addTo, v)
 		}
-		*val = rv
 	}
 	return
 }
 
+//
 // Same as GetArray, but if val ends up being nil, then error
+//
 func (this *Section) GetValidArray(key string, val **Array) (err error) {
 	err = this.GetArray(key, val)
 	if nil == err && nil == *val {
@@ -649,7 +835,7 @@ func (this *Section) toStrings(key string, it interface{},
 	if raw, isArray := it.([]interface{}); isArray {
 		rv = make([]string, len(raw))
 		for i, v := range raw {
-			str, ok := this.asString(v, false)
+			str, ok := asString(v, false)
 			if !ok {
 				err = fmt.Errorf("parsing config: value in %s array not a string",
 					this.ctx(key))
@@ -661,7 +847,7 @@ func (this *Section) toStrings(key string, it interface{},
 	} else { // not an array, so attempt to create an array
 
 		rv = make([]string, 1)
-		rv[0], ok = this.asString(it, false)
+		rv[0], ok = asString(it, false)
 		if !ok {
 			err = fmt.Errorf("parsing config: %s not convertable to string array",
 				this.ctx(key))
@@ -672,24 +858,33 @@ func (this *Section) toStrings(key string, it interface{},
 }
 
 // if found, parse into map[string]string and update val
-func (this *Section) GetStringMap(key string, val *map[string]string,
-) (err error) {
+func (this *Section) GetStringMap(key string, val *map[string]string) (err error) {
 	it, found := this.section[key]
 	if found {
-		mit, err := this.getMap(it)
+		var mit map[string]interface{}
+		mit, err = this.getMap(it)
 		if err != nil {
 			return uerr.Chainf(err, "parsing config: value of %s", this.ctx(key))
 		}
-		m := make(map[string]string)
-		for k, v := range mit {
-			str, ok := this.asString(v, false)
-			if !ok {
-				return fmt.Errorf("parsing config: value for %s in %s not a string",
-					k, this.ctx(key))
-			}
-			m[k] = str
+		*val, err = toStringMap(mit)
+		if err != nil {
+			err = uerr.Chainf(err, "at %s", this.ctx(key))
+			return
 		}
-		*val = m
+	}
+	return
+}
+
+func toStringMap(in map[string]interface{}) (out map[string]string, err error) {
+
+	out = make(map[string]string)
+	for k, v := range in {
+		str, ok := asString(v, false)
+		if !ok {
+			err = fmt.Errorf("parsing config: value for %s not a string", k)
+			return
+		}
+		out[k] = str
 	}
 	return
 }
@@ -727,8 +922,9 @@ func (this *Section) getIt(key string, raw bool) (rv interface{}, found bool) {
 	return
 }
 
-func (this *Section) asString(it interface{}, raw bool,
-) (rv string, ok bool) {
+// convert it to string
+// if raw is true, then do NOT convert numeric, boolean, or other types to string
+func asString(it interface{}, raw bool) (rv string, ok bool) {
 
 	switch it.(type) {
 	case string:
@@ -746,7 +942,7 @@ func (this *Section) asString(it interface{}, raw bool,
 func (this *Section) getString(key string, raw bool) (rv string, found bool) {
 	it, gotit := this.getIt(key, raw)
 	if gotit {
-		rv, found = this.asString(it, raw)
+		rv, found = asString(it, raw)
 	}
 	return
 }
@@ -755,7 +951,7 @@ func (this *Section) getString(key string, raw bool) (rv string, found bool) {
 func (this *Section) GetRawString(key string, val *string) (err error) {
 	it, gotit := this.getIt(key, true)
 	if gotit {
-		*val, _ = this.asString(it, true)
+		*val, _ = asString(it, true)
 	}
 	return
 }
@@ -775,7 +971,7 @@ func (this *Section) GetValidRawString(key, invalid string, val *string,
 func (this *Section) GetString(key string, val *string) (err error) {
 	it, gotit := this.getIt(key, false)
 	if gotit {
-		*val, _ = this.asString(it, false)
+		*val, _ = asString(it, false)
 	}
 	return
 }
@@ -947,12 +1143,55 @@ func (this expander_) carefully(buff *bytes.Buffer, value string) {
 	buff.WriteString(value[pos:])
 }
 
-func (this expander_) clone() expander_ {
-	rv := make(map[string]string)
-	for k, v := range this {
-		rv[k] = v
+func newExpander() (rv expander_) {
+	rv = make(map[string]string)
+	//rv := expander_{}
+	if user, home := UserInfo(); "" != user {
+		rv["user"] = user
+		rv["home"] = home
 	}
-	return rv
+	rv["installDir"] = InstallD
+	rv["initDir"] = InitD
+	rv["host"] = ThisHost
+	rv["processName"] = ThisProcess
+	return
+}
+
+func (this expander_) clone() (rv expander_) {
+	rv = newExpander()
+	rv.addAll(this)
+	return
+}
+
+func (this expander_) addAll(m map[string]string) (err error) {
+
+	//
+	// do not expand here as we need to plop the new values in before
+	// doing any expansion
+	//
+	for k, v := range m {
+		this[k] = v
+	}
+
+	err = stringMapInclude(m)
+	if err != nil {
+		return
+	}
+
+	//
+	// resolve any substitutions
+	//
+	for k, v := range this {
+		if strings.Contains(v, "{{") {
+			this[k] = this.expand(v)
+		}
+	}
+	for k, v := range this { // and again
+		if strings.Contains(v, "{{") {
+			this[k] = this.expand(v)
+		}
+	}
+	return
 }
 
 func (this expander_) Dump() (rv string) {
