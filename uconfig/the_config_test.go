@@ -27,6 +27,8 @@ substitutions:
     one:        oneVal
     two:        twoVal
     three:      "{{.one}}"
+    includeD:   "."
+    include_:   "{{.includeD}}/include_props.yml"
 
 home:           "${HOME}"
 subbed:         "{{.one}}"

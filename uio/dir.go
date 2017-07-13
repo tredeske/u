@@ -1,6 +1,7 @@
 package uio
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -80,6 +81,26 @@ func DirFilenames(dir string, max ...int) (files []string, err error) {
 	}
 	files, err = f.Readdirnames(n)
 	f.Close()
+	return
+}
+
+func DirList(dir string) (rv string, err error) {
+	files, err := FilesByModTime(dir)
+	if err != nil {
+		return
+	}
+	var bb bytes.Buffer
+	bb.WriteString(dir)
+	bb.WriteRune('\n')
+	if 0 == len(files) {
+		bb.WriteString("[no entries]\n")
+	} else {
+		for _, fi := range files {
+			fmt.Fprintf(&bb, "%s %6d %s %s\n",
+				fi.Mode(), fi.Size(), fi.ModTime(), fi.Name())
+		}
+	}
+	rv = bb.String()
 	return
 }
 
