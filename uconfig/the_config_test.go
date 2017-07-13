@@ -36,6 +36,7 @@ doubleSubbed:   "{{.three}}"
 partial:        "{{.one}} {{.notSubbed}} {{.two}} caboose"
 noMethod:       "{{.NoSuchMethod arg}}"
 include_:       include.yml
+includedSub:    "{{.five}}"
 array:
 - A:            A_VAL
 - include_:     array_include.yml
@@ -84,6 +85,13 @@ array:
 		t.Fatal(err)
 	} else if "{{.NoSuchMethod arg}}" != s {
 		t.Fatalf("noMethod: %s != {{.NoSuchMethod arg}}", s)
+	}
+
+	err = config.GetString("includedSub", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "fiveV" != s {
+		t.Fatalf("includedSub: '%s' != fiveV : %#v", s, config.Subs())
 	}
 
 	s = "unset"
