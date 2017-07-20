@@ -55,10 +55,15 @@ const (
 //						{{installDir}} / program
 // - initDir		- where the process is started from
 //
+// Other files can be included with the 'include_' directive, as in:
+//
+// include_:        /path/to/file.yml
+//
 type Section struct {
 	Context  string
 	expander expander_
 	section  map[string]interface{}
+	watch    *Watch
 }
 
 //
@@ -75,7 +80,10 @@ type Array struct {
 // or map[string]interface{}
 //
 func NewSection(it interface{}) (rv *Section, err error) {
-	tmp := Section{expander: newExpander()}
+	tmp := Section{
+		expander: newExpander(),
+		watch:    &Watch{},
+	}
 	return tmp.NewChild(it)
 }
 
@@ -86,6 +94,7 @@ func NewSection(it interface{}) (rv *Section, err error) {
 func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 	rv = &Section{
 		expander: this.expander.clone(),
+		watch:    this.watch,
 	}
 	rv.section, err = rv.getMap(it)
 	if err != nil {
@@ -96,9 +105,21 @@ func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 }
 
 //
+// watch files.  if there is a change, then call onChange.
+// if there is an error and onError is set, then call it.
+//
+func (this *Section) Watch(
+	period time.Duration,
+	onChange func(changedFile string) (done bool),
+	onError func(err error) (done bool),
+) {
+	this.watch.Start(period, onChange, onError)
+}
+
+//
 // allow a map to be enriched by including another from file
 //
-func mapInclude(in map[string]interface{}) (err error) {
+func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 
 	include, found := in[include_]
 	if !found {
@@ -113,6 +134,7 @@ func mapInclude(in map[string]interface{}) (err error) {
 	if err != nil {
 		return
 	}
+	this.watch.Add(includeF)
 
 	recur := false
 	for k, v := range included {
@@ -125,7 +147,7 @@ func mapInclude(in map[string]interface{}) (err error) {
 		}
 	}
 	if recur {
-		err = mapInclude(in)
+		err = this.mapInclude(in)
 	}
 	return
 }
@@ -138,17 +160,17 @@ func mapInclude(in map[string]interface{}) (err error) {
 //
 func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err error) {
 
-	rv, err = toMap(it)
+	rv, err = this.toMap(it)
 	if err != nil {
 		err = uerr.Chainf(err, this.Context)
 		return
 	} else if 0 != len(rv) {
-		err = mapInclude(rv)
+		err = this.mapInclude(rv)
 	}
 	return
 }
 
-func toMap(it interface{}) (rv map[string]interface{}, err error) {
+func (this *Section) toMap(it interface{}) (rv map[string]interface{}, err error) {
 
 	if nil == it {
 		rv = make(map[string]interface{})
@@ -166,6 +188,9 @@ func toMap(it interface{}) (rv map[string]interface{}, err error) {
 			_, err = os.Stat(val)
 			if nil == err {
 				err = YamlLoad(val, &rv)
+				if nil == err {
+					this.watch.Add(val)
+				}
 			} else {
 				err = yaml.Unmarshal([]byte(val), &rv)
 			}
@@ -210,13 +235,6 @@ func (this *Section) ctx(key string) string {
 // load the YAML file into target, which may be a ptr to map or ptr to struct
 //
 func YamlLoad(file string, target interface{}) (err error) {
-	/*
-		_, err = os.Stat(file)
-		if err != nil {
-			err = uerr.Chainf(err, "No such file: %s ", file)
-			return
-		}
-	*/
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
@@ -401,7 +419,7 @@ func (this *Section) addSubs() (err error) {
 		return
 	}
 	var mit map[string]interface{}
-	mit, err = toMap(it)
+	mit, err = this.toMap(it)
 	if err != nil {
 		return uerr.Chainf(err, "Unable to get '%s", SUBS)
 	} else if 0 == len(mit) {
@@ -473,7 +491,7 @@ func (this *Section) GetArray(key string, val **Array) (err error) {
 	var children []map[string]interface{}
 	for i, v := range raw {
 		var child map[string]interface{}
-		child, err = toMap(v)
+		child, err = this.toMap(v)
 		if err != nil {
 			return uerr.Chainf(err, "parsing config: value %d in %s array",
 				i, this.ctx(key))
@@ -541,6 +559,7 @@ func (this *Section) arrayEntryInclude(
 	if err != nil {
 		return
 	}
+	this.watch.Add(includeF)
 
 	for _, v := range included {
 		_, found = v[include_]

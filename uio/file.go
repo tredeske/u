@@ -304,12 +304,14 @@ func FileMd5(file string) (sum []byte, sz int, err error) {
 	return
 }
 
+//
 // watch a file.  if there is a change, then call onChange with fi set.
 // if there is an error watching the file, call onChange with err set
+//
 func FileWatch(
 	file string,
 	period time.Duration,
-	onChange func(file string, fi os.FileInfo, err error),
+	onChange func(changedFile string, changedInfo os.FileInfo, err error),
 ) {
 
 	updated := time.Now()

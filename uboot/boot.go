@@ -46,8 +46,6 @@ type Boot struct {
 	// go build -ldflags '-X main.Version=#{$stamp}-#{REV}'
 	//
 	Version string
-
-	reloader *reloader_ //
 }
 
 //
@@ -292,14 +290,38 @@ func (this *Boot) Configure(
 	err = config.GetBool("autoreload", &autoreload)
 	if err != nil {
 		return
+
 	} else if autoreload {
-		this.reloader = &reloader_{
-			components: cspec,
-			interval:   7 * time.Second,
-			boot:       this,
-		}
-		log.Printf("Starting config reloader")
-		this.reloader.Start()
+
+		config.Watch(7*time.Second,
+
+			//
+			func(file string) (done bool) {
+				_, config, err := uinit.InitConfig(this.GlobalF, this.ConfigF)
+				if err != nil {
+					ulog.Errorf("Unable to parse %s: %s", this.ConfigF, err)
+					return
+				}
+
+				config.AddSub("logDir", ulog.Dir)
+				config.AddSub("name", this.Name)
+				var gconfig *uconfig.Array
+				err = config.GetValidArray(cspec, &gconfig)
+				if err != nil {
+					ulog.Errorf("Getting '%s' from %s: %s", cspec, this.ConfigF, err)
+					return
+				}
+				err = golum.Reload(gconfig)
+				if err != nil {
+					ulog.Errorf("Unable to load components: %s", err)
+				}
+				return true
+			},
+
+			func(err error) (done bool) {
+				ulog.Errorf("G: Problem checking config file: %s", err)
+				return false
+			})
 	}
 	return
 }
