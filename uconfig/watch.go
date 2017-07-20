@@ -86,11 +86,13 @@ func (this *Watch) Start(
 								return ///////////////////////// time to stop
 							}
 						}
+						break
 					} else if stat.ModTime().After(updated) {
 						updated = stat.ModTime()
 						if onChange(files[0]) {
 							return ///////////////////////////// time to stop
 						}
+						break
 					}
 				}
 			}
