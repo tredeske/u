@@ -3,6 +3,7 @@ package uexec
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uio"
@@ -40,8 +42,10 @@ type Child struct {
 	ParentIo [3]*os.File // parent's connection to child's stdin, stdout, stderr
 	Process  *os.Process
 	State    *os.ProcessState
-	ErrC     chan string // if capturing stderr
-	ErrOut   string      // set by Wait() if CaptureStderr, or DupStdout
+	ErrC     chan string        // if capturing stderr
+	ErrOut   string             // set by Wait() if CaptureStderr, or DupStdout
+	Context  context.Context    //
+	Cancel   context.CancelFunc //
 }
 
 //
@@ -49,6 +53,18 @@ type Child struct {
 //
 func NewChild(args ...string) (rv *Child) {
 	return &Child{Args: args}
+}
+
+//
+// Set a timeout
+//
+func (this *Child) SetTimeout(t time.Duration) (rv *Child) {
+	if nil == this.Context {
+		this.Context = context.Background()
+	}
+	this.Context, this.Cancel = context.WithTimeout(this.Context, t)
+
+	return this
 }
 
 //
@@ -209,6 +225,10 @@ func (this *Child) CloseParentIo() {
 func (this *Child) Close() {
 	this.closeChildIo()
 	this.CloseParentIo()
+	cancel := this.Cancel
+	if nil != cancel {
+		cancel()
+	}
 }
 
 //
@@ -402,12 +422,24 @@ func (this *Child) Start() (err error) {
 			return
 		}
 	}
-	this.Process, err = os.StartProcess(cmd, this.Args,
+	proc, err := os.StartProcess(cmd, this.Args,
 		&os.ProcAttr{
 			Dir:   this.Dir,
 			Files: this.ChildIo[:],
 		})
 	this.closeChildIo() // we no longer need these - they're the childs
+
+	ctx := this.Context
+	if nil != proc && nil != ctx {
+		go func() {
+			<-ctx.Done()
+			if nil == this.State {
+				//log.Printf("killing %#v", proc)
+				proc.Kill()
+			}
+		}()
+	}
+	this.Process = proc
 	return
 }
 
@@ -425,6 +457,10 @@ func (this *Child) Wait() (err error) {
 		this.ErrOut = <-this.ErrC
 	}
 	this.CloseParentIo()
+	cancel := this.Cancel
+	if nil != cancel {
+		cancel()
+	}
 	return
 }
 

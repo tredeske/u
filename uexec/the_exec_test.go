@@ -3,6 +3,7 @@ package uexec
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestShToArray(t *testing.T) {
@@ -24,4 +25,44 @@ func TestShToArray(t *testing.T) {
 	if joined != output {
 		t.Fatalf("Output does not match ('%s' != '%s')", output, joined)
 	}
+}
+
+func TestContext(t *testing.T) {
+
+	//
+	// test deadline exceeeded
+	//
+	c := NewChild("/bin/sleep", "2")
+	c.SetTimeout(200 * time.Millisecond)
+	err := c.ShToNull()
+	if nil == err {
+		t.Fatalf("Should be an error at this point, since job should be cancelled")
+	}
+
+	//
+	// test not cancelling it
+	//
+	c = NewChild("/bin/true")
+	c.SetTimeout(200 * time.Millisecond)
+	err = c.ShToNull()
+	if err != nil {
+		t.Fatalf("Should not be an error here: %s", err)
+	}
+
+	//
+	// test cancelling it
+	//
+	c = NewChild("/bin/sleep", "2")
+	c.SetTimeout(4 * time.Second)
+
+	go func() {
+		err := c.ShToNull()
+		if nil == err {
+			t.Fatalf("Should be an error at this point, since job should be cancelled")
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	c.Cancel()
+
 }
