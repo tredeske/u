@@ -127,6 +127,7 @@ func CopyToFile(src io.Reader, srcName, dst string, srcSz int64,
 //
 // copy bytes from src io.Reader to dst file using provided buffer.
 // if srcSz is a positive number, ensure srcSz bytes were copied
+// if no provided buffer, then use a default buffer
 //
 func CopyBufferToFile(src io.Reader, srcName, dst string, srcSz int64, buf []byte,
 ) (amount int64, err error) {
