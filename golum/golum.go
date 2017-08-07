@@ -115,6 +115,8 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 	err = configs.Each(func(i int, config *uconfig.Section) (err error) {
 		comp = i
 
+		/* uconfig does this
+
 		// include components from a separate file?
 		//
 		include := ""
@@ -125,6 +127,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 			err = loadConfig(include, config, rv)
 			return
 		}
+		*/
 
 		// load component
 		//
@@ -292,6 +295,8 @@ func addGolum(g *golum_) (err error) {
 	return
 }
 
+/* uconfig does this
+
 func loadConfig(include string, parent *uconfig.Section, loaded *Loaded,
 ) (err error) {
 	childConfig, err := parent.NewChild(include)
@@ -313,6 +318,7 @@ func loadConfig(include string, parent *uconfig.Section, loaded *Loaded,
 	}
 	return
 }
+*/
 
 //
 // -----------------------------------------------------------
