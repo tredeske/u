@@ -27,6 +27,7 @@ substitutions:
     one:        oneVal
     two:        twoVal
     three:      "{{.one}}"
+    noEscape:   "no+escape"
     includeD:   "."
     include_:   "{{.includeD}}/include_props.yml"
 
@@ -41,6 +42,7 @@ array:
 - A:            A_VAL
 - include_:     array_include.yml
 - Z:            Z_VAL
+noEscapeCheck:  "{{.noEscape}}"
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +137,18 @@ array:
 		t.Fatal(err)
 	} else if "Z_VAL" != s {
 		t.Fatalf("array: %s != Z_VAL", s)
+	}
+
+	//
+	// ensure we are using text/template instead of html/template to avoid
+	// changing chars like '+' into escape sequences
+	//
+	s = "unset"
+	err = config.GetString("noEscapeCheck", &s)
+	if err != nil {
+		t.Fatal(err)
+	} else if "no+escape" != s {
+		t.Fatalf("include: %s != 'no+escape'", s)
 	}
 }
 

@@ -3,9 +3,9 @@ package uconfig
 import (
 	"bytes"
 	"fmt"
-	"html/template"
 	"os"
 	"strings"
+	"text/template"
 )
 
 //
