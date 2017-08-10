@@ -168,8 +168,6 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 	setTlsVersion := func(version string, dst *uint16) (err error) {
 		switch version {
 		case "": // leave unset, or unchanged from default set above
-		//case "ssl3":
-		//	*dst = tls.VersionSSL30
 		case "1.0", "tls1.0":
 			*dst = tls.VersionTLS10
 		case "1.1", "tls1.1":
