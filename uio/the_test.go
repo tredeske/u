@@ -1,6 +1,7 @@
 package uio
 
 import (
+	"bytes"
 	"net"
 	"os"
 	"testing"
@@ -81,5 +82,37 @@ func TestFdsOpen(t *testing.T) {
 
 	if len(fds) != initFds+1 {
 		t.Fatalf("Too many fds: %d vs %d", len(fds), initFds+1)
+	}
+}
+
+func TestCopy(t *testing.T) {
+	var srcBB, dstBB bytes.Buffer
+
+	text := "this is a test"
+	srcBB.WriteString(text)
+
+	amount := int64(srcBB.Len())
+
+	nwrote, err := CopyTo(&dstBB, &srcBB, 0) // not checking amount
+	if err != nil {
+		t.Fatalf("Copy failed: %s", err)
+	} else if nwrote != amount {
+		t.Fatalf("Should have copied %d, but instead got %d", amount, nwrote)
+	} else if text != dstBB.String() {
+		t.Fatalf("Received invalid string: '%s' should be '%s'",
+			dstBB.String(), text)
+	}
+
+	srcBB.Reset()
+	srcBB.WriteString(text)
+	dstBB.Reset()
+	nwrote, err = CopyTo(&dstBB, &srcBB, amount)
+	if err != nil {
+		t.Fatalf("Copy failed: %s", err)
+	} else if nwrote != amount {
+		t.Fatalf("Should have copied %d, but instead got %d", amount, nwrote)
+	} else if text != dstBB.String() {
+		t.Fatalf("Received invalid string: '%s' should be '%s'",
+			dstBB.String(), text)
 	}
 }

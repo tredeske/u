@@ -13,16 +13,11 @@ import (
 func CopyBufferTo(dst io.Writer, src io.Reader, srcSz int64, buf []byte,
 ) (amount int64, err error) {
 
-	var b *Buffer
 	if 0 == len(buf) {
-		b = DefaultPool.Get()
+		b := DefaultPool.Get()
 		buf = b.B()
+		defer b.Return()
 	}
-	defer func() {
-		if nil != b {
-			b.Return()
-		}
-	}()
 
 	amount, err = io.CopyBuffer(dst, src, buf)
 	if err != nil {
