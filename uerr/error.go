@@ -108,3 +108,25 @@ func CausedBy(err, causedBy error) (rv bool) {
 	}
 	return
 }
+
+//
+// walk the error cause chain and run matchF until it returns true or we
+// get to the root cause
+//
+func CauseMatches(err error, matchF func(err error) bool) (rv bool) {
+	for {
+		rv = matchF(err)
+		if rv || nil == err {
+			break
+		}
+		eerror, isUerrError := err.(*Error)
+		if !isUerrError {
+			break
+		}
+		err = eerror.Cause
+		if nil == err {
+			break
+		}
+	}
+	return
+}

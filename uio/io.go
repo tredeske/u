@@ -83,16 +83,21 @@ func (this *NullWriter) Write(b []byte) (rv int, err error) {
 //
 // read until no more data to read
 //
-func Drain(r io.Reader) (err error) {
-	var bb [1024]byte
-	for {
-		_, err = r.Read(bb[:])
-		if err != nil {
-			if io.EOF == err {
-				err = nil
-			}
-			break
-		}
+func Drain(r io.Reader) (nread int64, err error) {
+	w := NullWriter{}
+	return CopyTo(&w, r, 0)
+}
+
+//
+// read until n bytes read or no more data to read.
+//
+// if eof reached prior to n bytes read, no error is returned
+//
+func DrainN(r io.Reader, n int64) (nread int64, err error) {
+	w := NullWriter{}
+	limitR := io.LimitedReader{
+		R: r,
+		N: n,
 	}
-	return
+	return CopyTo(&w, &limitR, 0)
 }
