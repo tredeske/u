@@ -1,6 +1,10 @@
 package usync
 
-import "time"
+import (
+	"time"
+
+	"github.com/tredeske/u/ulog"
+)
 
 //
 // Ignore any panics.
@@ -9,6 +13,36 @@ import "time"
 //
 func IgnorePanic() {
 	recover()
+}
+
+//
+// Log any panics.
+//
+// Use: defer usync.LogPanic()
+//
+func LogPanic(msg string) {
+	if it := recover(); it != nil {
+		if 0 != len(msg) {
+			ulog.Printf("PANIC: %s: %s", msg, it)
+		} else {
+			ulog.Printf("PANIC: %s", it)
+		}
+	}
+}
+
+//
+// Log any panics and exit the program.
+//
+// Use: defer usync.FatalPanic()
+//
+func FatalPanic(msg string) {
+	if it := recover(); it != nil {
+		if 0 != len(msg) {
+			ulog.Fatalf("PANIC: %s: %s", msg, it)
+		} else {
+			ulog.Fatalf("PANIC: %s", it)
+		}
+	}
 }
 
 //

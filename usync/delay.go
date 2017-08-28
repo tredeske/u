@@ -1,6 +1,10 @@
 package usync
 
-import "time"
+import (
+	"time"
+
+	"github.com/tredeske/u/ulog"
+)
 
 //
 // All values added to Delayer are wrapped in one of these so that delay time
@@ -18,6 +22,7 @@ type Delayed struct {
 // Delays things
 //
 type Delayer struct {
+	Name      string                  //
 	Cap       int                     // capacity - max items to hold
 	Delay     time.Duration           // amount of time to delay each item
 	InC       chan Delayed            // where to put things, or use Put() methods
@@ -71,6 +76,7 @@ func (this Delayer) Close() {
 // All items will be discarded and all delays cancelled
 //
 func (this Delayer) Shutdown() {
+	defer LogPanic("shutting down sync.Delayer")
 	close(this.shutdownC)
 	close(this.InC)
 }
@@ -102,6 +108,15 @@ func (this Delayer) Plug() {
 // main loop
 //
 func (this Delayer) run() {
+
+	if 0 == len(this.Name) {
+		this.Name = "Delayer"
+	}
+	defer func() {
+		if it := recover(); nil != it {
+			ulog.Warnf("%s: delayer panic: %s", this.Name, it)
+		}
+	}()
 
 	var timer *time.Timer
 	var delayed Delayed

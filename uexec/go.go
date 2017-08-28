@@ -8,12 +8,18 @@ import (
 
 // print out error in case of failure of goroutine
 func SelfGo(name string, fn func() error) {
+	var err error
+	defer func() {
+		if err != nil {
+			ulog.Fatalf("%s: Goroutine failed: %s", name, err)
+		} else if it := recover(); it != nil {
+			ulog.Fatalf("%s: Goroutine panic: %s", name, it)
+		}
+	}()
+
 	log.Printf("%s: starting", name)
-	err := fn()
+	err = fn()
 	log.Printf("%s: done", name)
-	if err != nil {
-		ulog.Fatalf("%s: Goroutine failed: %s", name, err.Error())
-	}
 }
 
 // print out error in case of failure of goroutine

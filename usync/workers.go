@@ -1,6 +1,7 @@
 package usync
 
 import (
+	"log"
 	"sync"
 	"time"
 )
@@ -30,6 +31,14 @@ type Workers struct {
 	RequestC ItChan         // where to post requests to be worked on
 	drain    AtomicBool     //
 	wg       sync.WaitGroup //
+
+	//
+	// if this is set, call whenever a goroutine panics
+	// if this returns true, then cause the worker to end
+	//
+	// if this is not set, panic will be captured and logged, and worker will end
+	//
+	OnPanic func(cause interface{}) (die bool)
 }
 
 //
@@ -48,11 +57,31 @@ func (this *Workers) Go(workers int, work func(interface{})) {
 	//
 	for i := 0; i < workers; i++ {
 		go func() {
-			defer this.wg.Done()
+			defer func() {
+				this.wg.Done()
+				if it := recover(); nil != it {
+					log.Printf("WARN: sync.Worker panic: %s", it)
+				}
+			}()
 			for req := range this.RequestC {
 
 				if !this.drain.IsSet() { // don't do any work if draining
-					work(req)
+					if nil != this.OnPanic {
+						die := false
+						func() {
+							defer func() {
+								if it := recover(); it != nil {
+									die = this.OnPanic(it)
+								}
+							}()
+							work(req)
+						}()
+						if die {
+							break
+						}
+					} else {
+						work(req)
+					}
 				}
 			}
 		}()
