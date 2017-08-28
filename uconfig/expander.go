@@ -128,32 +128,34 @@ func (this expander_) addAll(m map[string]string) (err error) {
 //
 func (this expander_) stringMapInclude(in map[string]string) (err error) {
 
-	includeF, found := in[include_]
-	if !found {
-		return
-	}
-
-	includeF = this.expand(includeF)
-
-	var included map[string]interface{}
-	err = YamlLoad(includeF, &included)
-	if err != nil {
-		return
-	}
-
 	recur := false
-	for k, v := range included {
-		if include_ == k {
-			recur = true
+	for k, includeF := range in {
+		if !strings.HasPrefix(k, include_) {
+			continue
 		}
-		_, found = in[k]
-		if !found {
-			str, converted := asString(v, false)
-			if !converted {
-				err = fmt.Errorf("Unable to convert value to string: %#v", v)
-				return
+		delete(in, k)
+
+		includeF = this.expand(includeF)
+
+		var included map[string]interface{}
+		err = YamlLoad(includeF, &included)
+		if err != nil {
+			return
+		}
+
+		for k, v := range included {
+			if strings.HasPrefix(k, include_) {
+				recur = true
 			}
-			this[k] = str
+			_, found := in[k]
+			if !found {
+				str, converted := asString(v, false)
+				if !converted {
+					err = fmt.Errorf("Unable to convert value to string: %#v", v)
+					return
+				}
+				this[k] = str
+			}
 		}
 	}
 	if recur {
