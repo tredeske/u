@@ -95,72 +95,64 @@ func (this expander_) clone() (rv expander_) {
 func (this expander_) addAll(m map[string]string) (err error) {
 
 	//
-	// do not expand here as we need to plop the new values in before
-	// doing any expansion
+	// add in any regular entries and record any includes
 	//
+	var includes []string
 	for k, v := range m {
-		this[k] = v
-	}
-
-	err = this.stringMapInclude(m)
-	if err != nil {
-		return
+		if strings.HasPrefix(k, include_) {
+			includes = append(includes, v)
+		} else {
+			this[k] = v
+		}
 	}
 
 	//
-	// resolve any substitutions
+	// try to do some expansion
 	//
-	for k, v := range this {
-		if strings.Contains(v, "{{") {
-			this[k] = this.expand(v)
-		}
-	}
-	for k, v := range this { // and again
-		if strings.Contains(v, "{{") {
-			this[k] = this.expand(v)
-		}
-	}
-	return
-}
+	this.expandAll()
+	this.expandAll()
 
-//
-// allow a map to be enriched by including another from file
-//
-func (this expander_) stringMapInclude(in map[string]string) (err error) {
-
-	recur := false
-	for k, includeF := range in {
-		if !strings.HasPrefix(k, include_) {
-			continue
-		}
-		delete(in, k)
-
-		includeF = this.expand(includeF)
-
-		var included map[string]interface{}
-		err = YamlLoad(includeF, &included)
+	//
+	// add in any includes using depth first
+	//
+	for _, include := range includes {
+		includeF := this.expand(include)
+		err = this.loadInclude(includeF)
 		if err != nil {
 			return
 		}
+	}
 
-		for k, v := range included {
-			if strings.HasPrefix(k, include_) {
-				recur = true
-			}
-			_, found := in[k]
-			if !found {
-				str, converted := asString(v, false)
-				if !converted {
-					err = fmt.Errorf("Unable to convert value to string: %#v", v)
-					return
-				}
-				this[k] = str
-			}
+	//
+	// just in case
+	//
+	this.expandAll()
+	this.expandAll()
+	return
+}
+
+func (this expander_) expandAll() {
+	for k, v := range this {
+		this[k] = this.expand(v)
+	}
+}
+
+func (this expander_) loadInclude(includeF string) (err error) {
+	var included map[string]interface{}
+	err = YamlLoad(includeF, &included)
+	if err != nil {
+		return
+	}
+	m := make(map[string]string)
+	for k, v := range included {
+		str, converted := asString(v, false)
+		if !converted {
+			err = fmt.Errorf("Unable to convert value to string: %#v", v)
+			return
 		}
+		m[k] = str
 	}
-	if recur {
-		err = this.stringMapInclude(in)
-	}
+	err = this.addAll(m) ////////// recurse
 	return
 }
 
