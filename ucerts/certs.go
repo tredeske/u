@@ -105,7 +105,7 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 		Set("default", true)
 	p.NewItem("tlsClientAuth",
 		"string",
-		"(server) One of: noClientCert, requestClientCert, RequireAnyClientCert, verifyClientCirtIfGiven, requireAndVerifyClientCert").
+		"(server) One of: noClientCert, requestClientCert, requireAnyClientCert, verifyClientCertIfGiven, requireAndVerifyClientCert").
 		Set("default", "noClientCert")
 	p.NewItem("privateKey", "string", "Path to PEM").SetOptional()
 	p.NewItem("publicCert", "string", "Path to PEM").SetOptional()
