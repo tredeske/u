@@ -11,7 +11,18 @@ import (
 //
 // expander expands ${...} with ENV vars and {{...}} with properties
 //
-type expander_ map[string]string
+type expander_ struct {
+	watch   *Watch
+	mapping map[string]string
+}
+
+func (this *expander_) Set(key, value string) {
+	this.mapping[key] = value
+}
+
+func (this expander_) Get(key string) (rv string) {
+	return this.mapping[key]
+}
 
 func (this *expander_) expand(value string) (rv string) {
 	if strings.Contains(value, "${") {
@@ -40,7 +51,7 @@ func (this *expander_) expand(value string) (rv string) {
 // carefully expand each individual {{...}} group.  if one doesn't expand,
 // then put it in unexpanded.
 //
-func (this expander_) carefully(buff *bytes.Buffer, value string) {
+func (this *expander_) carefully(buff *bytes.Buffer, value string) {
 
 	pos := 0
 	for {
@@ -64,7 +75,7 @@ func (this expander_) carefully(buff *bytes.Buffer, value string) {
 			continue
 		}
 		pos := buff.Len()
-		err = t.Execute(buff, this)
+		err = t.Execute(buff, this.mapping)
 		if err != nil { // not resolved - just put in template text
 			buff.Truncate(pos)
 			buff.WriteString(tstring)
@@ -73,26 +84,32 @@ func (this expander_) carefully(buff *bytes.Buffer, value string) {
 	buff.WriteString(value[pos:])
 }
 
-func newExpander() (rv expander_) {
-	rv = make(map[string]string)
-	if user, home := UserInfo(); "" != user {
-		rv["user"] = user
-		rv["home"] = home
+func newExpander(watch *Watch) (rv expander_) {
+	if nil == watch {
+		watch = &Watch{}
 	}
-	rv["installDir"] = InstallD
-	rv["initDir"] = InitD
-	rv["host"] = ThisHost
-	rv["processName"] = ThisProcess
+	rv = expander_{
+		mapping: make(map[string]string),
+		watch:   watch,
+	}
+	if user, home := UserInfo(); "" != user {
+		rv.mapping["user"] = user
+		rv.mapping["home"] = home
+	}
+	rv.mapping["installDir"] = InstallD
+	rv.mapping["initDir"] = InitD
+	rv.mapping["host"] = ThisHost
+	rv.mapping["processName"] = ThisProcess
 	return
 }
 
-func (this expander_) clone() (rv expander_) {
-	rv = newExpander()
-	rv.addAll(this)
+func (this *expander_) clone() (rv expander_) {
+	rv = newExpander(this.watch)
+	rv.addAll(this.mapping)
 	return
 }
 
-func (this expander_) addAll(m map[string]string) (err error) {
+func (this *expander_) addAll(m map[string]string) (err error) {
 
 	//
 	// add in any regular entries and record any includes
@@ -102,7 +119,7 @@ func (this expander_) addAll(m map[string]string) (err error) {
 		if strings.HasPrefix(k, include_) {
 			includes = append(includes, v)
 		} else {
-			this[k] = v
+			this.mapping[k] = v
 		}
 	}
 
@@ -131,13 +148,14 @@ func (this expander_) addAll(m map[string]string) (err error) {
 	return
 }
 
-func (this expander_) expandAll() {
-	for k, v := range this {
-		this[k] = this.expand(v)
+func (this *expander_) expandAll() {
+	for k, v := range this.mapping {
+		this.mapping[k] = this.expand(v)
 	}
 }
 
-func (this expander_) loadInclude(includeF string) (err error) {
+func (this *expander_) loadInclude(includeF string) (err error) {
+	this.watch.Add(includeF)
 	var included map[string]interface{}
 	err = YamlLoad(includeF, &included)
 	if err != nil {
@@ -157,5 +175,5 @@ func (this expander_) loadInclude(includeF string) (err error) {
 }
 
 func (this expander_) Dump() (rv string) {
-	return fmt.Sprintf("%#v", this)
+	return fmt.Sprintf("%#v", this.mapping)
 }

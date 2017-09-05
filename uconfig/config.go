@@ -80,9 +80,10 @@ type Array struct {
 // or map[string]interface{}
 //
 func NewSection(it interface{}) (rv *Section, err error) {
+	watch := &Watch{}
 	tmp := Section{
-		expander: newExpander(),
-		watch:    &Watch{},
+		expander: newExpander(watch),
+		watch:    watch,
 	}
 	return tmp.NewChild(it)
 }
@@ -360,7 +361,7 @@ func (this *Section) Add(key string, value interface{}) {
 // add a substitution to the section.  the substitution will be expanded.
 func (this *Section) AddSub(key, value string) {
 	expanded := this.Expand(value)
-	this.expander[key] = expanded
+	this.expander.Set(key, expanded)
 }
 
 // add the substitutions to the section.  the substitutions will be expanded.
@@ -372,17 +373,17 @@ func (this *Section) AddSubs(substs map[string]string) {
 
 // get the substitution
 func (this *Section) Sub(key string) string {
-	return this.expander[key]
+	return this.expander.Get(key)
 }
 
 // get the substitution map
 func (this *Section) Subs() map[string]string {
-	return this.expander
+	return this.expander.mapping
 }
 
 // get a copy of the substitution map
 func (this *Section) CloneSubs() map[string]string {
-	return this.expander.clone()
+	return this.expander.clone().mapping
 }
 
 // expand the text using the substitutions available in this section
