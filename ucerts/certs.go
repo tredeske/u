@@ -112,13 +112,14 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	p.NewItem("caCerts", "string", "Path to PEM").SetOptional()
 	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2").Set("default", "1.2")
 	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2").SetOptional()
+	p.NewItem("tlsServerName", "string", "(client)Name of server").SetOptional()
 }
 
 //
 // Build a tls.Config
 //
 func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
-	var cacerts, privateKey, publicCert, clientAuth, tlsMax string
+	var cacerts, privateKey, publicCert, clientAuth, serverName, tlsMax string
 	tlsMin := "1.2"
 	insecureSkipVerify := false
 	preferServerCipherSuites := true
@@ -129,6 +130,7 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			GetBool("tlsDisableSessionTickets", &sessionTicketsDisabled).
 			GetBool("tlsPreferServerCiphers", &preferServerCipherSuites).
 			GetString("tlsClientAuth", &clientAuth).
+			GetString("tlsServerName", &serverName).
 			GetString("privateKey", &privateKey).
 			GetString("publicCert", &publicCert).
 			GetString("caCerts", &cacerts).
@@ -139,7 +141,9 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			return
 		}
 	}
-	tlsConfig := &tls.Config{}
+	tlsConfig := &tls.Config{
+		ServerName: serverName,
+	}
 	if 0 != len(cacerts) || 0 != len(privateKey) {
 		err = Load(privateKey, publicCert, cacerts, tlsConfig)
 		if err != nil {
