@@ -66,8 +66,8 @@ func TestFdsOpen(t *testing.T) {
 	}
 
 	pipeFds := len(fds)
-	if pipeFds != initFds+4 {
-		t.Fatalf("Should only be 4 additional fds.  Instead %d -> %d",
+	if pipeFds > initFds+7 {
+		t.Fatalf("Should only be 7 additional fds.  Instead %d -> %d",
 			initFds, pipeFds)
 	}
 
@@ -80,7 +80,7 @@ func TestFdsOpen(t *testing.T) {
 		t.Fatalf("Unable to determine open files: %s", err)
 	}
 
-	if len(fds) != initFds+1 {
+	if len(fds) > initFds+1 {
 		t.Fatalf("Too many fds: %d vs %d", len(fds), initFds+1)
 	}
 }
