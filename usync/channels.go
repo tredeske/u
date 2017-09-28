@@ -169,43 +169,9 @@ func (this ItChan) Put(it interface{}) {
 // closed it, but there are sometimes cases where this is not true
 //
 func (this ItChan) PutRecover(it interface{}) (ok bool) {
-	defer func() {
-		ok = (nil == recover())
-	}()
+	defer recover()
 	this <- it
 	ok = true
-	return
-}
-
-//
-// try to put an item into this without waiting, returning OK if successful
-//
-func (this ItChan) PutTry(it interface{}) (ok bool) {
-	select {
-	case this <- it:
-		ok = true
-	default:
-	}
-	return
-}
-
-//
-// try to put an item into this without waiting, returning OK if successful
-//
-// in case chan closed, recover and return false
-//
-// in general, the writer should 'know' the chan is closed because they
-// closed it, but there are sometimes cases where this is not true
-//
-func (this ItChan) PutTryRecover(it interface{}) (ok bool) {
-	defer func() {
-		ok = (nil == recover())
-	}()
-	select {
-	case this <- it:
-		ok = true
-	default:
-	}
 	return
 }
 
@@ -214,14 +180,18 @@ func (this ItChan) PutTryRecover(it interface{}) (ok bool) {
 // returning OK if successful
 //
 func (this ItChan) PutWait(it interface{}, d time.Duration) (ok bool) {
-	ok = this.PutTry(it)
-	if !ok && 0 != d {
-		t := time.NewTimer(d)
-		select {
-		case this <- it:
-			ok = true
-			t.Stop()
-		case <-t.C:
+	select {
+	case this <- it:
+		ok = true
+	default:
+		if 0 != d {
+			t := time.NewTimer(d)
+			select {
+			case this <- it:
+				ok = true
+				t.Stop()
+			case <-t.C:
+			}
 		}
 	}
 	return
@@ -235,18 +205,6 @@ func (this ItChan) PutWait(it interface{}, d time.Duration) (ok bool) {
 // closed it, but there are sometimes cases where this is not true
 //
 func (this ItChan) PutWaitRecover(it interface{}, d time.Duration) (ok bool) {
-	ok = this.PutTryRecover(it)
-	if !ok && 0 != d {
-		defer func() {
-			ok = (nil == recover())
-		}()
-		t := time.NewTimer(d)
-		select {
-		case this <- it:
-			ok = true
-			t.Stop()
-		case <-t.C:
-		}
-	}
-	return
+	defer recover()
+	return this.PutWait(it, d)
 }

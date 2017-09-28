@@ -207,27 +207,9 @@ func (this Delayer) Put(it interface{}) {
 //
 // the item is automatically wrapped in a Delayed
 //
-func (this Delayer) PutRecover(it interface{}) (ok bool) {
-	defer func() {
-		ok = (nil == recover())
-	}()
-	this.InC <- this.Wrap(it)
-	ok = true
-	return
-}
-
-//
-// try to put an item into this without waiting, returning OK if successful
-//
-// the item is automatically wrapped in a Delayed
-//
-func (this Delayer) PutTry(it interface{}) (ok bool) {
-	select {
-	case this.InC <- this.Wrap(it):
-		ok = true
-	default:
-	}
-	return
+func (this Delayer) PutWaitRecover(it interface{}, timeout time.Duration) (ok bool) {
+	defer recover()
+	return this.PutWait(it, timeout)
 }
 
 //
@@ -237,15 +219,19 @@ func (this Delayer) PutTry(it interface{}) (ok bool) {
 // the item is automatically wrapped in a Delayed
 //
 func (this Delayer) PutWait(it interface{}, d time.Duration) (ok bool) {
-	ok = this.PutTry(it)
-	if !ok && 0 != d {
-		t := time.NewTimer(d)
-		select {
-		case this.InC <- this.Wrap(it):
-			ok = true
-		case <-t.C:
+	select {
+	case this.InC <- this.Wrap(it):
+		ok = true
+	default:
+		if 0 != d {
+			t := time.NewTimer(d)
+			select {
+			case this.InC <- this.Wrap(it):
+				ok = true
+			case <-t.C:
+			}
+			t.Stop()
 		}
-		t.Stop()
 	}
 	return
 }

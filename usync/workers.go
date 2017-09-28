@@ -97,16 +97,12 @@ func (this *Workers) Go(workers int, factory func() (work WorkF)) {
 	}
 }
 
-func (this Workers) PutRecover(req interface{}) (ok bool) {
-	return this.RequestC.PutRecover(req)
+func (this Workers) PutWaitRecover(req interface{}, wait time.Duration) (ok bool) {
+	return this.RequestC.PutWaitRecover(req, wait)
 }
 
 func (this Workers) Put(req interface{}) {
 	this.RequestC <- req
-}
-
-func (this Workers) PutTry(req interface{}) (ok bool) {
-	return this.RequestC.PutTry(req)
 }
 
 func (this Workers) PutWait(req interface{}, d time.Duration) (ok bool) {
