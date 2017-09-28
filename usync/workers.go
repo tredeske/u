@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+type WorkF func(interface{})
+
 //
 // A pool of workers
 //
@@ -44,7 +46,7 @@ type Workers struct {
 //
 // start N workers to perform processing
 //
-func (this *Workers) Go(workers int, work func(interface{})) {
+func (this *Workers) Go(workers int, factory func() (work WorkF)) {
 
 	if nil == this.RequestC {
 		this.RequestC = make(chan interface{}, workers*2)
@@ -56,7 +58,7 @@ func (this *Workers) Go(workers int, work func(interface{})) {
 	// the workers
 	//
 	for i := 0; i < workers; i++ {
-		go func() {
+		go func(work func(interface{})) {
 			defer func() {
 				this.wg.Done()
 				if it := recover(); nil != it {
@@ -84,7 +86,7 @@ func (this *Workers) Go(workers int, work func(interface{})) {
 					}
 				}
 			}
-		}()
+		}(factory())
 	}
 
 	if nil != this.OnDone {
@@ -247,12 +249,14 @@ func (this *WorkGang) Work(workers int) {
 
 	this.Pool.Go(workers,
 
-		func(req interface{}) {
-			resp, ok := this.OnRequest(req)
-			if !ok {
-				this.Pool.Drain()
-			} else {
-				responseC <- resp
+		func() WorkF {
+			return func(req interface{}) {
+				resp, ok := this.OnRequest(req)
+				if !ok {
+					this.Pool.Drain()
+				} else {
+					responseC <- resp
+				}
 			}
 		})
 

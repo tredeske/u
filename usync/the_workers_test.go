@@ -9,8 +9,10 @@ func TestWorkers(t *testing.T) {
 
 	pool.Go(2,
 
-		func(req interface{}) {
-			ai.Add(1)
+		func() WorkF {
+			return func(req interface{}) {
+				ai.Add(1)
+			}
 		})
 
 	if pool.IsDrained() {
