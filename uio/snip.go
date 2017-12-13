@@ -26,7 +26,7 @@ type SnipReader struct {
 //
 // suggested Marker to use for SnipReader
 //
-var Marker = []byte("\n...SNIP!...\n")
+var SnipMarker = []byte("\n...SNIP!...\n")
 
 //
 // implement io.Reader
