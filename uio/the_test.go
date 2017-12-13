@@ -2,6 +2,8 @@ package uio
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"testing"
@@ -115,4 +117,45 @@ func TestCopy(t *testing.T) {
 		t.Fatalf("Received invalid string: '%s' should be '%s'",
 			dstBB.String(), text)
 	}
+}
+
+//
+//
+//
+func TestSnip(t *testing.T) {
+
+	marker := []byte("\n\n")
+
+	for test, lines := range []int{5, 50, 500} {
+
+		var src, dst bytes.Buffer
+		for i := 0; i < lines; i++ {
+			fmt.Fprintf(&src, "%d.%d: We control the vertical and the horizontal\n",
+				test, i)
+		}
+		srcLen := src.Len()
+
+		snip := SnipReader{
+			R:      &src,
+			N:      srcLen / 3,
+			NTail:  srcLen / 6,
+			Marker: marker,
+		}
+		expectedLen := len(marker) + snip.N
+
+		_, err := io.Copy(&dst, &snip)
+		if err != nil {
+			t.Fatalf("%d: Copy using snip failed: %s", test, err)
+
+		} else if expectedLen != dst.Len() {
+			t.Fatalf("%d: Copied %d bytes, but expected %d!\n%s", test,
+				dst.Len(), expectedLen, dst.Bytes())
+
+		}
+
+		//fmt.Printf("%d: srclen=%d, dstlen=%d\n", test, srcLen, dst.Len())
+
+		//fmt.Println(dst.String())
+	}
+
 }
