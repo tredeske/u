@@ -51,7 +51,7 @@ func Dedup(a []string) (rv []string) {
 //
 // remove duplicate strings, preserving order, modifying source
 //
-func DedupInPlace(a *[]string) {
+func DedupInPlace(a *[]string) (dups int) {
 	sz := len(*a)
 	if 2 > sz {
 		return
@@ -61,6 +61,7 @@ func DedupInPlace(a *[]string) {
 		s := (*a)[i]
 		for j := last; j > i; j-- {
 			if s == (*a)[j] { // found a dup - remove it
+				dups++
 				if j == last {
 					(*a) = (*a)[:last]
 				} else {
@@ -70,6 +71,7 @@ func DedupInPlace(a *[]string) {
 			}
 		}
 	}
+	return
 }
 
 //
