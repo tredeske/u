@@ -1,6 +1,8 @@
 package uerr
 
-import "fmt"
+import (
+	"fmt"
+)
 
 //
 // Enables chaining errors
@@ -29,6 +31,7 @@ type Error struct {
 	Message string
 	Code    int
 	Cause   error
+	Also    error
 }
 
 //
@@ -44,6 +47,25 @@ func Errorcf(code int, err error, format string, args ...interface{}) *Error {
 	return this.Chainf(format, args...)
 }
 */
+
+//
+// create a new error based on marker and cause, adding additional info
+//
+// this is useful if an error occurs (cause) and you want to mark the error
+// as being of a certain type (marker)
+//
+func ChainMarkf(cause, marker error, format string, args ...interface{}) *Error {
+	if nil == cause {
+		return Chainf(marker, format, args...)
+	}
+	this := &Error{
+		Cause:   cause,
+		Also:    marker,
+		Message: cause.Error(),
+	}
+	this.Chainf(marker.Error())
+	return this.Chainf(format, args...)
+}
 
 //
 // create a new error based on cause, adding additional info
@@ -84,7 +106,7 @@ func (this *Error) Chainf(format string, args ...interface{}) *Error {
 func (this *Error) CausedBy(err error) (rv bool) {
 	if nil == err {
 		rv = false
-	} else if err == this || err == this.Cause {
+	} else if err == this || err == this.Cause || err == this.Also {
 		rv = true
 	} else if nil != this.Cause {
 		if eerror, ok := this.Cause.(*Error); ok {
@@ -122,6 +144,12 @@ func CauseMatches(err error, matchF func(err error) bool) (rv bool) {
 		eerror, isUerrError := err.(*Error)
 		if !isUerrError {
 			break
+		}
+		if nil != eerror.Also {
+			rv = matchF(eerror.Also)
+			if rv {
+				break
+			}
 		}
 		err = eerror.Cause
 		if nil == err {

@@ -42,6 +42,14 @@ func (this *Help) SetOptional() (rv *Help) {
 }
 
 //
+// Set default on the current help
+//
+func (this *Help) SetDefault(value interface{}) (rv *Help) {
+	*this = append(*this, yaml.MapItem{"default", value})
+	return this
+}
+
+//
 // Set something on the current help
 //
 func (this *Help) Set(key string, value interface{}) (rv *Help) {
