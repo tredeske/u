@@ -44,10 +44,26 @@ func (this *Unstartable) StartGolum(name string) (err error) {
 //
 // default impl for Managers that do not support stop
 //
+type IgnoreStop struct{}
+
+func (this *IgnoreStop) StopGolum(name string) {}
+
+//
+// default impl for Managers that do not support stop
+//
 type Unstoppable struct{}
 
 func (this *Unstoppable) StopGolum(name string) {
 	ulog.Warnf("Cannot stop %s", name)
+}
+
+//
+// default impl for Managers that do not support reload
+//
+type IgnoreReload struct{}
+
+func (this *IgnoreReload) ReloadGolum(name string, c *uconfig.Section) (err error) {
+	return
 }
 
 //

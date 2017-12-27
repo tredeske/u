@@ -156,8 +156,14 @@ func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 //
 // coerce nil, string, []byte, or map into correct section map type
 //
-// if it is a string, then it is taken as a filename to load if the string
-// resolves to a valid filename, or, if not, as YAML to be parsed
+// if it is a nil or empty string, then this resolves to an empty map.
+//
+// if it is a []byte, then it is parsed as YAML.
+//
+// if it is a map, the map is coerced into the right type.
+//
+// if it is a string, it it looked up as a filename.  if no such file, then
+// it is parsed as YAML.  otherwise, the file contents are parsed as YAML.
 //
 func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err error) {
 
