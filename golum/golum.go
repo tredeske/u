@@ -172,6 +172,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 	return
 }
 
+//
 // load and start the components
 //
 func LoadAndStart(configs *uconfig.Array) (err error) {
@@ -182,6 +183,19 @@ func LoadAndStart(configs *uconfig.Array) (err error) {
 	return loaded.Start()
 }
 
+//
+// Unload and stop the specified component
+//
+func Unload(name string) (unloaded bool) {
+	g, ok := golums_[name]
+	if !ok {
+		return false
+	}
+	stopGolum(g)
+	return true
+}
+
+//
 // start the loaded components
 //
 func (this *Loaded) Start() (err error) {
