@@ -24,7 +24,7 @@ func TestFileCreateExistsRemove(t *testing.T) {
 	}
 
 	if !FileExists(file) {
-		t.Fatalf("File %s does not exist!")
+		t.Fatalf("File %s does not exist!", file)
 	}
 
 	err = FileRemoveAll(file)
@@ -33,7 +33,7 @@ func TestFileCreateExistsRemove(t *testing.T) {
 	}
 
 	if FileExists(file) {
-		t.Fatalf("File %s still exists!")
+		t.Fatalf("File %s still exists!", file)
 	}
 }
 

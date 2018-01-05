@@ -16,8 +16,8 @@ type Help yaml.MapSlice
 //
 func (this *Help) Init(name, note string) (rv *Help) {
 	params := &Help{}
-	*this = append(*this, yaml.MapItem{name, note},
-		yaml.MapItem{"params", params})
+	*this = append(*this, yaml.MapItem{Key: name, Value: note},
+		yaml.MapItem{Key: "params", Value: params})
 	return params
 }
 
@@ -26,10 +26,10 @@ func (this *Help) Init(name, note string) (rv *Help) {
 //
 func (this *Help) NewItem(name, theType, note string) (rv *Help) {
 	rv = &Help{
-		{"type", theType},
-		{"note", note},
+		{Key: "type", Value: theType},
+		{Key: "note", Value: note},
 	}
-	*this = append(*this, yaml.MapItem{name, rv})
+	*this = append(*this, yaml.MapItem{Key: name, Value: rv})
 	return
 }
 
@@ -37,7 +37,7 @@ func (this *Help) NewItem(name, theType, note string) (rv *Help) {
 // Mark the current help item as optional
 //
 func (this *Help) SetOptional() (rv *Help) {
-	*this = append(*this, yaml.MapItem{"optional", true})
+	*this = append(*this, yaml.MapItem{Key: "optional", Value: true})
 	return this
 }
 
@@ -45,7 +45,7 @@ func (this *Help) SetOptional() (rv *Help) {
 // Set default on the current help
 //
 func (this *Help) SetDefault(value interface{}) (rv *Help) {
-	*this = append(*this, yaml.MapItem{"default", value})
+	*this = append(*this, yaml.MapItem{Key: "default", Value: value})
 	return this
 }
 
@@ -53,7 +53,7 @@ func (this *Help) SetDefault(value interface{}) (rv *Help) {
 // Set something on the current help
 //
 func (this *Help) Set(key string, value interface{}) (rv *Help) {
-	*this = append(*this, yaml.MapItem{key, value})
+	*this = append(*this, yaml.MapItem{Key: key, Value: value})
 	return this
 }
 
@@ -65,7 +65,7 @@ func (this *Help) AddSub(title string) (sub *Help) {
 		title = "sub"
 	}
 	sub = &Help{}
-	*this = append(*this, yaml.MapItem{title, sub})
+	*this = append(*this, yaml.MapItem{Key: title, Value: sub})
 	return sub
 }
 

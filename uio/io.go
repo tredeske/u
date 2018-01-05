@@ -3,8 +3,6 @@ package uio
 import (
 	"errors"
 	"io"
-
-	"github.com/rcrowley/go-metrics"
 )
 
 //
@@ -12,8 +10,9 @@ import (
 // reports progress
 //
 type ObservableReader struct {
-	R     io.Reader     // underlying reader
-	Meter metrics.Meter // if set, record rate
+	R io.Reader         // underlying reader
+	F func(nread int64) // used to report metrics
+	//Meter metrics.Meter // if set, record rate
 }
 
 // implement io.Reader
@@ -21,8 +20,8 @@ func (this *ObservableReader) Read(p []byte) (nread int, err error) {
 
 	nread, err = this.R.Read(p)
 
-	if nil != this.Meter && 0 != nread {
-		this.Meter.Mark(int64(nread))
+	if nil != this.F && 0 != nread {
+		this.F(int64(nread))
 	}
 	return
 }

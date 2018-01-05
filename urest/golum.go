@@ -61,15 +61,24 @@ func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 		Timeout:   67 * time.Second,
 		KeepAlive: 67 * time.Second,
 	}
-	httpTransport := &http.Transport{}
-	*httpTransport = *(http.DefaultTransport.(*http.Transport))
-	httpTransport.TLSHandshakeTimeout = 17 * time.Second
-	/*
-		httpTransport := &http.Transport{
-			Proxy:               http.ProxyFromEnvironment,
-			TLSHandshakeTimeout: 17 * time.Second,
-		}
-	*/
+
+	//
+	// wish we could do this, but there is a mutex that gets copied
+	//*httpTransport = *(http.DefaultTransport.(*http.Transport))
+	//
+	httpTransport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   17 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 	httpClient := &http.Client{
 		Transport: httpTransport,
 	}

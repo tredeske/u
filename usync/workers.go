@@ -97,15 +97,15 @@ func (this *Workers) Go(workers int, factory func() (work WorkF)) {
 	}
 }
 
-func (this Workers) PutWaitRecover(req interface{}, wait time.Duration) (ok bool) {
+func (this *Workers) PutWaitRecover(req interface{}, wait time.Duration) (ok bool) {
 	return this.RequestC.PutWaitRecover(req, wait)
 }
 
-func (this Workers) Put(req interface{}) {
+func (this *Workers) Put(req interface{}) {
 	this.RequestC <- req
 }
 
-func (this Workers) PutWait(req interface{}, d time.Duration) (ok bool) {
+func (this *Workers) PutWait(req interface{}, d time.Duration) (ok bool) {
 	return this.RequestC.PutWait(req, d)
 }
 
@@ -129,28 +129,28 @@ func (this *Workers) Plug() {
 //
 // Return true if drained.  This can only be true if Drain is set.
 //
-func (this Workers) IsDrained() bool {
+func (this *Workers) IsDrained() bool {
 	return this.drain.IsSet() && 0 == len(this.RequestC)
 }
 
 //
 // Return true when drained.  This can only occur if Drain is set.
 //
-func (this Workers) WaitDrained(deadline time.Duration) bool {
+func (this *Workers) WaitDrained(deadline time.Duration) bool {
 	return AwaitTrue(deadline, 0, this.IsDrained)
 }
 
 //
 // Return true if requestC currently empty
 //
-func (this Workers) IsEmpty() bool {
+func (this *Workers) IsEmpty() bool {
 	return 0 == len(this.RequestC)
 }
 
 //
 // did someone set Drain?
 //
-func (this Workers) IsDraining() bool {
+func (this *Workers) IsDraining() bool {
 	return this.drain.IsSet()
 }
 

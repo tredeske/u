@@ -279,6 +279,6 @@ func TestPath(t *testing.T) {
 	doesNotExist := ""
 	err = s.GetCreateDir("doesNotExist", &doesNotExist, 02775)
 	if nil == err {
-		t.Fatal("Should have errored since '%s' empty", doesNotExist)
+		t.Fatalf("Should have errored since '%s' empty", doesNotExist)
 	}
 }

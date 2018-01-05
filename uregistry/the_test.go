@@ -63,7 +63,7 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to get 'bval': %s", err)
 	} else if !bval {
-		t.Fatalf("No value expected for 'bval', got '%s'", bval)
+		t.Fatalf("No value expected for 'bval', got '%t'", bval)
 	}
 
 	err = Get("one", &bval) // wrong type

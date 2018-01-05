@@ -115,6 +115,18 @@ func Contains(arr []string, s string) bool {
 }
 
 //
+// Index of string in slice or -1
+//
+func ContainsIndex(arr []string, s string) int {
+	for idx, el := range arr {
+		if el == s {
+			return idx
+		}
+	}
+	return -1
+}
+
+//
 // do any elements of the slice match the expression?
 //
 func Matches(arr []string, re *regexp.Regexp) bool {
