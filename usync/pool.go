@@ -1,142 +1,57 @@
 package usync
 
-/*
-
-import (
-	"sync"
-
-	"github.com/tredeske/u/uconfig"
-)
+import "sync"
 
 //
-// A pool of workers
+// Unlike sync.Pool, this does not lose things
 //
-// Example:
-//    pool := u.WorkPool{}
+// New() will be called while locked, so only one caller at a time will be
+// allowed to use it.
 //
-//    // start a bunch of workers
-//    pool.Go( 2,
-//        func(req interface{}) (resp interface{}) {
-//            ...
-//        })
-//
-//    go func() { // feeder feeds requests to pool
-//        for ... {
-//            pool.RequestC <- ...
-//        }
-//        pool.Close() // feeder closes pool
-//    }()
-//
-//    for resp:= range pool.ResponceC { // collect results
-//        ...
-//    }
-//    pool.Drain()
-//
-type WorkPool struct {
-	stopNow   AtomicBool
-	RequestC  ItChan
-	ResponseC ItChan
+type Pool struct {
+	New    func() interface{} // if set, manufacture a new value
+	lock   sync.Mutex         //
+	values []interface{}      //
 }
 
 //
-// start N workers to perform processing
+// prevent allocation of new objects from this point on
 //
-func (this *WorkPool) Go(workers int, work func(interface{}) interface{}) {
+func (this *Pool) Stop() {
 
-	if nil == this.RequestC {
-		this.RequestC = make(chan interface{}, workers*2)
-	}
-	if nil == this.ResponseC {
-		this.ResponseC = make(chan interface{}, workers*2)
-	}
+	this.lock.Lock()
+	defer this.lock.Unlock()
 
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	//
-	// the workers
-	//
-	for i := 0; i < workers; i++ {
-		go func() {
-			for req := range this.RequestC {
-
-				if this.stopNow.IsSet() { // don't do any work if stopped
-					break
-				}
-
-				resp := work(req)
-				this.ResponseC <- resp
-
-				if this.stopNow.IsSet() { // don't check req chan if stopped
-					break
-				}
-			}
-			wg.Done()
-		}()
-	}
-
-	//
-	// when all workers done, close responseC
-	//
-	go func() {
-		defer IgnorePanic()
-		wg.Wait()
-		close(this.ResponseC)
-	}()
+	this.New = nil
 }
 
 //
-// tell workers to stop immediately.
+// try to get an existing object, or create a new one
 //
-// stop means to not begin any new work and to not check the request chan
-// for more work.
-//
-// this does not close the request chan, so any workers blocked on that chan
-// will remain blocked until Close() is called.
-//
-func (this *WorkPool) StopNow() {
-	this.stopNow.Set()
-}
+func (this *Pool) Get() (rv interface{}) {
 
-//
-// did someone throw the big red switch?
-//
-func (this *WorkPool) IsStopped() bool {
-	return this.stopNow.IsSet()
-}
+	this.lock.Lock()
+	defer this.lock.Unlock()
 
-//
-// Tell the pool there's no more work coming
-//
-// There may be still results being worked on after this
-//
-func (this *WorkPool) Close() {
-	defer IgnorePanic()
-	close(this.RequestC)
-}
-
-//
-// throw away any remaining responses
-//
-func (this *WorkPool) Drain() {
-	for _ = range this.ResponseC {
-	}
-}
-
-//
-// Get the next result nicely.
-//
-// rv needs to be a pointer to the type you want
-//
-// var myStruct *MyStruct // what workers produce
-// var pool WorkPool
-// conversionError := pool.Next( &myStruct ) // ptr to what workers produce
-//
-func (this *WorkPool) Next(rv interface{}) (err error) {
-	resp := <-this.ResponseC
-	if nil != resp {
-		err = uconfig.Assign("worker", rv, resp)
+	if 0 == len(this.values) {
+		if nil != this.New {
+			rv = this.New()
+		}
+	} else {
+		last := len(this.values) - 1
+		rv = this.values[last]
+		this.values = this.values[:last]
 	}
 	return
 }
-*/
+
+//
+// try to get an existing object, or create a new one
+//
+func (this *Pool) Put(v interface{}) {
+
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
+	this.values = append(this.values, v)
+}
