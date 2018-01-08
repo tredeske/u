@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	nurl "net/url"
 	"os"
 	"path/filepath"
@@ -280,9 +279,9 @@ func (this *Section) asYaml() ([]byte, error) {
 func (this *Section) Log() {
 	content, err := this.asYaml()
 	if err != nil {
-		log.Printf("Unable to output config to log: %s", err)
+		ulog.Printf("Unable to output config to log: %s", err)
 	} else {
-		log.Printf("Config:\n%s\n", content)
+		ulog.Printf("Config:\n%s\n", content)
 	}
 }
 
@@ -1069,6 +1068,9 @@ func (this *Array) DumpSubs() string {
 // Enable chaining of config calls
 //
 func (this *Section) Chain() *Chain {
+	if nil == this {
+		panic("chaining off of nil section")
+	}
 	return &Chain{Section: this}
 }
 
