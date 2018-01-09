@@ -164,14 +164,17 @@ func FileLinkOrCopyTo(file, dir string) (dst string, err error) {
 // move file to specified directory, returning new name
 //
 // if dir is on different disk, then a copy is performed, and the original
-// file is removed upon success
+// file is removed upon success.  in the case of copy, the new file is created
+// with a hidden filename, then renamed.
 //
 func FileMoveOrCopyTo(file, dstDir string) (dst string, err error) {
 	dst, err = FileMoveTo(file, dstDir)
-	if err != nil {
-		dst = path.Join(dstDir, path.Base(file))
-		err = FileCopy(file, dst)
+	if err != nil && 0 != len(dst) { // didn't work - try copy
+		base := path.Base(file)
+		dstHidden := path.Join(dstDir, "."+base)
+		err = FileCopy(file, dstHidden)
 		if nil == err {
+			err = os.Rename(dstHidden, dst)
 			FileRemoveAll(file)
 		}
 	}
