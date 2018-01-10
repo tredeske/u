@@ -58,6 +58,16 @@ func Get(key string, rv interface{}) (err error) {
 }
 
 //
+// Simplest/fastest get.  Its on you to convert received thing.
+//
+func GetIt(key string) (rv interface{}) {
+	lock_.RLock()
+	rv = map_[key]
+	lock_.RUnlock()
+	return
+}
+
+//
 // Same as Get(), but also returns whether value was found or not
 //
 func GetOk(key string, rv interface{}) (found bool, err error) {
