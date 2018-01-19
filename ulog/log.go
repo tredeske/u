@@ -15,6 +15,10 @@ func TODO(format string, args ...interface{}) {
 	}
 }
 
+func Println(args ...interface{}) {
+	log.Println(args...)
+}
+
 func Printf(format string, args ...interface{}) {
 	log.Printf(format, args...)
 }

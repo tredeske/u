@@ -7,6 +7,7 @@ import (
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/ulog"
+	"github.com/tredeske/u/uregistry"
 )
 
 //
@@ -31,6 +32,11 @@ type Manager interface {
 	//
 	ReloadGolum(name string, config *uconfig.Section) (err error)
 }
+
+//
+// placeholder for disabled components
+//
+type Disabled struct{}
 
 //
 // default impl for Managers that do not support start
@@ -100,6 +106,7 @@ type golum_ struct {
 	name     string
 	manager  Manager
 	disabled bool
+	hosts    []string
 	config   *uconfig.Section
 }
 
@@ -153,6 +160,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 		}
 		if g.disabled {
 			log.Printf("G: Disabled %s", g.name)
+			uregistry.Put(g.name, Disabled{})
 			return
 		}
 		if _, exists := golums_[g.name]; exists {
@@ -284,17 +292,30 @@ func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 		config: &uconfig.Section{},
 	}
 	err = config.Chain().
-		WarnExtraKeys("name", "type", "disabled", "config", "note").
+		WarnExtraKeys("name", "type", "disabled", "config", "hosts", "note").
 		GetValidString("name", "", &g.name).
 		Then(func() { config.NameContext(g.name) }).
 		GetValidString("type", "", &manager).
 		GetBool("disabled", &g.disabled).
+		GetStrings("hosts", &g.hosts).
 		GetSection("config", &g.config).
 		Error
 	if err != nil {
 		return
 	}
 	if !g.disabled {
+		if 0 != len(g.hosts) {
+			g.disabled = true
+			for _, h := range g.hosts {
+				if uconfig.IsThisHost(h) {
+					g.disabled = false
+					break
+				}
+			}
+			if g.disabled {
+				return
+			}
+		}
 		g.manager = managers_[manager]
 		if nil == g.manager {
 			err = fmt.Errorf("No such manager (%s) for %s", manager, g.name)
