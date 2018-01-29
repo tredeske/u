@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+/*
 //
 // default BufferPool to use
 //
@@ -145,6 +146,9 @@ func Copy(dst io.Writer, src io.Reader) (nwrote int64, err error) {
 //
 
 var DefaultBytesPool = (&BytesPool{}).Construct(64 * 1024)
+*/
+
+var DefaultPool = (&BytesPool{}).Construct(64 * 1024)
 
 //
 // implement httputil.BufferPool
@@ -181,4 +185,16 @@ func (this *BytesPool) Get() (rv []byte) {
 //
 func (this *BytesPool) Put(bb []byte) {
 	this.pool.Put(bb[:this.size])
+}
+
+//
+// copy to dst from src using a buffer from this pool
+//
+// just like io.Copy() or io.CopyBuffer
+//
+func (this *BytesPool) Copy(dst io.Writer, src io.Reader) (nwrote int64, err error) {
+	bb := this.Get()
+	nwrote, err = io.CopyBuffer(dst, src, bb)
+	this.Put(bb)
+	return
 }

@@ -2,6 +2,7 @@ package uio
 
 import "testing"
 
+/*
 func TestPool(t *testing.T) {
 
 	p := NewBufferPool(0, 0)
@@ -26,6 +27,7 @@ func TestPool(t *testing.T) {
 	}
 
 }
+*/
 
 func TestBytesPool(t *testing.T) {
 	p := (&BytesPool{}).Construct(0)

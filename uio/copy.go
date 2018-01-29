@@ -8,18 +8,21 @@ import (
 //
 // copy bytes from src io.Reader to dst io.Writer using provided buffer.
 // if srcSz is a positive number, ensure srcSz bytes were copied
-// if no provided buffer, then use a default buffer
+// if no provided buffer, then use a buffer from default pool.
 //
 func CopyBufferTo(dst io.Writer, src io.Reader, srcSz int64, buf []byte,
 ) (amount int64, err error) {
 
-	if 0 == len(buf) {
-		b := DefaultPool.Get()
-		buf = b.B()
-		defer b.Return()
+	mustReturn := 0 == len(buf)
+
+	if mustReturn {
+		buf = DefaultPool.Get()
 	}
 
 	amount, err = io.CopyBuffer(dst, src, buf)
+	if mustReturn {
+		DefaultPool.Put(buf)
+	}
 	if err != nil {
 		return
 	} else if 0 < srcSz && amount != srcSz {
