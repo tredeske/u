@@ -1032,11 +1032,14 @@ func (this *Section) GetStringOk(key string) (string, bool) {
 //
 
 func (this *Array) Len() int {
+	if nil == this {
+		return 0
+	}
 	return len(this.sections)
 }
 
 func (this *Array) Empty() bool {
-	return 0 == len(this.sections)
+	return nil == this || 0 == len(this.sections)
 }
 
 // get the i'th section from this
@@ -1049,13 +1052,16 @@ func (this *Array) Get(i int) *Section {
 }
 
 // iterate through the sections, aborting of visitor returns an error
-func (this *Array) Each(visitor func(int, *Section) error) error {
-	for i, _ := range this.sections {
-		if err := visitor(i, this.Get(i)); err != nil {
-			return err
+func (this *Array) Each(visitor func(int, *Section) error) (err error) {
+	if nil != this {
+		for i, _ := range this.sections {
+			err = visitor(i, this.Get(i))
+			if err != nil {
+				break
+			}
 		}
 	}
-	return nil
+	return
 }
 
 func (this *Array) DumpSubs() string {
