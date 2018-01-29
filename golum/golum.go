@@ -138,20 +138,6 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 	err = configs.Each(func(i int, config *uconfig.Section) (err error) {
 		comp = i
 
-		/* uconfig does this
-
-		// include components from a separate file?
-		//
-		include := ""
-		err = config.GetString("include", &include)
-		if err != nil {
-			return
-		} else if 0 != len(include) {
-			err = loadConfig(include, config, rv)
-			return
-		}
-		*/
-
 		// load component
 		//
 		g, err := loadGolum(config)
@@ -221,6 +207,7 @@ func (this *Loaded) Start() (err error) {
 	return
 }
 
+//
 // reload components, starting any new ones, stopping any deleted ones
 //
 func Reload(configs *uconfig.Array) (err error) {
@@ -346,31 +333,6 @@ func addGolum(g *golum_) (err error) {
 	return
 }
 
-/* uconfig does this
-
-func loadConfig(include string, parent *uconfig.Section, loaded *Loaded,
-) (err error) {
-	childConfig, err := parent.NewChild(include)
-	if err != nil {
-		return err
-	}
-	var comps *uconfig.Array
-	err = childConfig.GetArray("components", &comps)
-	if err != nil {
-		return err
-	}
-	var children *Loaded
-	children, err = Load(comps)
-	if err != nil {
-		return
-	}
-	for _, g := range children.ready {
-		loaded.ready = append(loaded.ready, g)
-	}
-	return
-}
-*/
-
 //
 // -----------------------------------------------------------
 //
@@ -393,6 +355,27 @@ func TestLoadAndStart(config interface{}) (err error) {
 	return
 }
 
+//
+// for test - reload components based on new config
+//
+func TestReload(config interface{}) (err error) {
+
+	s, err := uconfig.NewSection(config)
+	if err != nil {
+		return
+	}
+	var comps *uconfig.Array
+	err = s.GetArray("components", &comps)
+	if err != nil {
+		return
+	}
+	err = Reload(comps)
+	return
+}
+
+//
+// for test - stop named component
+//
 func TestStopComponent(name string) (err error) {
 	g := golums_[name]
 	if nil == g {
@@ -402,6 +385,9 @@ func TestStopComponent(name string) (err error) {
 	return
 }
 
+//
+// for test - reload named component
+//
 func TestReloadComponent(name string) (err error) {
 	g := golums_[name]
 	if nil == g {
