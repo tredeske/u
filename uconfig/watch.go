@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/tredeske/u/uerr"
+	"github.com/tredeske/u/ulog"
+	"github.com/tredeske/u/usync"
 )
 
 //
@@ -18,7 +20,9 @@ type Watch struct {
 }
 
 //
+// add a file to watch
 //
+// we may get files to add prior to being started
 //
 func (this *Watch) Add(file string) {
 	this.lock.Lock()
@@ -35,8 +39,7 @@ func (this *Watch) Add(file string) {
 //
 func (this *Watch) Stop() {
 	if nil != this.filesC {
-		close(this.filesC)
-		this.filesC = nil
+		usync.IgnorePanicIn(func() { close(this.filesC) })
 	}
 }
 
@@ -66,7 +69,11 @@ func (this *Watch) Start(
 		ticker := time.NewTicker(period)
 		files := []string{}
 
-		defer ticker.Stop()
+		defer func() {
+			ulog.Warnf("Config Watch terminated for %v", files)
+			ticker.Stop()
+		}()
+
 		for {
 			select {
 			case f, ok := <-filesC:
@@ -101,7 +108,7 @@ func (this *Watch) Start(
 
 	this.filesC = filesC
 	for _, f := range this.files {
-		this.filesC <- f
+		filesC <- f
 	}
 	this.files = nil
 }

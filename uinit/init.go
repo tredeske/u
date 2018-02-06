@@ -27,7 +27,7 @@ func InitConfig(globalF, configF string) (
 	}
 
 	if 0 != len(configF) {
-		ulog.Debugf("Loading service config: %s", configF)
+		ulog.Printf("Loading service config: %s", configF)
 		config, err = global.NewChild(configF)
 		if nil != err {
 			return

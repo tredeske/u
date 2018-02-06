@@ -295,12 +295,12 @@ func (this *Boot) Configure(
 
 		config.Watch(7*time.Second,
 
-			//
+			// always return false - we want to always keep retrying
 			func(file string) (done bool) {
 				_, config, err := uinit.InitConfig(this.GlobalF, this.ConfigF)
 				if err != nil {
 					ulog.Errorf("Unable to parse %s: %s", this.ConfigF, err)
-					return
+					return false
 				}
 
 				config.AddSub("logDir", ulog.Dir)
@@ -309,13 +309,13 @@ func (this *Boot) Configure(
 				err = config.GetValidArray(cspec, &gconfig)
 				if err != nil {
 					ulog.Errorf("Getting '%s' from %s: %s", cspec, this.ConfigF, err)
-					return
+					return false
 				}
 				err = golum.Reload(gconfig)
 				if err != nil {
 					ulog.Errorf("Unable to load components: %s", err)
 				}
-				return true
+				return false
 			},
 
 			func(err error) (done bool) {
