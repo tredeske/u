@@ -64,6 +64,9 @@ func (this *Watch) Start(
 
 	filesC := make(chan string, 2)
 
+	//
+	// start watching
+	//
 	go func() {
 		updated := time.Now()
 		ticker := time.NewTicker(period)
@@ -80,6 +83,7 @@ func (this *Watch) Start(
 				if !ok {
 					return //////////////////// time to stop
 				}
+				ulog.Println("Watching", f)
 				files = append(files, f)
 
 			case <-ticker.C: // time to check
@@ -94,7 +98,10 @@ func (this *Watch) Start(
 							}
 						}
 						break
+
 					} else if stat.ModTime().After(updated) {
+
+						ulog.Println("Changed:", f)
 						updated = stat.ModTime()
 						if onChange(files[0]) {
 							return ///////////////////////////// time to stop
@@ -106,6 +113,9 @@ func (this *Watch) Start(
 		}
 	}()
 
+	//
+	// tell about previously registered files
+	//
 	this.filesC = filesC
 	for _, f := range this.files {
 		filesC <- f
