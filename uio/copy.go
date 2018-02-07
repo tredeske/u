@@ -38,3 +38,10 @@ func CopyBufferTo(dst io.Writer, src io.Reader, srcSz int64, buf []byte,
 func CopyTo(dst io.Writer, src io.Reader, srcSz int64) (amount int64, err error) {
 	return CopyBufferTo(dst, src, srcSz, nil)
 }
+
+//
+// Perform simple copy (like io.Copy) using default buffer pool
+//
+func Copy(dst io.Writer, src io.Reader) (amount int64, err error) {
+	return DefaultPool.Copy(dst, src)
+}

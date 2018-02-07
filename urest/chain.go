@@ -274,10 +274,48 @@ func (this *Chained) PostForm(url string, values *nurl.Values) *Chained {
 	return this
 }
 
+//
 // upload a file by posting as a multipart form
+//
+// a direct post is preferred as it is much more efficient and much easier,
+// but some things require the form based way of doing things.
+//
+// we stream the file contents to the server instead of assembling the
+// whole multipart message in memory.
+//
+func (this *Chained) UploadFileMultipart(
+	url, fileName, fileField, fileFieldValue string,
+	fields map[string]string,
+) *Chained {
+
+	if 0 == len(fileFieldValue) {
+		fileFieldValue = filepath.Base(fileName)
+	}
+
+	var contentR *os.File
+	contentR, this.Error = os.Open(fileName)
+	if this.Error != nil {
+		return this
+	}
+	defer contentR.Close()
+
+	return this.UploadMultipart(url, contentR, fileField, fileFieldValue, fields)
+}
+
+//
+// upload content by posting as a multipart form
+//
+// a direct post is preferred as it is much more efficient and much easier,
+// but some things require the form based way of doing things.
+//
+// we stream the content to the server instead of assembling the
+// whole multipart message in memory.
+//
 func (this *Chained) UploadMultipart(
-	url, fileName, fileParam string,
-	params map[string]string,
+	url string,
+	contentR io.Reader,
+	fileField, fileFieldValue string,
+	fields map[string]string,
 ) *Chained {
 
 	this.ensureReq("POST", url)
@@ -285,58 +323,49 @@ func (this *Chained) UploadMultipart(
 		return this
 	}
 
-	var file *os.File
-	if file, this.Error = os.Open(fileName); this.Error != nil {
-		return this
-	}
-
 	// use a pipe to prevent memory bloat
-	rPipe, wPipe := io.Pipe()
-	defer func() {
-		file.Close()
-		rPipe.Close()
-	}()
+	pipeR, pipeW := io.Pipe()
+	defer pipeR.Close()
 
-	this.SetBody(rPipe)
+	this.SetBody(pipeR)
 	if this.Error != nil {
-		wPipe.Close()
+		pipeW.Close()
 		return this
 	}
-	writer := multipart.NewWriter(wPipe)
+	writer := multipart.NewWriter(pipeW)
 	this.SetContentType(writer.FormDataContentType())
 	ch := make(chan error)
+
 	go func() {
-		var rv error
+		var err error
 		defer func() {
-			writer.Close() // do this here to write boundary
-			wPipe.Close()
-			ch <- rv
+			pipeW.Close()
+			ch <- err
 		}()
-		part, err := writer.CreateFormFile(fileParam, filepath.Base(fileName))
-		if err != nil {
-			rv = err
-		} else if _, err = io.Copy(part, file); err != nil {
-			rv = err
-		} else {
-			for key, val := range params {
-				if err = writer.WriteField(key, val); err != nil {
-					rv = err
-					return
-				}
-			}
-			if err = writer.Close(); err != nil {
-				rv = err
+		for key, val := range fields {
+			err = writer.WriteField(key, val)
+			if err != nil {
+				return
 			}
 		}
+		partW, err := writer.CreateFormFile(fileField, fileFieldValue)
+		if err != nil {
+			return
+		}
+		_, err = uio.Copy(partW, contentR)
+		if err != nil {
+			return
+		}
+		err = writer.Close()
 	}()
 
 	this.Do()
-	result := <-ch // wait for upload result
-	if nil != result {
+	postErr := <-ch // wait for upload result
+	if postErr != nil {
 		if nil == this.Error {
-			this.Error = result
+			this.Error = postErr
 		} else {
-			this.Error = uerr.Chainf(result, "%s", this.Error)
+			this.Error = uerr.Chainf(postErr, "%s", this.Error)
 		}
 	}
 	return this
@@ -346,7 +375,7 @@ func (this *Chained) UploadMultipart(
 func (this *Chained) WriteTo(dst io.Writer) (nwrote int64, err error) {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
-		nwrote, this.Error = uio.DefaultPool.Copy(dst, this.Response.Body)
+		nwrote, this.Error = uio.Copy(dst, this.Response.Body)
 	}
 	return nwrote, this.Error
 }
@@ -354,7 +383,7 @@ func (this *Chained) WriteTo(dst io.Writer) (nwrote int64, err error) {
 func (this *Chained) WriteBody(dst io.Writer, nwrote *int64) *Chained {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
-		*nwrote, this.Error = uio.DefaultPool.Copy(dst, this.Response.Body)
+		*nwrote, this.Error = uio.Copy(dst, this.Response.Body)
 	}
 	return this
 }
