@@ -316,27 +316,28 @@ func (this *Chained) UploadMultipart(
 	contentR io.Reader,
 	fileField, fileFieldValue string,
 	fields map[string]string,
-) *Chained {
+) (rv *Chained) {
+
+	rv = this
 
 	this.ensureReq("POST", url)
-	if nil != this.Error {
-		return this
+	if this.Error != nil {
+		return
 	}
 
-	// use a pipe to prevent memory bloat
 	pipeR, pipeW := io.Pipe()
 	defer pipeR.Close()
 
 	this.SetBody(pipeR)
 	if this.Error != nil {
 		pipeW.Close()
-		return this
+		return
 	}
 	writer := multipart.NewWriter(pipeW)
 	this.SetContentType(writer.FormDataContentType())
 	ch := make(chan error)
 
-	go func() {
+	go func() { // stream it
 		var err error
 		defer func() {
 			pipeW.Close()
@@ -368,7 +369,7 @@ func (this *Chained) UploadMultipart(
 			this.Error = uerr.Chainf(postErr, "%s", this.Error)
 		}
 	}
-	return this
+	return
 }
 
 // implement io.WriterTo

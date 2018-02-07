@@ -256,6 +256,7 @@ func (this *Child) Close() {
 //
 func (this *Child) Reset() *Child {
 	this.Close()
+	this.Context = nil
 	this.Process = nil
 	this.State = nil
 	this.Dir = ""
