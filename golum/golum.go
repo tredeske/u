@@ -10,6 +10,16 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
+// for use with AutoStartable
+type Startable interface {
+	Start() (err error)
+}
+
+// for use with AutoStoppable
+type Stoppable interface {
+	Stop()
+}
+
 //
 // implement to manage component lifecycle for your components
 //
@@ -48,6 +58,21 @@ func (this *Unstartable) StartGolum(name string) (err error) {
 }
 
 //
+// default impl for managers that store golums in uregistry and which
+// implement Startable
+//
+type AutoStartable struct{}
+
+func (this *AutoStartable) StartGolum(name string) (err error) {
+	var g Startable
+	err = uregistry.GetValid(name, &g)
+	if nil == err {
+		err = g.Start()
+	}
+	return
+}
+
+//
 // default impl for Managers that do not support stop
 //
 type IgnoreStop struct{}
@@ -61,6 +86,21 @@ type Unstoppable struct{}
 
 func (this *Unstoppable) StopGolum(name string) {
 	ulog.Warnf("Cannot stop %s", name)
+}
+
+//
+// default impl for managers that store golums in uregistry and which
+// implement Stoppable
+//
+type AutoStoppable struct{}
+
+func (this *AutoStoppable) StopGolum(name string) {
+	var g Stoppable
+	err := uregistry.Remove(name, &g)
+	if nil == err && nil != g {
+		g.Stop()
+	}
+	return
 }
 
 //
