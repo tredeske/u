@@ -2,6 +2,7 @@ package urest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +55,7 @@ type Chained struct {
 	Request  *http.Request
 	Response *http.Response
 	Error    error
+	cancel   context.CancelFunc
 }
 
 func Chain(client *http.Client) (rv *Chained) {
@@ -67,6 +69,33 @@ func Chain(client *http.Client) (rv *Chained) {
 
 func (this *Chained) GetChain(c **Chained) *Chained {
 	*c = this
+	return this
+}
+
+//
+// set a timeout to this request
+//
+// since we create the context, we handle cancelation/cleanup
+//
+func (this *Chained) SetTimeout(d time.Duration) *Chained {
+	if nil == this.Error && 0 != d {
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		this.cancel = cancel
+		this.Request = this.Request.WithContext(ctx)
+	}
+	return this
+}
+
+//
+// add a cancelation context to the request
+//
+// since the context is provided by caller, it is caller's responsibility to
+// check the context and cancel it, etc...
+//
+func (this *Chained) WithContext(ctx context.Context) *Chained {
+	if nil == this.Error && nil != ctx {
+		this.Request = this.Request.WithContext(ctx)
+	}
 	return this
 }
 
@@ -236,6 +265,11 @@ func (this *Chained) Do() *Chained {
 			this.Request.ContentLength = -1
 		}
 		this.Response, this.Error = this.Client.Do(this.Request)
+		cancel := this.cancel
+		if nil != cancel {
+			cancel()
+			this.cancel = nil
+		}
 	}
 	return this
 }
@@ -361,6 +395,7 @@ func (this *Chained) UploadMultipart(
 	}()
 
 	this.Do()
+
 	postErr := <-ch // wait for upload result
 	if postErr != nil {
 		if nil == this.Error {
@@ -628,6 +663,10 @@ func (this *Chained) Json(result interface{}) *Chained {
 // complete the invocation chain, returning any error encountered
 //
 func (this *Chained) Done() error {
+	cancel := this.cancel
+	if nil != cancel {
+		cancel()
+	}
 	if nil != this.Response && nil != this.Response.Body {
 		this.Response.Body.Close()
 	}
