@@ -15,39 +15,57 @@ import (
 func ShowHttpClient(name string, help *uconfig.Help) {
 	p := help
 	if 0 != len(name) {
-		p = help.Init(name,
-			"HTTP client endpoint info")
+		p = help.Init(name, "HTTP client endpoint info")
 	}
 	p.NewItem("httpDisableCompression",
 		"bool",
-		"Turn off compression").Set("default", false)
+		"Turn off compression").
+		SetDefault(false)
+
 	p.NewItem("httpDisableKeepAlives",
 		"bool",
-		"Turn off reuse of connections").Set("default", false)
-	p.NewItem("httpMaxIdleConns",
-		"int",
-		"Max conns to keep around just in case").SetOptional()
-	p.NewItem("httpMaxIdleConnsPerHost",
-		"int",
-		"Max conns to keep around just in case").SetOptional()
-	p.NewItem("httpResponseTimeout",
-		"duration",
-		"How long to wait for a response (not incl body)").SetOptional()
-	p.NewItem("httpIdleConnTimeout",
-		"duration",
-		"How long to keep idle connections around").SetOptional()
+		"Turn off reuse of connections").
+		SetDefault(false)
+
 	p.NewItem("httpExpectContinueTimeout",
 		"duration",
-		"If not zero, emit Expect: 100-continue and wait to send body").SetOptional()
-	p.NewItem("tlsHandshakeTimeout",
+		"If not zero, emit Expect: 100-continue and wait to send body").
+		SetDefault("1s")
+
+	p.NewItem("httpIdleConnTimeout",
 		"duration",
-		"How long to wait for TLS init").Set("default", "17s")
+		"How long to keep idle connections around").
+		SetDefault("90s")
+
+	p.NewItem("httpMaxIdleConns",
+		"int",
+		"Max conns to keep around just in case").
+		SetDefault("128")
+
+	p.NewItem("httpMaxIdleConnsPerHost",
+		"int",
+		"Max conns to keep around just in case").
+		SetDefault("64")
+
+	p.NewItem("httpResponseTimeout",
+		"duration",
+		"How long to wait for a response (not incl body)").
+		SetDefault("forever")
+
+	p.NewItem("tcpKeepAlive", "duration",
+		"Detect broken conn after no keepalives").
+		SetDefault("67s")
+
 	p.NewItem("tcpTimeout",
 		"duration",
-		"Detect unable to connect after").Set("default", "67s")
-	p.NewItem("tcpKeepAlive",
+		"Detect unable to connect after").
+		SetDefault("67s")
+
+	p.NewItem("tlsHandshakeTimeout",
 		"duration",
-		"Detect broken conn after no keepalives").Set("default", "67s")
+		"How long to wait for TLS init").
+		SetDefault("17s")
+
 	ucerts.ShowTlsConfig("", p)
 }
 
@@ -57,30 +75,32 @@ func ShowHttpClient(name string, help *uconfig.Help) {
 // if c is nil, then build default http.Client
 //
 func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
-	dialer := &net.Dialer{
-		Timeout:   67 * time.Second,
-		KeepAlive: 67 * time.Second,
-	}
 
 	//
 	// wish we could do this, but there is a mutex that gets copied
-	//*httpTransport = *(http.DefaultTransport.(*http.Transport))
 	//
+	//    *httpTransport = *(http.DefaultTransport.(*http.Transport))
+	//
+	// as it is, as this structures change, we'll need to revisit this
+	// code once in a while
+	//
+	// refer to http.DefaultTransport
+	//
+	dialer := &net.Dialer{
+		Timeout:   67 * time.Second,
+		KeepAlive: 67 * time.Second,
+		DualStack: true,
+	}
+
 	httpTransport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: true,
-		}).DialContext,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   100,
+		Dial:                  dialer.Dial, // unclear if needed for TLS
+		DialContext:           dialer.DialContext,
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          128,
+		MaxIdleConnsPerHost:   64,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   17 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-	}
-	httpClient := &http.Client{
-		Transport: httpTransport,
 	}
 
 	if nil != c {
@@ -103,8 +123,9 @@ func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 	} else {
 		httpTransport.TLSClientConfig = ucerts.DefaultTlsConfig()
 	}
-	httpTransport.Dial = (dialer).Dial
-	rv = httpClient
+	rv = &http.Client{
+		Transport: httpTransport,
+	}
 	return
 }
 
