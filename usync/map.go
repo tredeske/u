@@ -38,6 +38,18 @@ func (this *Map) Get(key string) (value interface{}) {
 }
 
 //
+// get the value from the map, setting ok to true if value found
+//
+func (this *Map) GetOk(key string) (value interface{}, ok bool) {
+	it := this.theMap.Load()
+	if nil != it {
+		m := it.(map[string]interface{})
+		value, ok = m[key]
+	}
+	return
+}
+
+//
 // add the value to the map, replacing any existing value
 //
 func (this *Map) Add(key string, value interface{}) {
@@ -110,6 +122,21 @@ func (this *Map) RemoveUsing(rmf func(key string, value interface{}) bool) {
 		}
 		if changed {
 			this.theMap.Store(m)
+		}
+	}
+	return
+}
+
+//
+// Iterate through each entry
+//
+func (this *Map) Each(visit func(key string, value interface{})) {
+
+	it := this.theMap.Load()
+	if nil != it {
+		m := it.(map[string]interface{})
+		for k, v := range m {
+			visit(k, v)
 		}
 	}
 	return
