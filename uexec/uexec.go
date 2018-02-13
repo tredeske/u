@@ -204,12 +204,14 @@ func (this *Child) CaptureStderr() (err error) {
 // if stderr capturing is enabled, then return captured stderr output
 //
 func (this *Child) GetStderr() (rv string) {
-	if nil == this.State {
-		panic("cannot get stderr if process not done")
-		//} else if nil == this.errC {
-		//	panic("cannot get stderr if stderr capturing not set")
-	}
-	if 0 == this.errOut.Len() {
+	/*
+		if nil == this.State {
+			panic("cannot get stderr if process not done")
+			//} else if nil == this.errC {
+			//	panic("cannot get stderr if stderr capturing not set")
+		}
+	*/
+	if 0 != this.errOut.Len() {
 		rv = ustrings.UnsafeBytesToString(this.errOut.Bytes())
 	}
 	return
