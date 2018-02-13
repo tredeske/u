@@ -227,10 +227,8 @@ func (this *Chained) SetContentLength(length int64) *Chained {
 }
 
 func (this *Chained) SetContentType(ctype string) *Chained {
-	if nil == this.Error {
-		if 0 == len(ctype) {
-			ctype = "application/octet-stream"
-		}
+	if nil == this.Error && 0 != len(ctype) {
+		//ctype = "application/octet-stream"
 		this.Request.Header.Set("Content-Type", ctype)
 	}
 	return this
