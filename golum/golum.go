@@ -123,6 +123,31 @@ func (this *Unreloadable) ReloadGolum(name string, c *uconfig.Section) (err erro
 }
 
 //
+// default impl for managers that store golums in uregistry
+//
+type AutoReloadable struct{}
+
+func (this *AutoReloadable) ReloadGolum(name string, c *uconfig.Section) (err error) {
+	var existing Stoppable
+	err = uregistry.GetValid(name, &existing)
+	if err != nil {
+		return
+	}
+	var mgr Manager
+	err = uconfig.Assign(name, &mgr, this)
+	if err != nil {
+		return
+	}
+	err = mgr.NewGolum(name, c)
+	if err != nil {
+		return
+	}
+	existing.Stop()
+	err = mgr.StartGolum(name)
+	return
+}
+
+//
 // handle to a loaded service
 //
 type Loaded struct {
