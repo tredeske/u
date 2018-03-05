@@ -861,6 +861,7 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 		if err != nil {
 			return uerr.Chainf(err, "GetStringMap: value of '%s'", this.ctx(key))
 		}
+		*val = make(map[string]string, len(mit))
 		for k, v := range mit {
 			str, ok := asString(v, false)
 			if !ok {
