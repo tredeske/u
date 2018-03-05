@@ -2,6 +2,7 @@ package golum
 
 import (
 	"testing"
+	"time"
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
@@ -19,12 +20,15 @@ components:
 	if err != nil {
 		t.Fatalf("Unable to load and start: %s", err)
 	}
+
+	time.Sleep(50 * time.Millisecond)
+
 }
 
 type autoMgr_ struct {
 	AutoStartable
 	AutoStoppable
-	AutoReloadable
+	Unreloadable
 }
 
 func (this *autoMgr_) NewGolum(name string, c *uconfig.Section) (err error) {

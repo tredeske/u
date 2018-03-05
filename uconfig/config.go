@@ -431,7 +431,15 @@ func (this *Section) addSubs() (err error) {
 	} else if 0 == len(mit) {
 		return
 	}
-	subs, err := toStringMap(mit)
+	subs := make(map[string]string)
+	for k, v := range mit {
+		str, ok := asString(v, false)
+		if !ok {
+			err = fmt.Errorf("parsing config: value for %s not a string", k)
+			return
+		}
+		subs[k] = str
+	}
 	if err != nil {
 		return uerr.Chainf(err, "Unable to get '%s", SUBS)
 	}
@@ -853,25 +861,18 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 		if err != nil {
 			return uerr.Chainf(err, "GetStringMap: value of '%s'", this.ctx(key))
 		}
-		*val, err = toStringMap(mit)
+		for k, v := range mit {
+			str, ok := asString(v, false)
+			if !ok {
+				err = fmt.Errorf("parsing config: value for %s not a string", k)
+				return
+			}
+			(*val)[this.expander.expand(k)] = this.expander.expand(str)
+		}
 		if err != nil {
 			err = uerr.Chainf(err, "at %s", this.ctx(key))
 			return
 		}
-	}
-	return
-}
-
-func toStringMap(in map[string]interface{}) (out map[string]string, err error) {
-
-	out = make(map[string]string)
-	for k, v := range in {
-		str, ok := asString(v, false)
-		if !ok {
-			err = fmt.Errorf("parsing config: value for %s not a string", k)
-			return
-		}
-		out[k] = str
 	}
 	return
 }

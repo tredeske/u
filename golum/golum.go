@@ -122,8 +122,11 @@ func (this *Unreloadable) ReloadGolum(name string, c *uconfig.Section) (err erro
 	return
 }
 
+/* does not appear possible
+
 //
-// default impl for managers that store golums in uregistry
+// default impl for managers that store golums in uregistry.
+// must also be AutoStoppable
 //
 type AutoReloadable struct{}
 
@@ -133,19 +136,33 @@ func (this *AutoReloadable) ReloadGolum(name string, c *uconfig.Section) (err er
 	if err != nil {
 		return
 	}
-	var mgr Manager
-	err = uconfig.Assign(name, &mgr, this)
-	if err != nil {
+	rVal := reflect.ValueOf(this)
+	newF := rVal.MethodByName("NewGolum")
+	if newF.IsValid() {
+		err = errors.New("Does not implement NewGolum")
 		return
 	}
-	err = mgr.NewGolum(name, c)
+	startF := rVal.MethodByName("StartGolum")
+	if startF.IsValid() {
+		err = errors.New("Does not implement StartGolum")
+		return
+	}
+	nameV := reflect.ValueOf(name)
+	cV := reflect.ValueOf(c)
+	errV := reflect.ValueOf(err)
+
+	retVals := newF.Call([]reflect.Value{nameV, cV})
+	errV.Set(retVals[0])
 	if err != nil {
 		return
 	}
 	existing.Stop()
-	err = mgr.StartGolum(name)
+
+	retVals = startF.Call([]reflect.Value{nameV})
+	errV.Set(retVals[0])
 	return
 }
+*/
 
 //
 // handle to a loaded service
