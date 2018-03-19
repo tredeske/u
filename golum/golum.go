@@ -278,10 +278,21 @@ func Unload(name string) (unloaded bool) {
 //
 func (this *Loaded) Start() (err error) {
 	log.Printf("G: Start begin")
+
+	//
+	// start each thing in a goroutine and timeout if things take too long
+	//
+	// we really should add the context to the StartGolum
+	//
 	startC := make(chan error)
+	timeout := time.Duration(len(this.ready)*50) * time.Millisecond
+	if timeout < time.Second {
+		timeout = time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	for i, g := range this.ready {
 		log.Printf("G: Starting %s", g.name)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		go func() {
 			err := g.manager.StartGolum(g.name)
 			startC <- err
@@ -291,7 +302,6 @@ func (this *Loaded) Start() (err error) {
 		case <-ctx.Done():
 			err = fmt.Errorf("Start of '%s' timed out", g.name)
 		}
-		cancel()
 		if err != nil {
 			err = uerr.Chainf(err, "Starting %s", g.name)
 			return
