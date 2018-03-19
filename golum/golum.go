@@ -1,8 +1,10 @@
 package golum
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uerr"
@@ -276,9 +278,20 @@ func Unload(name string) (unloaded bool) {
 //
 func (this *Loaded) Start() (err error) {
 	log.Printf("G: Start begin")
+	startC := make(chan error)
 	for i, g := range this.ready {
 		log.Printf("G: Starting %s", g.name)
-		err = g.manager.StartGolum(g.name)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		go func() {
+			err := g.manager.StartGolum(g.name)
+			startC <- err
+		}()
+		select {
+		case err = <-startC:
+		case <-ctx.Done():
+			err = fmt.Errorf("Start of %s timed out", g.name)
+		}
+		cancel()
 		if err != nil {
 			err = uerr.Chainf(err, "Starting %s", g.name)
 			return
