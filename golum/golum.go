@@ -289,7 +289,7 @@ func (this *Loaded) Start() (err error) {
 		select {
 		case err = <-startC:
 		case <-ctx.Done():
-			err = fmt.Errorf("Start of %s timed out", g.name)
+			err = fmt.Errorf("Start of '%s' timed out", g.name)
 		}
 		cancel()
 		if err != nil {
