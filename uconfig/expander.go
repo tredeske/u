@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -114,6 +115,8 @@ func (this *expander_) addAll(m map[string]string) (err error) {
 	//
 	// add in any regular entries and record any includes
 	//
+	// we support include_, include_1, include_2, .... include_N
+	//
 	var includes []string
 	for k, v := range m {
 		if strings.HasPrefix(k, include_) {
@@ -132,11 +135,14 @@ func (this *expander_) addAll(m map[string]string) (err error) {
 	//
 	// add in any includes using depth first
 	//
-	for _, include := range includes {
-		includeF := this.expand(include)
-		err = this.loadInclude(includeF)
-		if err != nil {
-			return
+	if 0 != len(includes) {
+		sort.Strings(includes)
+		for _, include := range includes {
+			includeF := this.expand(include)
+			err = this.loadInclude(includeF)
+			if err != nil {
+				return
+			}
 		}
 	}
 
