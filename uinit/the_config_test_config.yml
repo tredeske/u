@@ -1,2 +1,7 @@
+substitutions:
+  one: oneV
+  two: twoV
+  three: threeV
+
 needOne: "{{.one}}"
 needTwo: "{{.two}}"

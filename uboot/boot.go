@@ -32,13 +32,11 @@ var (
 // Control process boot
 //
 type Boot struct {
-	Name     string           // what program calls itself
-	InstallD string           // where program is installed
-	ConfigF  string           // abs path to config file
-	GlobalF  string           // abs path to globals (if any)
-	Globals  *uconfig.Section //
-	LogF     string           // path to log file, or empty/"stdout"
-	StdoutF  string           // path to stdout file, or empty/"stdout" for stdout
+	Name     string // what program calls itself
+	InstallD string // where program is installed
+	ConfigF  string // abs path to config file
+	LogF     string // path to log file, or empty/"stdout"
+	StdoutF  string // path to stdout file, or empty/"stdout" for stdout
 
 	//
 	// set by build system.  examples:
@@ -65,9 +63,6 @@ func (this *Boot) Boot() (err error) {
 
 	flag.StringVar(&this.ConfigF, "config", this.ConfigF,
 		"config file (config/[NAME].yml)")
-
-	flag.StringVar(&this.GlobalF, "globals", this.GlobalF,
-		"global subst params file to load")
 
 	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled,
 		"turn on debugging")
@@ -242,7 +237,7 @@ Starting
 }
 
 //
-// Continue boot process: configure from GlobalF (if avail) and ConfigF.
+// Continue boot process: configure from ConfigF (if avail)
 //
 // if cspec set, use golum to load the components listed in that section.
 //
@@ -265,7 +260,7 @@ func (this *Boot) Configure(
 ) {
 
 	log.Printf("configuring from %s", this.ConfigF)
-	this.Globals, config, err = uinit.InitConfig(this.GlobalF, this.ConfigF)
+	config, err = uinit.InitConfig(this.ConfigF)
 	if err != nil {
 		return
 	}
@@ -297,7 +292,7 @@ func (this *Boot) Configure(
 
 			// always return false - we want to always keep retrying
 			func(file string) (done bool) {
-				_, config, err := uinit.InitConfig(this.GlobalF, this.ConfigF)
+				config, err := uinit.InitConfig(this.ConfigF)
 				if err != nil {
 					ulog.Errorf("Unable to parse %s: %s", this.ConfigF, err)
 					return false
