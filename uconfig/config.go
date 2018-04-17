@@ -841,13 +841,14 @@ func (this *Section) toStrings(key string, it interface{},
 
 	} else { // not an array, so attempt to create an array
 
-		rv = make([]string, 1)
-		rv[0], ok = asString(it, false)
+		str, ok := asString(it, false)
 		if !ok {
 			err = fmt.Errorf("parsing config: %s not convertable to string array",
 				this.ctx(key))
 			rv = nil
 		}
+		rv = make([]string, 1)
+		rv[0] = this.expander.expand(str)
 	}
 	return
 }
