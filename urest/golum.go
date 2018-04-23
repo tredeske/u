@@ -152,6 +152,9 @@ func ShowHttpServer(name string, help *uconfig.Help) {
 	p.NewItem("httpMaxHeaderBytes",
 		"int",
 		"Max number of bytes allowed in request headers").SetOptional()
+	p.NewItem("httpIdleTimeout",
+		"duration",
+		"How long to wait for next req").SetOptional()
 	p.NewItem("httpReadTimeout",
 		"duration",
 		"Max time to read entire request").SetOptional()
@@ -161,9 +164,6 @@ func ShowHttpServer(name string, help *uconfig.Help) {
 	p.NewItem("httpWriteTimeout",
 		"duration",
 		"How long to wait for client to accept response").SetOptional()
-	p.NewItem("httpIdleTimeout",
-		"duration",
-		"How long to wait for next req").SetOptional()
 	p.NewItem("httpKeepAlives",
 		"bool",
 		"Enable keepalives?").Set("default", "true")
@@ -183,15 +183,10 @@ func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 		err = c.
 			Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
 			GetValidString("httpAddress", "", &httpServer.Addr).
+			GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
 			GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
+			GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
 			GetDuration("httpWriteTimeout", &httpServer.WriteTimeout).
-
-			// TODO
-			//
-			//GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
-			//GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
-			//
-
 			GetInt("httpMaxHeaderBytes", &httpServer.MaxHeaderBytes).
 			GetBool("httpKeepAlives", &keepAlives).
 			Error
