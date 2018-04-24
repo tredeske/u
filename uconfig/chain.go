@@ -91,9 +91,25 @@ func (this *Chain) ASection(
 	return this
 }
 
-// if key maps to section, set value to section
-func (this *Chain) GetSection(key string, value **Section,
+//
+// if the section exists, process it
+//
+func (this *Chain) IfSection(
+	key string,
+	visitor func(*Section) error,
 ) *Chain {
+	if nil == this.Error {
+		var s *Section
+		this.Error = this.Section.GetSection(key, &s)
+		if nil == this.Error && nil != s {
+			this.Error = visitor(s)
+		}
+	}
+	return this
+}
+
+// if key maps to section, set value to section
+func (this *Chain) GetSection(key string, value **Section) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetSection(key, value)
 	}
@@ -101,8 +117,7 @@ func (this *Chain) GetSection(key string, value **Section,
 }
 
 // same as GetSection, but err is set if section is nil
-func (this *Chain) GetValidSection(key string, value **Section,
-) *Chain {
+func (this *Chain) GetValidSection(key string, value **Section) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetValidSection(key, value)
 	}
