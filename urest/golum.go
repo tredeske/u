@@ -1,21 +1,26 @@
 package urest
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/tredeske/u/ucerts"
 	"github.com/tredeske/u/uconfig"
+	"github.com/tredeske/u/ulog"
 )
 
 //
 // show params available for building http.Client
 //
-func ShowHttpClient(name string, help *uconfig.Help) {
+func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p := help
 	if 0 != len(name) {
-		p = help.Init(name, "HTTP client endpoint info")
+		if 0 == len(descr) {
+			descr = "HTTP client endpoint"
+		}
+		p = help.Init(name, descr)
 	}
 	p.NewItem("httpDisableCompression",
 		"bool",
@@ -67,6 +72,7 @@ func ShowHttpClient(name string, help *uconfig.Help) {
 		SetDefault("17s")
 
 	ucerts.ShowTlsConfig("", p)
+	return p
 }
 
 //
@@ -140,15 +146,17 @@ func DefaultHttpClient() (rv *http.Client) {
 //
 // show params available for building http.Server
 //
-func ShowHttpServer(name string, help *uconfig.Help) {
+func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p := help
 	if 0 != len(name) {
-		p = help.Init(name,
-			"HTTP server endpoint info")
+		if 0 == len(descr) {
+			descr = "HTTP server endpoint info"
+		}
+		p = help.Init(name, descr)
 	}
-	p.NewItem("httpAddress",
-		"string",
-		"host:port to listen on.  if not set, endpoint is disabled.").SetOptional()
+	//	p.NewItem("httpAddress",
+	//		"string",
+	//		"host:port to listen on.  if not set, endpoint is disabled.").SetOptional()
 	p.NewItem("httpMaxHeaderBytes",
 		"int",
 		"Max number of bytes allowed in request headers").SetOptional()
@@ -168,6 +176,7 @@ func ShowHttpServer(name string, help *uconfig.Help) {
 		"bool",
 		"Enable keepalives?").Set("default", "true")
 	ucerts.ShowTlsConfig("", p)
+	return p
 }
 
 //
@@ -182,7 +191,7 @@ func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 	if nil != c {
 		err = c.
 			Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
-			GetValidString("httpAddress", "", &httpServer.Addr).
+			GetString("httpAddress", &httpServer.Addr).
 			GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
 			GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
 			GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
@@ -206,4 +215,54 @@ func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 //
 func IsTlsServer(s *http.Server) bool {
 	return nil != s && ucerts.HasTlsCerts(s.TLSConfig)
+}
+
+//
+// start listening on a server
+//
+func StartServer(svr *http.Server, onDone func(err error)) {
+	go func() {
+
+		if nil == onDone {
+			onDone = func(err error) {
+				if err != nil {
+					ulog.Errorf("Serve addr=%s failed: %s", svr.Addr, err)
+				} else {
+					ulog.Printf("No longer serving %s", svr.Addr)
+				}
+			}
+		}
+
+		//
+		// start serving reqs
+		//
+
+		var err error
+		if IsTlsServer(svr) {
+			err = svr.ListenAndServeTLS("", "")
+		} else {
+			err = svr.ListenAndServe()
+		}
+
+		//
+		// when we're told to stop, we may get a spurious error
+		//
+		if http.ErrServerClosed == err {
+			err = nil
+		}
+		onDone(err)
+	}()
+}
+
+func StopServer(svr *http.Server, grace time.Duration) {
+	if nil != svr {
+		if 0 == grace {
+			svr.Close()
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), grace)
+			svr.Shutdown(ctx)
+			<-ctx.Done() // wait here
+			cancel()
+		}
+	}
 }
