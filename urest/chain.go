@@ -250,6 +250,33 @@ func (this *Chained) SetHeaders(headers map[string]string) *Chained {
 	return this
 }
 
+//
+// set headers without allowing Go to make them HTTP compliant, such
+// as capitalizing the header key, etc.
+//
+func (this *Chained) SetRawHeaders(headers map[string]string) *Chained {
+
+	if nil == this.Error && 0 != len(headers) {
+		for k, v := range headers {
+			if 0 != len(k) {
+				this.Request.Header[k] = []string{v}
+			}
+		}
+	}
+	return this
+}
+
+//
+// set a header without allowing Go to make the header HTTP compliant, such
+// as capitalizing the header key, etc.
+//
+func (this *Chained) SetRawHeader(key, value string) *Chained {
+	if nil == this.Error && 0 != len(key) {
+		this.Request.Header[key] = []string{value}
+	}
+	return this
+}
+
 func (this *Chained) NewRequest(method, url string, body io.Reader) *Chained {
 	this.ensureReq(method, url)
 	this.SetBody(body)
