@@ -37,6 +37,28 @@ func TestFileCreateExistsRemove(t *testing.T) {
 	}
 }
 
+func TestRemoveAll(t *testing.T) {
+	dirs := []string{
+		"wow",
+		"wow/1",
+		"wow/1/2",
+	}
+
+	defer func() {
+		os.RemoveAll(dirs[0])
+	}()
+
+	os.MkdirAll(dirs[len(dirs)-1], 0700)
+	for i := len(dirs) - 1; i >= 0; i-- {
+		os.Chmod(dirs[i], 0)
+	}
+
+	err := FileRemoveAll(dirs[0])
+	if err != nil {
+		t.Fatalf("Unable to rm %s: %s", dirs[0], err)
+	}
+}
+
 func TestFdsOpen(t *testing.T) {
 
 	fds, err := FdsOpen(20)

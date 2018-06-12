@@ -63,12 +63,12 @@ func FileRemoveAll(rmF string) (err error) {
 	// we only attempt to fix the owner rwx because if we are not the owner
 	// of the file, we can't change the perms anyway
 	//
+	// we cannot use filepath.Walk as it bails out early if perms not correct
+	//
 
-	walkErr := filepath.Walk(abs,
+	walkErr := Walk(abs,
 		func(path string, fi os.FileInfo, walkErr error) (err error) {
-			if nil != walkErr {
-				err = walkErr
-			} else if fi.IsDir() {
+			if nil != fi && fi.IsDir() {
 				perms := fi.Mode().Perm()
 				if 0700 != (perms & 0700) {
 					err = os.Chmod(path, perms|0700)
