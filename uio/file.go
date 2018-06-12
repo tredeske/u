@@ -30,24 +30,58 @@ func MustAbsPath(f string) string {
 }
 
 //
+// Remove all files starting at rmF.  If rmF is a dir, then recursively
+// remove all files.
+//
 // attempt to prevent rm of "/" or any path such as /usr, /opt, ...
 //
-func FileRemoveAll(f string) (err error) {
+func FileRemoveAll(rmF string) (err error) {
 
-	if 0 != len(f) {
-		var abs string
-		abs, err = filepath.Abs(f)
-		if err != nil {
-			return
-		}
-		abs = filepath.Clean(abs)
-		if 2 > strings.Count(abs, "/") {
-			err = fmt.Errorf("Invalid path to remove: '%s'", abs)
-			return
-		}
-
-		err = os.RemoveAll(abs)
+	if 0 == len(rmF) {
+		return
 	}
+	var abs string
+	abs, err = filepath.Abs(rmF)
+	if err != nil {
+		return
+	}
+	abs = filepath.Clean(abs)
+	if 2 > strings.Count(abs, "/") {
+		err = fmt.Errorf("Invalid path to remove: '%s'", abs)
+		return
+	}
+
+	err = os.RemoveAll(abs)
+	if nil == err {
+		return //////////////////// success
+	}
+
+	//
+	// it may be that there is a dir that is not rwx for us, so walk the
+	// tree and repair perms, then retry
+	//
+	// we only attempt to fix the owner rwx because if we are not the owner
+	// of the file, we can't change the perms anyway
+	//
+
+	walkErr := filepath.Walk(abs,
+		func(path string, fi os.FileInfo, walkErr error) (err error) {
+			if nil != walkErr {
+				err = walkErr
+			} else if fi.IsDir() {
+				perms := fi.Mode().Perm()
+				if 0700 != (perms & 0700) {
+					err = os.Chmod(path, perms|0700)
+				}
+			}
+			return
+		})
+	if walkErr != nil {
+		err = uerr.Chainf(err, "Unable to fix perms: %s", walkErr)
+		return
+	}
+
+	err = os.RemoveAll(abs)
 	return
 }
 
