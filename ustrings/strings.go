@@ -176,3 +176,38 @@ func Equal(lhs, rhs []string) (rv bool) {
 	}
 	return
 }
+
+// based on std lib strings.Join
+func Concat(in []string) (rv string) {
+
+	switch len(in) {
+
+	case 0:
+		return ""
+
+	case 1:
+		return in[0]
+
+	case 2:
+		return in[0] + in[1]
+
+	case 3:
+		return in[0] + in[1] + in[2]
+	}
+
+	n := 0
+
+	for i := 0; i < len(in); i++ {
+		n += len(in[i])
+	}
+
+	b := make([]byte, n)
+
+	bp := copy(b, in[0])
+
+	for _, s := range in[1:] {
+		bp += copy(b[bp:], s)
+	}
+
+	return string(b)
+}

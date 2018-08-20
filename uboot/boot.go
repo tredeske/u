@@ -122,6 +122,7 @@ func (this *Boot) Boot() (err error) {
 	//
 	if "stdout" == this.LogF || Testing {
 		ulog.UseStdout = true
+		this.StdoutF = "stdout"
 	} else if 0 != len(this.LogF) {
 		this.LogF, err = filepath.Abs(this.LogF)
 		if err != nil {
