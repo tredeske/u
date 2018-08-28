@@ -145,6 +145,20 @@ func (this *Chained) ensureReq(method, url string) {
 }
 
 //
+// set a JSON body
+//
+func (this *Chained) SetBodyJson(body interface{}) *Chained {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		this.Error = err
+	} else {
+		this.SetContentType("application/json")
+		this.SetBodyBytes(encoded)
+	}
+	return this
+}
+
+//
 // set the body and content length.
 //
 func (this *Chained) SetBodyBytes(body []byte) *Chained {
@@ -473,6 +487,42 @@ func (this *Chained) Chain(rv **Chained) *Chained {
 }
 
 //
+// Repeatedly perform request until onResp returns false or an error
+//
+// if times is less than or equal to 0 (zero), then retry indefinitely as long
+// as onResp returns true
+//
+// onResp gets a ref to this, so must check for Error, Response, etc.
+//
+// Error will be set if there is a connection problem (see http.Client.Do)
+//
+// Error will not be set, but Response may indicate a retriable problem with
+// the server (502, 503, 504, ...)
+//
+// Error will be set to the returned error (if any) of onResp
+//
+// NOTE: This is primarily for requests that can be replayed, such as GET.
+// or POST/PUT with no Body.  The onResp method must perform any required
+// reset.
+//
+func (this *Chained) DoRetriably(
+	times int,
+	delay time.Duration,
+	onResp func(*Chained, int) (retry bool, err error),
+) (rv *Chained) {
+	retry := true
+	for i := 0; (0 >= times || i < times) && retry; i++ {
+		if 0 != i && 0 != delay {
+			time.Sleep(delay)
+		}
+		this.Response, this.Error = this.Client.Do(this.Request)
+		retry, this.Error = onResp(this, i)
+	}
+	return this
+}
+
+/*
+//
 // Retry in case of request error (unable to contact server).
 //
 // NOTE: This is primarily for requests that can be replayed, such as GET.
@@ -483,7 +533,7 @@ func (this *Chained) RetryOnError(times int, delay time.Duration, reset func(),
 ) (rv *Chained) {
 	for i := 0; (0 >= times || i < times) &&
 		(this.Error != nil ||
-			this.statusIn([]int{ // proxy reports unable to contact server
+			this.IsStatusIn([]int{ // proxy reports unable to contact server
 				http.StatusBadGateway,
 				http.StatusGatewayTimeout,
 			})); i++ {
@@ -498,6 +548,7 @@ func (this *Chained) RetryOnError(times int, delay time.Duration, reset func(),
 	}
 	return this
 }
+*/
 
 //
 // if return status is as specified, then invoke method
@@ -531,7 +582,7 @@ func (this *Chained) IfStatusIn(
 		if nil == this.Response {
 			this.Error = errors.New("No response to get status from")
 		} else {
-			if this.statusIn(status) {
+			if this.IsStatusIn(status) {
 				err := then(this)
 				if nil != err && nil == this.Error {
 					this.Error = err
@@ -541,7 +592,12 @@ func (this *Chained) IfStatusIn(
 	}
 	return this
 }
-func (this *Chained) statusIn(status []int) (rv bool) {
+
+func (this *Chained) IsStatus(status int) (rv bool) {
+	return nil != this.Response && status == this.Response.StatusCode
+}
+
+func (this *Chained) IsStatusIn(status []int) (rv bool) {
 	if nil != this.Response {
 		for _, s := range status {
 			if s == this.Response.StatusCode {
