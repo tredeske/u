@@ -34,30 +34,24 @@ func Load(
 		}
 	}
 
-	// note: without caCertsPem specified, may need to set InsecureSkipVerify
 	//
-	if 0 != len(caCertsPem) {
-		if !uio.FileExists(caCertsPem) {
-			err = errors.New("Missing CA Certs PEM file " + caCertsPem)
-			return
-		}
-		pemBytes, err := ioutil.ReadFile(caCertsPem)
-		if err != nil {
-			return uerr.Chainf(err, "Unable to read CA Certs PEM file %s", caCertsPem)
-		}
-		roots := x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(pemBytes) {
-			return errors.New("Unable to add CA certs to tls config")
-		}
-		tlsc.RootCAs = roots
-		tlsc.ClientCAs = roots
+	// note: without caCertsPem specified, uses system ca certs
+	//
+	tlsc.RootCAs, err = LoadRoots(caCertsPem, nil)
+	if err != nil {
+		return
+	}
+	if nil == tlsc.ClientCAs {
+		tlsc.ClientCAs = tlsc.RootCAs
 	}
 
 	tlsc.CipherSuites = []uint16{
 		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
 		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
 
@@ -76,6 +70,31 @@ func Load(
 	tlsc.PreferServerCipherSuites = true
 	tlsc.SessionTicketsDisabled = true
 	//}
+	return
+}
+
+func LoadRoots(pem string, roots *x509.CertPool) (rv *x509.CertPool, err error) {
+
+	if 0 != len(pem) {
+		if !uio.FileExists(pem) {
+			err = errors.New("Missing CA Certs PEM file " + pem)
+			return
+		}
+		var pemBytes []byte
+		pemBytes, err = ioutil.ReadFile(pem)
+		if err != nil {
+			err = uerr.Chainf(err, "Unable to read CA Certs PEM file %s", pem)
+			return
+		}
+		if nil == roots {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM(pemBytes) {
+			err = errors.New("Unable to add CA certs to tls config")
+			return
+		}
+	}
+	rv = roots
 	return
 }
 
@@ -110,6 +129,8 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	p.NewItem("privateKey", "string", "Path to PEM").SetOptional()
 	p.NewItem("publicCert", "string", "Path to PEM").SetOptional()
 	p.NewItem("caCerts", "string", "Path to PEM").SetOptional()
+	p.NewItem("clientCaCerts", "string", "Path to PEM for validating client certs").
+		SetOptional()
 	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2").Set("default", "1.2")
 	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2").SetOptional()
 	p.NewItem("tlsServerName", "string", "(client)Name of server").SetOptional()
@@ -119,7 +140,13 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 // Build a tls.Config
 //
 func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
-	var cacerts, privateKey, publicCert, clientAuth, serverName, tlsMax string
+	var clientCacerts,
+		cacerts,
+		privateKey,
+		publicCert,
+		clientAuth,
+		serverName,
+		tlsMax string
 	tlsMin := "1.2"
 	insecureSkipVerify := false
 	preferServerCipherSuites := true
@@ -134,6 +161,7 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			GetString("privateKey", &privateKey).
 			GetString("publicCert", &publicCert).
 			GetString("caCerts", &cacerts).
+			GetString("clientCaCerts", &clientCacerts).
 			GetString("tlsMin", &tlsMin).
 			GetString("tlsMax", &tlsMax).
 			Error
@@ -146,6 +174,12 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 	}
 	if 0 != len(cacerts) || 0 != len(privateKey) {
 		err = Load(privateKey, publicCert, cacerts, tlsConfig)
+		if err != nil {
+			return
+		}
+	}
+	if 0 != len(clientCacerts) {
+		tlsConfig.ClientCAs, err = LoadRoots(clientCacerts, nil)
 		if err != nil {
 			return
 		}
