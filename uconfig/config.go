@@ -66,17 +66,8 @@ type Section struct {
 }
 
 //
-// an array of config sections
-//
-type Array struct {
-	Context  string
-	expander expander_
-	sections []map[string]interface{}
-}
-
-//
 // create a new Section from nil, /path/to/yaml/file, YAML string,
-// or map[string]interface{}
+// YAML []byte, map[string]interface{}, or map[string]string
 //
 func NewSection(it interface{}) (rv *Section, err error) {
 	watch := &Watch{}
@@ -89,7 +80,7 @@ func NewSection(it interface{}) (rv *Section, err error) {
 
 //
 // create a new Section as a child of this one from nil, /path/to/yaml/file,
-// YAML string, or map[string]interface{}
+// YAML string, YAML []byte, map[string]interface{}, or map[string]string
 //
 func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 	rv = &Section{
@@ -114,6 +105,55 @@ func (this *Section) Watch(
 	onError func(err error) (done bool),
 ) {
 	this.watch.Start(period, onChange, onError)
+}
+
+//
+// dump out the config section as a map, resolving all properties
+//
+func (this *Section) GetResolvedMap() (rv map[string]interface{}) {
+
+	rv = make(map[string]interface{})
+	for k, it := range this.section {
+		switch v := it.(type) {
+		case map[string]interface{}:
+			this.resolveMap(v)
+			rv[k] = v
+		case []interface{}:
+			this.resolveArray(v)
+			rv[k] = v
+		case string:
+			rv[k] = this.expander.expand(v)
+		default:
+			rv[k] = it
+		}
+	}
+	return
+}
+
+func (this *Section) resolveMap(m map[string]interface{}) {
+	for k, it := range m {
+		switch v := it.(type) {
+		case map[string]interface{}:
+			this.resolveMap(v)
+		case []interface{}:
+			this.resolveArray(v)
+		case string:
+			m[k] = this.expander.expand(v)
+		}
+	}
+}
+
+func (this *Section) resolveArray(a []interface{}) {
+	for i, it := range a {
+		switch v := it.(type) {
+		case map[string]interface{}:
+			this.resolveMap(v)
+		case []interface{}:
+			this.resolveArray(v)
+		case string:
+			a[i] = this.expander.expand(v)
+		}
+	}
 }
 
 //
@@ -1031,49 +1071,6 @@ func (this *Section) GetValidUrl(key string, val **nurl.URL) (err error) {
 // get the named string, setting ok value to true if string found and set
 func (this *Section) GetStringOk(key string) (string, bool) {
 	return this.getString(key, false)
-}
-
-///////////////////////////////////////////////////////
-
-//
-// Array
-//
-
-func (this *Array) Len() int {
-	if nil == this {
-		return 0
-	}
-	return len(this.sections)
-}
-
-func (this *Array) Empty() bool {
-	return nil == this || 0 == len(this.sections)
-}
-
-// get the i'th section from this
-func (this *Array) Get(i int) *Section {
-	return &Section{
-		Context:  this.Context + "." + strconv.Itoa(i),
-		expander: this.expander.clone(),
-		section:  this.sections[i],
-	}
-}
-
-// iterate through the sections, aborting of visitor returns an error
-func (this *Array) Each(visitor func(int, *Section) error) (err error) {
-	if nil != this {
-		for i, _ := range this.sections {
-			err = visitor(i, this.Get(i))
-			if err != nil {
-				break
-			}
-		}
-	}
-	return
-}
-
-func (this *Array) DumpSubs() string {
-	return this.expander.Dump()
 }
 
 ///////////////////////////////////////////////////////

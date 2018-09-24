@@ -378,6 +378,23 @@ func stopGolum(g *golum_) {
 	delete(golums_, g.name)
 }
 
+//
+// ensure the named component exists and is running
+//
+func ReloadFromConfig(name, gtype string, config map[string]interface{}) (err error) {
+	m := map[string]interface{}{
+		"name":   name,
+		"type":   gtype,
+		"config": config,
+	}
+	s, err := uconfig.NewSection(m)
+	if err != nil {
+		return
+	}
+	err = Reload(uconfig.ArrayFromSection(s))
+	return
+}
+
 func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 	manager := ""
 	g = &golum_{

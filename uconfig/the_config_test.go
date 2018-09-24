@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/tredeske/u/ulog"
 )
 
 func TestSource(t *testing.T) {
@@ -170,6 +172,12 @@ noEscapeCheck:  "{{.noEscape}}"
 	} else if "no+escape" != s {
 		t.Fatalf("include: %s != 'no+escape'", s)
 	}
+
+	//
+	//
+	//
+	m := config.GetResolvedMap()
+	ulog.Printf("%#v", m)
 }
 
 func TestDiff(t *testing.T) {
