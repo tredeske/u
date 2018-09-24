@@ -211,6 +211,11 @@ func (this *Section) toMap(it interface{}) (rv map[string]interface{}, err error
 				rv[ks] = v
 			}
 		}
+	case map[string]string:
+		rv = make(map[string]interface{}, len(val))
+		for k, v := range val {
+			rv[k] = v
+		}
 	default:
 		err = fmt.Errorf("value not a config map. is a %s",
 			reflect.TypeOf(it))

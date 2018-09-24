@@ -6,6 +6,26 @@ import (
 	"time"
 )
 
+func TestSource(t *testing.T) {
+
+	source := map[string]string{
+		"hello": "there",
+	}
+
+	s, err := NewSection(source)
+	if err != nil {
+		t.Fatalf("Unable to create section from map[string]string: %s", err)
+	}
+
+	there := ""
+	err = s.GetString("hello", &there)
+	if err != nil {
+		t.Fatalf("Unable to retrieve 'hello': %s", err)
+	} else if there != "there" {
+		t.Fatalf("Did not get 'there', got '%s'", there)
+	}
+}
+
 func TestSubs(t *testing.T) {
 
 	globals, err := NewSection(`
