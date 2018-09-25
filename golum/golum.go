@@ -379,20 +379,28 @@ func stopGolum(g *golum_) {
 }
 
 //
-// ensure the named component exists and is running
+// build a Section suitable for loading a golum based on the provided info
 //
-func ReloadFromConfig(name, gtype string, config map[string]interface{}) (err error) {
+func SectionFromConfig(
+	name, gtype string,
+	config map[string]interface{},
+) (
+	rv *uconfig.Section,
+	err error,
+) {
 	m := map[string]interface{}{
 		"name":   name,
 		"type":   gtype,
 		"config": config,
 	}
-	s, err := uconfig.NewSection(m)
-	if err != nil {
-		return
-	}
-	err = Reload(uconfig.ArrayFromSection(s))
-	return
+	return uconfig.NewSection(m)
+}
+
+//
+// ensure the named component exists and is running
+//
+func ReloadOne(s *uconfig.Section) (err error) {
+	return Reload(uconfig.ArrayFromSection(s))
 }
 
 func loadGolum(config *uconfig.Section) (g *golum_, err error) {

@@ -19,6 +19,10 @@ func ArrayFromSection(s *Section) (rv *Array) {
 	}
 }
 
+func (this *Array) Append(s *Section) {
+	this.sections = append(this.sections, s.section)
+}
+
 func (this *Array) Len() int {
 	if nil == this {
 		return 0
