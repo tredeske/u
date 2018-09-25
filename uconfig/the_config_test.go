@@ -176,7 +176,7 @@ noEscapeCheck:  "{{.noEscape}}"
 	//
 	//
 	//
-	m := config.GetResolvedMap()
+	m := config.AsResolvedMap()
 	ulog.Printf("%#v", m)
 }
 

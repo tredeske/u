@@ -110,7 +110,7 @@ func (this *Section) Watch(
 //
 // dump out the config section as a map, resolving all properties
 //
-func (this *Section) GetResolvedMap() (rv map[string]interface{}) {
+func (this *Section) AsResolvedMap() (rv map[string]interface{}) {
 
 	rv = make(map[string]interface{})
 	for k, it := range this.section {
