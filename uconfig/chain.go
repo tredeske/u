@@ -448,3 +448,52 @@ func (this *Chain) Build(
 	}
 	return this
 }
+
+//
+// Can be constructed
+//
+type Constructable interface {
+	Construct(c *Chain) (err error)
+}
+
+//
+// Construct target from config.
+//
+func (this *Chain) Construct(target Constructable) *Chain {
+
+	if nil == this.Error {
+		this.Error = target.Construct(this)
+	}
+	return this
+}
+
+//
+// Construct target from named config section.
+//
+func (this *Chain) ConstructFrom(key string, target Constructable) *Chain {
+
+	if nil == this.Error {
+		var chain *Chain
+		this.GetValidChain(key, &chain)
+		chain.Construct(target)
+		this.Error = chain.Error
+	}
+	return this
+}
+
+//
+// Construct target from named config section if section exists.
+//
+func (this *Chain) ConstructIf(key string, target Constructable) *Chain {
+
+	if nil == this.Error {
+		var s *Section
+		this.Error = this.Section.GetSection(key, &s)
+		if nil == this.Error && nil != s {
+			chain := s.Chain()
+			chain.Construct(target)
+			this.Error = chain.Error
+		}
+	}
+	return this
+}
