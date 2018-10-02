@@ -15,6 +15,7 @@ import (
 	nurl "net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -289,6 +290,55 @@ func (this *Chained) SetRawHeader(key, value string) *Chained {
 		this.Request.Header[key] = []string{value}
 	}
 	return this
+}
+
+//
+// Get header values.  There may be multiple header values for the key, and the
+// values may be CSV separated.  The spec says that CSV separate values should
+// be treated the same as multiple header/value pairs.  Normalize all of that to
+// an array of values.
+//
+func (this *Chained) Headers(key string) (rv []string) {
+	if nil != this.Response {
+		for _, value := range this.Response.Header[key] {
+			values := strings.Split(value, ",")
+			for _, v := range values {
+				v = strings.TrimSpace(v)
+				if 0 != len(v) {
+					rv = append(rv, v)
+				}
+			}
+		}
+	}
+	return
+}
+
+var linkExpr_ = regexp.MustCompile(`<\s?(.+)\s?>;\s?rel="(.+)"`)
+
+//
+// get Link headers for pagination, returning map of links per rel type.
+//
+// if key is not set, it will default to "Link"
+//
+// Link: <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=15>; rel="next",
+//  <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=34>; rel="last",
+//  <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=1>; rel="first",
+//  <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=13>; rel="prev"
+//
+func (this *Chained) LinkHeaders(key string) (rv map[string]string) {
+	if 0 == len(key) {
+		key = "Link"
+	}
+	for _, link := range this.Headers(key) {
+		matches := linkExpr_.FindStringSubmatch(link)
+		if 0 != len(matches) {
+			if nil == rv {
+				rv = make(map[string]string)
+			}
+			rv[matches[2]] = matches[1]
+		}
+	}
+	return
 }
 
 func (this *Chained) NewRequest(method, url string, body io.Reader) *Chained {
