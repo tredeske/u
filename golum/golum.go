@@ -255,7 +255,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 func getGolum(name string) (g *golum_, found bool) {
 
 	var it interface{}
-	it, found = golums_.Load(g.name)
+	it, found = golums_.Load(name)
 	if found {
 		g = it.(*golum_)
 	}
