@@ -236,7 +236,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 		}
 		_, exists := golums_.Load(g.name)
 		if exists {
-			err = fmt.Errorf("Duplicate instance '%s' not allowed", g.name)
+			err = fmt.Errorf("Duplicate golum instance '%s' not allowed", g.name)
 			return
 		}
 		err = addGolum(g)
@@ -366,12 +366,12 @@ func Reload(configs *uconfig.Array) (err error) {
 	// stop and remove any that are not part of new config
 	//
 	golums_.Range(
-		func(itK, itV interface{}) (stop bool) {
+		func(itK, itV interface{}) (cont bool) {
 			name := itK.(string)
 			if _, exists := present[name]; !exists {
 				stopGolum(itV.(*golum_))
 			}
-			return
+			return true
 		})
 
 	// start any new
@@ -548,9 +548,12 @@ func TestReloadComponent(name string) (err error) {
 // for test - put this in a defer() to unload all components at end of test
 //
 func TestStop() {
+	ulog.Debugf("G: TestStop")
 	golums_.Range(
-		func(itK, itV interface{}) (stop bool) {
+		func(itK, itV interface{}) (cont bool) {
+			ulog.Debugf("G: stopping %s", itK)
 			stopGolum(itV.(*golum_))
-			return
+			return true
 		})
+	//managers_ = make(map[string]Manager)
 }
