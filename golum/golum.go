@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/tredeske/u/uconfig"
@@ -196,7 +197,7 @@ type golum_ struct {
 
 var (
 	managers_ map[string]Manager = make(map[string]Manager) // by type
-	golums_   map[string]*golum_ = make(map[string]*golum_) // by comp name
+	golums_   sync.Map                                      // *golum_ by comp name
 )
 
 //
@@ -233,7 +234,8 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 			uregistry.Put(g.name, Disabled{})
 			return
 		}
-		if _, exists := golums_[g.name]; exists {
+		_, exists := golums_.Load(g.name)
+		if exists {
 			err = fmt.Errorf("Duplicate instance '%s' not allowed", g.name)
 			return
 		}
@@ -246,6 +248,16 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 	})
 	if err != nil {
 		err = uerr.Chainf(err, "Loading component %d", comp)
+	}
+	return
+}
+
+func getGolum(name string) (g *golum_, found bool) {
+
+	var it interface{}
+	it, found = golums_.Load(g.name)
+	if found {
+		g = it.(*golum_)
 	}
 	return
 }
@@ -265,7 +277,7 @@ func LoadAndStart(configs *uconfig.Array) (err error) {
 // Unload and stop the specified component
 //
 func Unload(name string) (unloaded bool) {
-	g, ok := golums_[name]
+	g, ok := getGolum(name)
 	if !ok {
 		return false
 	}
@@ -329,7 +341,8 @@ func Reload(configs *uconfig.Array) (err error) {
 			return
 		}
 		present[g.name] = true
-		if existing, exists := golums_[g.name]; exists {
+		existing, exists := getGolum(g.name)
+		if exists {
 			if existing.config.DiffersFrom(g.config) {
 				log.Printf("G: Reloading %s", existing.name)
 				err = existing.manager.ReloadGolum(existing.name, g.config)
@@ -352,11 +365,14 @@ func Reload(configs *uconfig.Array) (err error) {
 
 	// stop and remove any that are not part of new config
 	//
-	for _, g := range golums_ {
-		if _, exists := present[g.name]; !exists {
-			stopGolum(g)
-		}
-	}
+	golums_.Range(
+		func(itK, itV interface{}) (stop bool) {
+			name := itK.(string)
+			if _, exists := present[name]; !exists {
+				stopGolum(itV.(*golum_))
+			}
+			return
+		})
 
 	// start any new
 	//
@@ -375,7 +391,7 @@ func Reload(configs *uconfig.Array) (err error) {
 func stopGolum(g *golum_) {
 	log.Printf("G: Stopping %s", g.name)
 	g.manager.StopGolum(g.name)
-	delete(golums_, g.name)
+	golums_.Delete(g.name)
 }
 
 //
@@ -458,7 +474,7 @@ func addGolum(g *golum_) (err error) {
 	if err != nil {
 		err = uerr.Chainf(err, "Creating '%s'", g.name)
 	} else {
-		golums_[g.name] = g
+		golums_.Store(g.name, g)
 	}
 	return
 }
@@ -507,8 +523,8 @@ func TestReload(config interface{}) (err error) {
 // for test - stop named component
 //
 func TestStopComponent(name string) (err error) {
-	g := golums_[name]
-	if nil == g {
+	g, found := getGolum(name)
+	if !found {
 		return fmt.Errorf("No such component: %s", name)
 	}
 	g.manager.StopGolum(name)
@@ -519,8 +535,8 @@ func TestStopComponent(name string) (err error) {
 // for test - reload named component
 //
 func TestReloadComponent(name string) (err error) {
-	g := golums_[name]
-	if nil == g {
+	g, found := getGolum(name)
+	if !found {
 		return fmt.Errorf("No such component: %s", name)
 	}
 
@@ -532,7 +548,9 @@ func TestReloadComponent(name string) (err error) {
 // for test - put this in a defer() to unload all components at end of test
 //
 func TestStop() {
-	for _, g := range golums_ {
-		stopGolum(g)
-	}
+	golums_.Range(
+		func(itK, itV interface{}) (stop bool) {
+			stopGolum(itV.(*golum_))
+			return
+		})
 }
