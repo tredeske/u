@@ -416,7 +416,30 @@ func SectionFromConfig(
 // ensure the named component exists and is running
 //
 func ReloadOne(s *uconfig.Section) (err error) {
-	return Reload(uconfig.ArrayFromSection(s))
+	g, err := loadGolum(s)
+	if err != nil {
+		return
+	}
+	existing, exists := getGolum(g.name)
+	if exists {
+		log.Printf("G: Reloading %s", existing.name)
+		err = existing.manager.ReloadGolum(existing.name, g.config)
+		if nil == err {
+			existing.config = g.config
+		}
+	} else {
+		err = addGolum(g)
+		if err != nil {
+			return
+		}
+		log.Printf("G: Starting %s", g.name)
+		err = g.manager.StartGolum(g.name)
+		if err != nil {
+			err = uerr.Chainf(err, "Starting %s", g.name)
+			return
+		}
+	}
+	return
 }
 
 func loadGolum(config *uconfig.Section) (g *golum_, err error) {
