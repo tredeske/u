@@ -92,11 +92,13 @@ func (this *Error) SetCode(code int) *Error {
 }
 
 func (this *Error) Chainf(format string, args ...interface{}) *Error {
-	msg := fmt.Sprintf(format, args...)
-	if 0 == len(this.Message) {
-		this.Message = msg
-	} else {
-		this.Message = msg + ", caused by: " + this.Message
+	if 0 != len(format) {
+		msg := fmt.Sprintf(format, args...)
+		if 0 == len(this.Message) {
+			this.Message = msg
+		} else {
+			this.Message = msg + ", caused by: " + this.Message
+		}
 	}
 	return this
 }

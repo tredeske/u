@@ -44,6 +44,7 @@ type Child struct {
 	Dir      string      //
 	ChildIo  [3]*os.File // child's stdin, stdout, stderr
 	ParentIo [3]*os.File // parent's connection to child's stdin, stdout, stderr
+	Env      []string    //
 	Process  *os.Process
 	State    *os.ProcessState   // set when process completes
 	Context  context.Context    //
@@ -57,6 +58,38 @@ type Child struct {
 //
 func NewChild(args ...string) (this *Child) {
 	return &Child{Args: args}
+}
+
+//
+// By default, all env vars are inherited, but you need to all this if you
+// set specific env vars and also want to inherit.
+//
+// if plus is non-empty, then also add these vars
+//
+func (this *Child) InheritEnv(plus map[string]string) *Child {
+	this.Env = os.Environ()
+	for k, v := range plus {
+		this.Env = append(this.Env, k+"="+v)
+	}
+	return this
+}
+
+//
+// Add these env variables.  If InheritEnv not called, then no inheritence.
+//
+func (this *Child) SetEnv(env map[string]string) *Child {
+	for k, v := range env {
+		this.Env = append(this.Env, k+"="+v)
+	}
+	return this
+}
+
+//
+// add an env variable.  If InheritEnv not called, then no inheritance of others.
+//
+func (this *Child) SetEnvVar(key, value string) *Child {
+	this.Env = append(this.Env, key+"="+value)
+	return this
 }
 
 //
@@ -471,6 +504,7 @@ func (this *Child) Start() (err error) {
 		&os.ProcAttr{
 			Dir:   this.Dir,
 			Files: this.ChildIo[:],
+			Env:   this.Env,
 		})
 	this.closeChildIo() // we no longer need these - they're the childs
 
