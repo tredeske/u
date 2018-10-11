@@ -2,6 +2,7 @@ package uerr
 
 import (
 	"fmt"
+	"strings"
 )
 
 //
@@ -157,4 +158,14 @@ func CauseMatches(err error, matchF func(err error) bool) (rv bool) {
 		}
 	}
 	return
+}
+
+//
+//
+//
+func CauseMatchesString(err error, match string) (rv bool) {
+	return CauseMatches(err,
+		func(err error) bool {
+			return strings.Contains(err.Error(), match)
+		})
 }
