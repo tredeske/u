@@ -17,7 +17,7 @@ func IgnorePanic() {
 // Ignore any panics in activity().
 //
 func IgnorePanicIn(activity func()) {
-	defer recover()
+	defer func() { recover() }()
 	activity()
 }
 
