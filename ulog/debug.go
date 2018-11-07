@@ -18,6 +18,15 @@ func Debugf(format string, args ...interface{}) {
 	}
 }
 
+func Debugln(args ...interface{}) {
+	if DebugEnabled {
+		arr := [8]interface{}{}
+		slice := append(arr[:0], "DEBUG:")
+		slice = append(slice, args...)
+		log.Println(slice...)
+	}
+}
+
 func DebugfFor(from string, format string, args ...interface{}) {
 	if (DebugEnabled && !DebugDisabledFor[from]) || DebugEnabledFor[from] {
 		if 0 == len(args) {
