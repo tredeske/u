@@ -24,19 +24,12 @@ This package can be used to bootstrap your program.  Here is a sample main.go:
     
     func main() {
     
-        err := uboot.Boot("")
+        boot, err := uboot.SimpleBoot()
         if err != nil {
-            ulog.Fatalf("Exitting due to uboot.Boot failure: %s", err)
+            ulog.Fatalf("Exitting due to startup failure: %s", err)
         }
-        err = uboot.Redirect(uboot.Name+".stdout", uboot.LogF, 0)
-        if err != nil {
-            ulog.Fatalf("Exitting due to logging init failure: %s", err)
-        }
-    
-        _, err = uboot.Configure("components", nil)
-        if err != nil {
-            ulog.Fatalf("Exitting due to config failure: %s", err)
-        }
+
+        // ....
     
         uexit.SimpleSignalHandling() // park here until time to die
     }

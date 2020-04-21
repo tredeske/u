@@ -29,6 +29,30 @@ var (
 )
 
 //
+// simple boot using default values
+//
+func SimpleBoot() (rv Boot, err error) {
+	boot := Boot{}
+	err = boot.Boot()
+	if err != nil {
+		return
+	}
+
+	err = boot.Redirect(0)
+	if err != nil {
+		return
+	}
+
+	boot.Config, err = boot.Configure("components", nil)
+	if err != nil {
+		return
+	}
+
+	rv = boot
+	return
+}
+
+//
 // Control process boot
 //
 type Boot struct {
@@ -37,6 +61,7 @@ type Boot struct {
 	ConfigF  string // abs path to config file
 	LogF     string // path to log file, or empty/"stdout"
 	StdoutF  string // path to stdout file, or empty/"stdout" for stdout
+	Config   *uconfig.Section // the loaded config
 
 	//
 	// set by build system.  examples:
