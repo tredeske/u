@@ -103,7 +103,6 @@ func (this *AutoStoppable) StopGolum(name string) {
 	if nil == err && nil != g {
 		g.Stop()
 	}
-	return
 }
 
 //

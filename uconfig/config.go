@@ -783,6 +783,23 @@ func (this *Section) GetFloat64(key string, val *float64) (err error) {
 	return
 }
 
+func (this *Section) validInt(
+	key string,
+	val int64,
+	validators []IntValidator,
+) (err error) {
+	for _, validF := range validators {
+		if nil != validF {
+			err = validF(val)
+			if err != nil {
+				err = uerr.Chainf(err, this.ctx(key))
+				return
+			}
+		}
+	}
+	return
+}
+
 //
 // if found, update result with integral value
 //
@@ -798,43 +815,50 @@ func (this *Section) GetFloat64(key string, val *float64) (err error) {
 func (this *Section) GetInt(
 	key string,
 	result interface{},
-	validator ...IntValidator,
+	validators ...IntValidator,
 ) (err error) {
 
 	it, ok := this.getIt(key, false)
 	if !ok {
+		switch p := result.(type) { // must validate default value
+		case *int:
+			err = this.validInt(key, int64(*p), validators)
+		case *int64:
+			err = this.validInt(key, int64(*p), validators)
+		case *int32:
+			err = this.validInt(key, int64(*p), validators)
+		case *int16:
+			err = this.validInt(key, int64(*p), validators)
+		case *int8:
+			err = this.validInt(key, int64(*p), validators)
+		}
 		return // leave val unset (default val)
 	}
 
 	var val int64
-	val, ok = it.(int64)
-	if ok {
-		// done
-	} else if raw, ok := it.(int); ok {
-		val = int64(raw)
-	} else if raw, ok := it.(float64); ok {
-		val = int64(raw)
-	} else if raw, ok := it.(string); ok {
-		val, err = Int64FromSiString(this.expander.expand(raw))
+	switch typed := it.(type) {
+	case int:
+		val = int64(typed)
+	case int64:
+		val = int64(typed)
+	case float64:
+		val = int64(typed)
+	case string:
+		val, err = Int64FromSiString(this.expander.expand(typed))
 		if err != nil {
 			err = uerr.Chainf(err, this.ctx(key))
 			return
 		}
-	} else {
+	default:
 		err = fmt.Errorf("parsing config: value of %s not convertable "+
 			" to %s.  Is %s", this.ctx(key),
 			reflect.TypeOf(result), reflect.TypeOf(it))
 		return
 	}
 
-	for _, validF := range validator {
-		if nil != validF {
-			err = validF(val)
-			if err != nil {
-				err = uerr.Chainf(err, this.ctx(key))
-				return
-			}
-		}
+	err = this.validInt(key, val, validators)
+	if err != nil {
+		return
 	}
 
 	switch p := result.(type) {
@@ -895,6 +919,23 @@ func (this *Section) GetInt(
 	return
 }
 
+func (this *Section) validUInt(
+	key string,
+	val uint64,
+	validators []UIntValidator,
+) (err error) {
+	for _, validF := range validators {
+		if nil != validF {
+			err = validF(val)
+			if err != nil {
+				err = uerr.Chainf(err, this.ctx(key))
+				return
+			}
+		}
+	}
+	return
+}
+
 //
 // if found, update result with unsigned integral value
 //
@@ -910,45 +951,56 @@ func (this *Section) GetInt(
 func (this *Section) GetUInt(
 	key string,
 	result interface{},
-	validator ...UIntValidator,
+	validators ...UIntValidator,
 ) (err error) {
 
 	it, ok := this.getIt(key, false)
 	if !ok {
+		switch p := result.(type) { // must validate default value
+		case *uint:
+			err = this.validUInt(key, uint64(*p), validators)
+		case *uint64:
+			err = this.validUInt(key, uint64(*p), validators)
+		case *uint32:
+			err = this.validUInt(key, uint64(*p), validators)
+		case *uint16:
+			err = this.validUInt(key, uint64(*p), validators)
+		case *uint8:
+			err = this.validUInt(key, uint64(*p), validators)
+		}
 		return // leave val unset (default val)
 	}
 
+	//
+	// coerce the config value to a proper uint64
+	//
 	var val uint64
-	val, ok = it.(uint64)
-	if ok {
-		// done
-	} else if raw, ok := it.(uint); ok {
-		val = uint64(raw)
-	} else if raw, ok := it.(int); ok {
-		val = uint64(raw)
-	} else if raw, ok := it.(float64); ok {
-		val = uint64(raw)
-	} else if raw, ok := it.(string); ok {
-		val, err = UInt64FromSiString(this.expander.expand(raw))
+	switch typed := it.(type) {
+	case uint:
+		val = uint64(typed)
+	case int:
+		val = uint64(typed)
+	case float64:
+		val = uint64(typed)
+	case string:
+		val, err = UInt64FromSiString(this.expander.expand(typed))
 		if err != nil {
 			err = uerr.Chainf(err, this.ctx(key))
 			return
 		}
-	} else {
+	default:
 		err = fmt.Errorf("parsing config: value of %s not convertable "+
 			" to %s.  Is %s", this.ctx(key),
 			reflect.TypeOf(result), reflect.TypeOf(it))
 		return
 	}
 
-	for _, validF := range validator {
-		if nil != validF {
-			err = validF(val)
-			if err != nil {
-				err = uerr.Chainf(err, this.ctx(key))
-				return
-			}
-		}
+	//
+	// validate and return the value as the proper result type
+	//
+	err = this.validUInt(key, val, validators)
+	if err != nil {
+		return
 	}
 
 	switch p := result.(type) {
@@ -1008,7 +1060,7 @@ func (this *Section) GetValidInt(
 }
 
 // return a range validator for GetInt
-func ValidIntRange(min, max int64) IntValidator {
+func ValidRange(min, max int64) IntValidator {
 	return func(v int64) (err error) {
 		if v < min {
 			err = fmt.Errorf("value (%d) less than min (%d)", v, min)
