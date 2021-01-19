@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	nurl "net/url"
 	"os"
 	"path/filepath"
@@ -23,7 +24,20 @@ import (
 const (
 	SUBS     = "substitutions"
 	include_ = "include_"
+
+	MaxUint = ^uint(0)
+	MaxInt  = int(MaxUint >> 1)
+	MinInt  = -MaxInt - 1
 )
+
+// use with Section.GetInt to validate signed int
+type IntValidator func(int64) error
+
+// use with Section.GetUInt to validate unsigned int
+type UIntValidator func(uint64) error
+
+// use with Section.GetString to validate string
+type StringValidator func(string) error
 
 //
 // A map of strings to values used for config.
@@ -384,17 +398,22 @@ func (this *Section) Each(fn func(key string, val interface{}) error) error {
 }
 
 // iterate through config items in section, aborting if visitor returns error
-func (this *Section) EachString(fn func(key, val string) error) error {
+func (this *Section) EachString(fn func(key, val string) error) (err error) {
 	for k, _ := range this.section {
-		v, found := this.getString(k, false)
+		var v string
+		var found bool
+		v, found, err = this.getString(k)
+		if err != nil {
+			return
+		}
 		if found {
-			err := fn(k, v)
+			err = fn(k, v)
 			if err != nil {
-				return err
+				return
 			}
 		}
 	}
-	return nil
+	return
 }
 
 // compare this section to another one
@@ -478,9 +497,9 @@ func (this *Section) addSubs() (err error) {
 	}
 	subs := make(map[string]string)
 	for k, v := range mit {
-		str, ok := asString(v, false)
-		if !ok {
-			err = fmt.Errorf("parsing config: value for %s not a string", k)
+		var str string
+		str, err = this.asString(k, v)
+		if err != nil {
 			return
 		}
 		subs[k] = str
@@ -652,11 +671,11 @@ func (this *Section) GetValidArray(key string, val **Array) (err error) {
 func (this *Section) GetBool(key string, val *bool) (err error) {
 	it, found := this.getIt(key, false)
 	if found {
-		switch it.(type) {
+		switch typ := it.(type) {
 		case bool:
-			*val = it.(bool)
+			*val = typ
 		case string:
-			*val, err = strconv.ParseBool(it.(string))
+			*val, err = strconv.ParseBool(typ)
 		default:
 			err = fmt.Errorf("parsing config: value of %s not convertable "+
 				" to bool.  Is %s", this.ctx(key), reflect.TypeOf(it))
@@ -728,11 +747,12 @@ func (this *Section) GetCreateDir(key string, val *string, perm os.FileMode,
 }
 
 // if found, parse to duration and update val
-func (this *Section) GetDuration(key string, val *time.Duration,
-) (err error) {
+func (this *Section) GetDuration(key string, val *time.Duration) (err error) {
 
-	raw, found := this.getString(key, false)
-	if found {
+	raw, found, err := this.getString(key)
+	if err != nil {
+		return
+	} else if found {
 		*val, err = time.ParseDuration(raw)
 		if err != nil {
 			err = uerr.Chainf(err, "parsing config: %s=%s", this.ctx(key), raw)
@@ -763,137 +783,329 @@ func (this *Section) GetFloat64(key string, val *float64) (err error) {
 	return
 }
 
-// if found, parse to int64 and update val
+//
+// if found, update result with integral value
+//
+// result must be the address of some sort of signed int
+//
+// zero or more validators may be supplied.  they take the converted
+// value as an int64.  this func will perform basic range checking
+// based on the size of the int after validators are run
+//
 // handles strings with 0x (hex) or 0 (octal) prefixes
-// handles strings with SI suffixes
-func (this *Section) GetInt64(key string, val *int64) (err error) {
+// handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
+//
+func (this *Section) GetInt(
+	key string,
+	result interface{},
+	validator ...IntValidator,
+) (err error) {
+
 	it, ok := this.getIt(key, false)
 	if !ok {
 		return // leave val unset (default val)
 	}
-	*val, ok = it.(int64)
+
+	var val int64
+	val, ok = it.(int64)
 	if ok {
 		// done
-	} else if raw, ok := it.(float64); ok {
-		*val = int64(raw)
 	} else if raw, ok := it.(int); ok {
-		*val = int64(raw)
+		val = int64(raw)
+	} else if raw, ok := it.(float64); ok {
+		val = int64(raw)
 	} else if raw, ok := it.(string); ok {
-		*val, err = Int64FromSiString(this.expander.expand(raw))
+		val, err = Int64FromSiString(this.expander.expand(raw))
+		if err != nil {
+			err = uerr.Chainf(err, this.ctx(key))
+			return
+		}
 	} else {
 		err = fmt.Errorf("parsing config: value of %s not convertable "+
-			" to int64.  Is %s", this.ctx(key), reflect.TypeOf(it))
+			" to %s.  Is %s", this.ctx(key),
+			reflect.TypeOf(result), reflect.TypeOf(it))
+		return
 	}
+
+	for _, validF := range validator {
+		if nil != validF {
+			err = validF(val)
+			if err != nil {
+				err = uerr.Chainf(err, this.ctx(key))
+				return
+			}
+		}
+	}
+
+	switch p := result.(type) {
+	case (*int):
+		if val > int64(MaxInt) {
+			err = fmt.Errorf("value of %s (%d) is too large for int",
+				this.ctx(key), val)
+			return
+		} else if val < int64(MinInt) {
+			err = fmt.Errorf("value of %s (%d) is too small for int",
+				this.ctx(key), val)
+			return
+		}
+		*p = int(val)
+
+	case *int64:
+		*p = val
+	case *int32:
+		if val > math.MaxInt32 {
+			err = fmt.Errorf("value of %s (%d) is too large for int32",
+				this.ctx(key), val)
+			return
+		} else if val < math.MinInt32 {
+			err = fmt.Errorf("value of %s (%d) is too small for int32",
+				this.ctx(key), val)
+			return
+		}
+		*p = int32(val)
+	case *int16:
+		if val > math.MaxInt16 {
+			err = fmt.Errorf("value of %s (%d) is too large for int16",
+				this.ctx(key), val)
+			return
+		} else if val < math.MinInt16 {
+			err = fmt.Errorf("value of %s (%d) is too small for int16",
+				this.ctx(key), val)
+			return
+		}
+		*p = int16(val)
+	case *int8:
+		if val > math.MaxInt8 {
+			err = fmt.Errorf("value of %s (%d) is too large for int8",
+				this.ctx(key), val)
+			return
+		} else if val < math.MinInt8 {
+			err = fmt.Errorf("value of %s (%d) is too small for int8",
+				this.ctx(key), val)
+			return
+		}
+		*p = int8(val)
+
+	default:
+		err = fmt.Errorf("result must be a type of signed integer.  is %s",
+			reflect.TypeOf(result))
+		return
+	}
+
 	return
 }
 
-// same as GetInt64, but error if val == invalid
-func (this *Section) GetValidInt64(key string, invalid int64, val *int64,
-) (err error) {
-
-	err = this.GetInt64(key, val)
-	if nil == err && invalid == *val {
-		err = fmt.Errorf("Invalid value (%d) for '%s'", *val, this.ctx(key))
-	}
-	return
-}
-
-// if found, parse to int and update val
-// handles strings with SI suffixes
-func (this *Section) GetInt(key string, val *int) (err error) {
-	i64 := int64(*val)
-	err = this.GetInt64(key, &i64)
-	if nil == err {
-		*val = int(i64)
-	}
-	return
-}
-
-// same as GetInt, but error if val == invalid
-func (this *Section) GetValidInt(key string, invalid int, val *int,
-) (err error) {
-
-	err = this.GetInt(key, val)
-	if nil == err && invalid == *val {
-		err = fmt.Errorf("Invalid value (%d) for '%s'", *val, this.ctx(key))
-	}
-	return
-}
-
-// same as GetInt, but error if val <= 0
-func (this *Section) GetPosInt(key string, val *int) (err error) {
-
-	err = this.GetInt(key, val)
-	if nil == err && 0 >= *val {
-		err = fmt.Errorf("Invalid value (%d) for '%s'", *val, this.ctx(key))
-	}
-	return
-}
-
-// if found, parse to uint64 and update val
+//
+// if found, update result with unsigned integral value
+//
+// result must be the address of some sort of unsigned int
+//
+// zero or more validators may be supplied.  they take the converted
+// value as a uint64.  this func will perform basic range checking
+// based on the size of the int after validators are run
+//
 // handles strings with 0x (hex) or 0 (octal) prefixes
-// handles strings with SI suffixes
-func (this *Section) GetUInt64(key string, val *uint64) (err error) {
+// handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
+//
+func (this *Section) GetUInt(
+	key string,
+	result interface{},
+	validator ...UIntValidator,
+) (err error) {
 
-	it, found := this.getIt(key, false)
-	if !found {
-		return // leave val as is
+	it, ok := this.getIt(key, false)
+	if !ok {
+		return // leave val unset (default val)
 	}
-	rv, ok := it.(uint64)
+
+	var val uint64
+	val, ok = it.(uint64)
 	if ok {
-		*val = rv
-	} else if raw, ok := it.(float64); ok {
-		*val = uint64(raw)
+		// done
+	} else if raw, ok := it.(uint); ok {
+		val = uint64(raw)
 	} else if raw, ok := it.(int); ok {
-		*val = uint64(raw)
+		val = uint64(raw)
+	} else if raw, ok := it.(float64); ok {
+		val = uint64(raw)
 	} else if raw, ok := it.(string); ok {
-		*val, err = UInt64FromSiString(this.expander.expand(raw))
+		val, err = UInt64FromSiString(this.expander.expand(raw))
+		if err != nil {
+			err = uerr.Chainf(err, this.ctx(key))
+			return
+		}
 	} else {
 		err = fmt.Errorf("parsing config: value of %s not convertable "+
-			" to uint64.  Is %s", this.ctx(key), reflect.TypeOf(it))
+			" to %s.  Is %s", this.ctx(key),
+			reflect.TypeOf(result), reflect.TypeOf(it))
+		return
+	}
+
+	for _, validF := range validator {
+		if nil != validF {
+			err = validF(val)
+			if err != nil {
+				err = uerr.Chainf(err, this.ctx(key))
+				return
+			}
+		}
+	}
+
+	switch p := result.(type) {
+	case *uint:
+		if val > uint64(MaxUint) {
+			err = fmt.Errorf("value of %s (%d) is too large for uint",
+				this.ctx(key), val)
+			return
+		}
+		*p = uint(val)
+	case *uint64:
+		*p = uint64(val)
+	case *uint32:
+		if val > math.MaxUint32 {
+			err = fmt.Errorf("value of %s (%d) is too large for uint32",
+				this.ctx(key), val)
+			return
+		}
+		*p = uint32(val)
+	case *uint16:
+		if val > math.MaxUint16 {
+			err = fmt.Errorf("value of %s (%d) is too large for uint16",
+				this.ctx(key), val)
+			return
+		}
+		*p = uint16(val)
+	case *uint8:
+		if val > math.MaxUint8 {
+			err = fmt.Errorf("value of %s (%d) is too large for uint8",
+				this.ctx(key), val)
+			return
+		}
+		*p = uint8(val)
+
+	default:
+		err = fmt.Errorf("result must be some type of integer.  is %s",
+			reflect.TypeOf(result))
+		return
 	}
 	return
+}
+
+// same as GetInt, but error if result == invalid
+func (this *Section) GetValidInt(
+	key string,
+	invalid int,
+	result *int,
+) (err error) {
+
+	return this.GetInt(key, result,
+		func(v int64) (err error) {
+			if invalid == int(v) {
+				err = fmt.Errorf("int is set to invalid value: %d", invalid)
+			}
+			return
+		})
+}
+
+// return a range validator for GetInt
+func ValidIntRange(min, max int64) IntValidator {
+	return func(v int64) (err error) {
+		if v < min {
+			err = fmt.Errorf("value (%d) less than min (%d)", v, min)
+		} else if v > max {
+			err = fmt.Errorf("value (%d) greater than max (%d)", v, max)
+		}
+		return
+	}
+}
+
+// return a range validator for GetUInt
+func ValidUIntRange(min, max uint64) UIntValidator {
+	return func(v uint64) (err error) {
+		if v < min {
+			err = fmt.Errorf("value (%d) less than min (%d)", v, min)
+		} else if v > max {
+			err = fmt.Errorf("value (%d) greater than max (%d)", v, max)
+		}
+		return
+	}
+}
+
+// validator to error if v is not positive
+var MustBePos = func(v int64) (err error) {
+	if v <= 0 {
+		err = fmt.Errorf("int is not positive (is %d)", v)
+	}
+	return
+}
+
+// validator to error if v is negative
+var MustBeNonNeg = func(v int64) (err error) {
+	if v < 0 {
+		err = fmt.Errorf("int is not positive (is %d)", v)
+	}
+	return
+}
+
+// same as GetInt, but error if result <= 0
+func (this *Section) GetPosInt(key string, result *int) (err error) {
+
+	return this.GetInt(key, result, MustBePos)
 }
 
 // if found, parse into []string and update val
-func (this *Section) GetStrings(key string, val *[]string) (err error) {
+func (this *Section) GetStrings(
+	key string,
+	result *[]string,
+	validators ...StringValidator,
+) (err error) {
 	it, found := this.section[key]
 	if found {
-		*val, err = this.toStrings(key, it)
+		*result, err = this.toStrings(key, it, validators...)
 	}
 	return
 }
 
-func (this *Section) toStrings(key string, it interface{},
+func (this *Section) toStrings(
+	key string,
+	it interface{},
+	validators ...StringValidator,
 ) (rv []string, err error) {
 
 	ok := false
 	rv, ok = it.([]string)
-	if ok {
-		return
-	}
-	if raw, isArray := it.([]interface{}); isArray {
-		rv = make([]string, len(raw))
-		for i, v := range raw {
-			str, ok := asString(v, false)
-			if !ok {
-				err = fmt.Errorf("parsing config: value in %s array not a string",
-					this.ctx(key))
-				break
+	if !ok {
+		raw, isArray := it.([]interface{})
+		if isArray {
+			rv = make([]string, len(raw))
+			for i, v := range raw {
+				var str string
+				str, err = this.asString(key, v)
+				if err != nil {
+					rv = nil
+					return
+				}
+				rv[i] = this.expander.expand(str)
 			}
-			rv[i] = this.expander.expand(str)
-		}
 
-	} else { // not an array, so attempt to create an array
+		} else { // not an array, so attempt to create an array
 
-		str, ok := asString(it, false)
-		if !ok {
-			err = fmt.Errorf("parsing config: %s not convertable to string array",
-				this.ctx(key))
-			rv = nil
+			var str string
+			str, err = this.asString(key, it)
+			if err != nil {
+				return
+			}
+			rv = make([]string, 1)
+			rv[0] = this.expander.expand(str)
 		}
-		rv = make([]string, 1)
-		rv[0] = this.expander.expand(str)
+	}
+	if 0 != len(validators) {
+		for _, s := range rv {
+			err = this.validString(key, s, validators)
+			if err != nil {
+				return
+			}
+		}
 	}
 	return
 }
@@ -909,9 +1121,9 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 		}
 		*val = make(map[string]string, len(mit))
 		for k, v := range mit {
-			str, ok := asString(v, false)
-			if !ok {
-				err = fmt.Errorf("parsing config: value for %s not a string", k)
+			var str string
+			str, err = this.asString(k, v)
+			if err != nil {
 				return
 			}
 			(*val)[this.expander.expand(k)] = this.expander.expand(str)
@@ -926,7 +1138,6 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 
 func (this *Section) GetIt(key string, value *interface{}) {
 	*value, _ = this.getIt(key, false)
-	return
 }
 
 func (this *Section) GetValidIt(key string, value *interface{}) (err error) {
@@ -958,75 +1169,140 @@ func (this *Section) getIt(key string, raw bool) (rv interface{}, found bool) {
 }
 
 // convert it to string
-// if raw is true, then do NOT convert numeric, boolean, or other types to string
-func asString(it interface{}, raw bool) (rv string, ok bool) {
+func (this *Section) asString(key string, it interface{}) (rv string, err error) {
 
-	switch it.(type) {
+	switch typ := it.(type) {
 	case string:
-		rv, ok = it.(string)
-	case int, int32, int64, uint, uint32, uint64, float32, float64, bool,
-		time.Duration:
-		if !raw {
-			rv = fmt.Sprint(it)
-			ok = true
+		rv = typ
+	case int, int16, int32, int64, uint, uint16, uint32, uint64, float32, float64, bool, time.Duration:
+		rv = fmt.Sprint(it)
+	default:
+		err = fmt.Errorf("Unable to convert value of %s to string: %#v",
+			this.ctx(key), it)
+	}
+	return
+}
+
+// convert it to string
+// do NOT convert numeric, boolean, or other types to string
+func asRawString(it interface{}) (rv string, ok bool) {
+
+	switch typ := it.(type) {
+	case string:
+		rv = typ
+		ok = true
+	}
+	return
+}
+
+func (this *Section) getString(key string) (rv string, found bool, err error) {
+	var it interface{}
+	it, found = this.getIt(key, false)
+	if found {
+		rv, err = this.asString(key, it)
+	}
+	return
+}
+
+func (this *Section) validString(
+	key, val string,
+	validators []StringValidator,
+) (err error) {
+	for _, validF := range validators {
+		if nil != validF {
+			err = validF(val)
+			if err != nil {
+				err = uerr.Chainf(err, this.ctx(key))
+				return
+			}
 		}
 	}
 	return
 }
 
-func (this *Section) getString(key string, raw bool) (rv string, found bool) {
-	it, gotit := this.getIt(key, raw)
-	if gotit {
-		rv, found = asString(it, raw)
-	}
-	return
-}
+// if found, parse to string and set result without detemplatizing
+func (this *Section) GetRawString(
+	key string,
+	result *string,
+	validators ...StringValidator,
+) (err error) {
 
-// if found, parse to string and set val without detemplatizing
-func (this *Section) GetRawString(key string, val *string) (err error) {
 	it, gotit := this.getIt(key, true)
 	if gotit {
-		*val, _ = asString(it, true)
+		val, _ := asRawString(it)
+		err = this.validString(key, val, validators)
+		if nil == err {
+			*result = val
+		}
 	}
 	return
 }
 
-// if found, parse to string and set val without detemplatizing
-func (this *Section) GetValidRawString(key, invalid string, val *string,
-) (err error) {
-	err = this.GetRawString(key, val)
-	if nil == err && *val == invalid {
-		err = fmt.Errorf("parsing config: invalid string value (%s) of %s",
-			invalid, this.ctx(key))
-	}
-	return
-}
-
-// if found, parse to string and set val, resolving any templating
-func (this *Section) GetString(key string, val *string) (err error) {
-	it, gotit := this.getIt(key, false)
-	if gotit {
-		*val, _ = asString(it, false)
-	}
-	return
-}
-
-// Same as GetString, but error if val == invalid when done
-func (this *Section) GetValidString(key, invalid string, val *string,
+// if found, parse to string and set result, resolving any templating
+func (this *Section) GetString(
+	key string,
+	result *string,
+	validators ...StringValidator,
 ) (err error) {
 
-	err = this.GetString(key, val)
-	if nil == err && *val == invalid {
-		err = fmt.Errorf("parsing config: invalid string value (%s) of %s",
-			invalid, this.ctx(key))
+	var val string
+	var found bool
+	val, found, err = this.getString(key)
+	if err != nil {
+		return
+	}
+	if !found && nil != result { // validate default value
+		val = *result
+	}
+	err = this.validString(key, val, validators)
+	if err != nil {
+		return
+	}
+	if found {
+		*result = val
 	}
 	return
+}
+
+// a StringValidator
+func StringNotBlank(v string) (err error) {
+	if 0 == len(v) {
+		err = errors.New("String value empty")
+	}
+	return
+}
+
+// create a StringValidator
+func StringOneOf(choices ...string) StringValidator {
+	return func(v string) (err error) {
+		for _, choice := range choices {
+			if choice == v {
+				return
+			}
+		}
+		return fmt.Errorf("String (%s) not in %#v", v, choices)
+	}
+}
+
+// create a StringValidator
+func StringNot(invalid ...string) StringValidator {
+	return func(v string) (err error) {
+		for _, iv := range invalid {
+			if iv == v {
+				return fmt.Errorf("String cannot be (%s)", v)
+			}
+		}
+		return
+	}
 }
 
 // if found, parse to regexp and set val
 func (this *Section) GetRegexp(key string, val **regexp.Regexp) (err error) {
 
-	raw, found := this.getString(key, false)
+	raw, found, err := this.getString(key)
+	if err != nil {
+		return
+	}
 	if found && 0 != len(raw) {
 		*val, err = regexp.Compile(raw)
 		if err != nil {
@@ -1048,7 +1324,10 @@ func (this *Section) GetValidRegexp(key string, val **regexp.Regexp) (err error)
 
 // if found, parse to url and set val
 func (this *Section) GetUrl(key string, val **nurl.URL) (err error) {
-	raw, found := this.getString(key, false)
+	raw, found, err := this.getString(key)
+	if err != nil {
+		return
+	}
 	if found && 0 != len(raw) {
 		*val, err = nurl.Parse(raw)
 		if err != nil {
@@ -1068,10 +1347,12 @@ func (this *Section) GetValidUrl(key string, val **nurl.URL) (err error) {
 	return
 }
 
+/*
 // get the named string, setting ok value to true if string found and set
 func (this *Section) GetStringOk(key string) (string, bool) {
-	return this.getString(key, false)
+	return this.getString(key)
 }
+*/
 
 ///////////////////////////////////////////////////////
 

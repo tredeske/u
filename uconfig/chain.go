@@ -18,6 +18,11 @@ type Chain struct {
 	Error   error
 }
 
+//
+// Use with Chain.Build, Chain.BuildIf, Chain.BuildFrom
+//
+type Builder func(config *Chain) (rv interface{}, err error)
+
 func (this *Chain) DumpSubs() string {
 	return this.Section.DumpSubs()
 }
@@ -157,31 +162,31 @@ func (this *Chain) GetFloat64(key string, value *float64) *Chain {
 	return this
 }
 
-func (this *Chain) GetInt64(key string, value *int64) *Chain {
-	if nil == this.Error {
-		this.Error = this.Section.GetInt64(key, value)
-	}
-	return this
-}
-
-func (this *Chain) GetValidInt64(key string, invalid int64, value *int64,
+func (this *Chain) GetInt(
+	key string,
+	result interface{},
+	validator ...IntValidator,
 ) *Chain {
 
 	if nil == this.Error {
-		this.Error = this.Section.GetValidInt64(key, invalid, value)
+		this.Error = this.Section.GetInt(key, result, validator...)
 	}
 	return this
 }
 
-func (this *Chain) GetInt(key string, value *int) *Chain {
-	if nil == this.Error {
-		this.Error = this.Section.GetInt(key, value)
-	}
-	return this
-}
-
-func (this *Chain) GetValidInt(key string, invalid int, value *int,
+func (this *Chain) GetUInt(
+	key string,
+	result interface{},
+	validator ...UIntValidator,
 ) *Chain {
+
+	if nil == this.Error {
+		this.Error = this.Section.GetUInt(key, result, validator...)
+	}
+	return this
+}
+
+func (this *Chain) GetValidInt(key string, invalid int, value *int) *Chain {
 
 	if nil == this.Error {
 		this.Error = this.Section.GetValidInt(key, invalid, value)
@@ -189,8 +194,7 @@ func (this *Chain) GetValidInt(key string, invalid int, value *int,
 	return this
 }
 
-func (this *Chain) GetPosInt(key string, value *int,
-) *Chain {
+func (this *Chain) GetPosInt(key string, value *int) *Chain {
 
 	if nil == this.Error {
 		this.Error = this.Section.GetPosInt(key, value)
@@ -207,16 +211,14 @@ func (this *Chain) GetCreateDir(key string, value *string, perm os.FileMode,
 	return this
 }
 
-func (this *Chain) GetRegexp(key string, value **regexp.Regexp,
-) *Chain {
+func (this *Chain) GetRegexp(key string, value **regexp.Regexp) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetRegexp(key, value)
 	}
 	return this
 }
 
-func (this *Chain) GetValidRegexp(key string, value **regexp.Regexp,
-) *Chain {
+func (this *Chain) GetValidRegexp(key string, value **regexp.Regexp) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetValidRegexp(key, value)
 	}
@@ -267,25 +269,32 @@ func (this *Chain) GetValidIt(key string, value *interface{}) *Chain {
 	return this
 }
 
-// if key resolves to string, then set value
-func (this *Chain) GetString(key string, value *string) *Chain {
+// if key resolves to string, then set result
+func (this *Chain) GetString(
+	key string,
+	result *string,
+	validators ...StringValidator,
+) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetString(key, value)
+		this.Error = this.Section.GetString(key, result, validators...)
 	}
 	return this
 }
 
 // if key resolves to []string, then set value
-func (this *Chain) GetStrings(key string, value *[]string) *Chain {
+func (this *Chain) GetStrings(
+	key string,
+	result *[]string,
+	validators ...StringValidator,
+) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetStrings(key, value)
+		this.Error = this.Section.GetStrings(key, result, validators...)
 	}
 	return this
 }
 
 // if key resolves to map[string]string, then set value
-func (this *Chain) GetStringMap(key string, value *map[string]string,
-) *Chain {
+func (this *Chain) GetStringMap(key string, value *map[string]string) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetStringMap(key, value)
 	}
@@ -293,30 +302,13 @@ func (this *Chain) GetStringMap(key string, value *map[string]string,
 }
 
 // get raw string value with no detemplating or translation
-func (this *Chain) GetRawString(key string, value *string) *Chain {
-	if nil == this.Error {
-		this.Error = this.Section.GetRawString(key, value)
-	}
-	return this
-}
-
-// get raw string value with no detemplating or translation
-// set error if value is same as invalid value
-func (this *Chain) GetValidRawString(key, invalid string, value *string,
+func (this *Chain) GetRawString(
+	key string,
+	result *string,
+	validators ...StringValidator,
 ) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetValidRawString(key, invalid, value)
-	}
-	return this
-}
-
-// get string into value.  default value is value in value before call
-// set error if value is same as invalid value
-func (this *Chain) GetValidString(key, invalid string, value *string,
-) *Chain {
-
-	if nil == this.Error {
-		this.Error = this.Section.GetValidString(key, invalid, value)
+		this.Error = this.Section.GetRawString(key, result, validators...)
 	}
 	return this
 }
@@ -395,10 +387,15 @@ func (this *Chain) Must(
 }
 
 // build value from named config section if it exists
+//
+// if builder returns nil, then no assignment is made to value
+//
+// value is typically a pointer to the thing that will be built.  If the
+// thing to be built is a pointer, then it must be the addres of the pointer.
 func (this *Chain) BuildIf(
 	key string,
 	value interface{},
-	builder func(config *Chain) (rv interface{}, err error),
+	builder Builder,
 ) *Chain {
 
 	if nil == this.Error {
@@ -414,10 +411,15 @@ func (this *Chain) BuildIf(
 }
 
 // build value from named config section
+//
+// if builder returns nil, then no assignment is made to value
+//
+// value is typically a pointer to the thing that will be built.  If the
+// thing to be built is a pointer, then it must be the addres of the pointer.
 func (this *Chain) BuildFrom(
 	key string,
 	value interface{},
-	builder func(config *Chain) (rv interface{}, err error),
+	builder Builder,
 ) *Chain {
 
 	if nil == this.Error {
@@ -434,9 +436,12 @@ func (this *Chain) BuildFrom(
 //
 // if builder returns nil, then no assignment is made to value
 //
+// value is typically a pointer to the thing that will be built.  If the
+// thing to be built is a pointer, then it must be the addres of the pointer.
+//
 func (this *Chain) Build(
 	value interface{},
-	builder func(config *Chain) (rv interface{}, err error),
+	builder Builder,
 ) *Chain {
 
 	if nil == this.Error {

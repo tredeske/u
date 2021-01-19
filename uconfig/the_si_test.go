@@ -29,7 +29,7 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1i"
-	sv, err = Int64FromSiString(s)
+	_, err = Int64FromSiString(s)
 	if nil == err {
 		t.Fatal("should have errored when converting '1i'")
 	}

@@ -71,12 +71,12 @@ func (this *Connector) SetDefaults() {
 func (this *Connector) Construct(c *uconfig.Chain) (err error) {
 
 	err = c.
-		GetValidString("dbName", "", &this.Database).
+		GetString("dbName", &this.Database, uconfig.StringNotBlank).
 		GetString("dbUser", &this.User).
 		GetString("dbPass", &this.Pass).
-		GetValidString("dbHost", "", &this.Host).
+		GetString("dbHost", &this.Host, uconfig.StringNotBlank).
 		GetPosInt("dbPort", &this.Port).
-		GetValidString("dbSslMode", "", &this.SslMode).
+		GetString("dbSslMode", &this.SslMode, uconfig.StringNotBlank).
 		GetString("publicCert", &this.PublicCertF).
 		GetString("privateKey", &this.PrivateKeyF).
 		GetString("caCerts", &this.CaCertsF).
