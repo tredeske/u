@@ -1,6 +1,7 @@
 package upostgres
 
 import (
+	"os/exec"
 	"path"
 	"strings"
 	"testing"
@@ -15,6 +16,19 @@ import (
 // - shutdown the postgres server
 //
 func TestStartStop(t *testing.T) {
+
+	//
+	// skip?
+	//
+
+	_, err := exec.LookPath("initdb")
+	if err != nil {
+		t.Skip("Skipping test because postgres initdb not installed")
+	}
+
+	//
+	//
+	//
 
 	testD, err := CreateTestAreaTmp(t.Name())
 	if err != nil {

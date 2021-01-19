@@ -38,21 +38,21 @@ func (this thingMgr_) NewGolum(name string, config *uconfig.Section) (err error)
 	}
 
 	err = config.Chain().
-		GetValidString("a", "", &g.a).
+		GetString("a", &g.a, uconfig.StringNotBlank).
 		GetString("b", &g.b).
-		GetValidInt64("i", g.i, &g.i).
-		GetInt64("g.j", &g.j).
+		GetInt("i", &g.i).
+		GetInt("g.j", &g.j).
 
 		//
 		EachSection("stuff",
-		func(idx int, s *uconfig.Section) (err error) {
-			aStuff := stuff_{}
-			return s.Chain().
-				GetString("foo", &aStuff.foo).
-				GetBool("bar", &aStuff.bar).
-				Then(func() { g.mystuff = append(g.mystuff, aStuff) }).
-				Error
-		}).
+			func(idx int, s *uconfig.Section) (err error) {
+				aStuff := stuff_{}
+				return s.Chain().
+					GetString("foo", &aStuff.foo).
+					GetBool("bar", &aStuff.bar).
+					Then(func() { g.mystuff = append(g.mystuff, aStuff) }).
+					Error
+			}).
 
 		//
 		Then(func() { uregistry.MustPutSingleton(name, g) }).

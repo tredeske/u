@@ -1,6 +1,7 @@
 package uconfig
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -204,6 +205,195 @@ func TestDiff(t *testing.T) {
 	}
 }
 
+func TestGetString(t *testing.T) {
+	success := map[string]interface{}{
+		"string":     "stringV",
+		"bool":       true,
+		"int":        1,
+		"float":      2.0,
+		"intString1": "1",
+		"intString2": "1M",
+	}
+	s, err := NewSection(success)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for k, _ := range success {
+		result := ""
+		err = s.Chain().
+			GetString(k, &result, StringNotBlank).
+			Error
+		if err != nil {
+			t.Fatalf("Unable to get string: %s", err)
+		} else if 0 == len(result) {
+			t.Fatalf("string result not set")
+		}
+	}
+	result := ""
+	err = s.GetString("string", &result, StringOneOf("stringV"))
+	if err != nil {
+		t.Fatalf("Unable to get string with validation: %s", err)
+	} else if 0 == len(result) {
+		t.Fatalf("string result not set")
+	}
+}
+
+func TestGetStringFails(t *testing.T) {
+
+	m := map[string]interface{}{
+		"nil":   nil,
+		"array": []string{"foo", "bar"},
+		"map":   map[string]string{"foo": "bar"},
+	}
+	s, err := NewSection(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, _ := range m {
+		result := ""
+		err = s.Chain().
+			GetString(k, &result).
+			Error
+		if nil == err {
+			t.Fatalf("Should have failed to get string %s. got (%s)", k, result)
+		} else if 0 != len(result) {
+			t.Fatalf("Result should not be set")
+		}
+	}
+
+	m = map[string]interface{}{
+		"blank":  "",
+		"choice": "choice_5",
+	}
+	s, err = NewSection(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := ""
+	err = s.GetString("blank", &result, StringNotBlank)
+	if nil == err {
+		t.Fatalf("Should be blank")
+	} else if 0 != len(result) {
+		t.Fatalf("Result should not be set")
+	}
+
+	err = s.GetString("choice", &result, StringOneOf("choice_1", "choice_2"))
+	if nil == err {
+		t.Fatalf("Should have failed due to bad choice")
+	} else if 0 != len(result) {
+		t.Fatalf("Result should not be set")
+	}
+}
+
+func TestGetInt(t *testing.T) {
+	const BAD_VALUE int = 2020
+	validIntF := func(v int64) (err error) {
+		if int64(BAD_VALUE) == v {
+			err = fmt.Errorf("value did not change")
+		}
+		return
+	}
+	validUIntF := func(v uint64) (err error) {
+		if uint64(BAD_VALUE) == v {
+			err = fmt.Errorf("value did not change")
+		}
+		return
+	}
+
+	m := map[string]interface{}{
+		"string":     "stringV",
+		"bool":       true,
+		"duration":   "2s",
+		"int":        1,
+		"float":      2.0,
+		"intString1": "1",
+		"intString2": "1M",
+	}
+	failKeys := []string{"string", "bool", "duration"}
+	type Checker struct {
+		key   string
+		value interface{}
+	}
+	anInt := 0
+	var anInt64 int64
+	var anInt32 int32
+	var anInt16 int16
+	var aUInt uint
+	var aUInt64 uint64
+	var aUInt32 uint32
+	var aUInt16 uint16
+	success := []Checker{
+		Checker{"int", &anInt},
+		Checker{"int", &anInt64},
+		Checker{"int", &anInt32},
+		Checker{"int", &anInt16},
+		Checker{"int", &aUInt},
+		Checker{"int", &aUInt64},
+		Checker{"int", &aUInt32},
+		Checker{"int", &aUInt16},
+		Checker{"float", &anInt},
+		Checker{"intString1", &anInt},
+		Checker{"intString2", &anInt},
+	}
+
+	s, err := NewSection(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//
+	// these should fail
+	//
+	result := BAD_VALUE
+	for _, key := range failKeys {
+		err = s.GetInt(key, &result)
+		if nil == err {
+			t.Fatalf("Should fail (key=%s): %s", key, err)
+		} else if BAD_VALUE != result {
+			t.Fatalf("Should not have changed (key=%s)", key)
+		}
+	}
+
+	//
+	// int8
+	//
+	const I8_BAD int8 = 20
+	var i8 int8 = I8_BAD
+	err = s.GetInt("intString1", &i8)
+	if err != nil {
+		t.Fatalf("int8 failed! - %s", err)
+	} else if I8_BAD == i8 {
+		t.Fatalf("Should have changed int8")
+	}
+	i8 = I8_BAD
+	err = s.GetInt("intString2", &i8)
+	if nil == err {
+		t.Fatalf("int8: Should fail") // too large
+	} else if I8_BAD != i8 {
+		t.Fatalf("Should NOT have changed int8")
+	}
+
+	//
+	// these should succeed
+	//
+	for _, checker := range success {
+		key := checker.key
+		Assign("test", checker.value, BAD_VALUE)
+		//fmt.Printf("HERE %d\n", checker.value)
+		switch checker.value.(type) {
+		case *int, *int64, *int32, *int16, *int8:
+			err = s.GetInt(key, checker.value, validIntF)
+		default:
+			err = s.GetUInt(key, checker.value, validUIntF)
+		}
+		if nil != err {
+			t.Fatalf("Should succeed (key=%s): %s", key, err)
+		}
+	}
+
+}
+
 func TestGet(t *testing.T) {
 	m := map[string]interface{}{
 		"string":   "stringV",
@@ -228,7 +418,7 @@ func TestGet(t *testing.T) {
 
 	err = s.Chain().
 		GetString("string", &stringV).
-		GetInt("int", &intV).
+		GetInt("int", &intV, nil).
 		GetBool("bool", &boolV).
 		GetIt("bool", &itV).
 		GetFloat64("float64", &floatV).

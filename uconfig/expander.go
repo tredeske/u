@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 )
 
 //
@@ -169,9 +170,14 @@ func (this *expander_) loadInclude(includeF string) (err error) {
 	}
 	m := make(map[string]string)
 	for k, v := range included {
-		str, converted := asString(v, false)
-		if !converted {
-			err = fmt.Errorf("Unable to convert value to string: %#v", v)
+		var str string
+		switch typ := v.(type) {
+		case string:
+			str = typ
+		case int, int16, int32, int64, uint, uint16, uint32, uint64, float32, float64, bool, time.Duration:
+			str = fmt.Sprint(v)
+		default:
+			err = fmt.Errorf("Unable to convert value of %s to string: %#v", k, v)
 			return
 		}
 		m[k] = str
