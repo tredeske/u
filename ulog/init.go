@@ -106,13 +106,12 @@ func Init(logF string, maxSz int64) (err error) {
 	}
 
 	if 0 != len(logF) && "stdout" != logF && !UseStdout {
-		logD := Dir
 		if strings.ContainsRune(logF, '/') || 0 == len(Dir) {
 			logF, err = filepath.Abs(logF)
 			if err != nil {
 				return
 			}
-			logD = path.Dir(logF)
+			logD := path.Dir(logF)
 			if 0 == len(Dir) {
 				Dir = logD
 			}

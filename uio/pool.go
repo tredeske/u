@@ -168,7 +168,8 @@ func (this *BytesPool) Construct(size int) *BytesPool {
 	}
 	this.size = size
 	this.pool.New = func() interface{} {
-		return make([]byte, size)
+		slice := make([]byte, size)
+		return &slice // use ptr to avoid allocation
 	}
 	return this
 }
@@ -177,14 +178,15 @@ func (this *BytesPool) Construct(size int) *BytesPool {
 // get a byte slice
 //
 func (this *BytesPool) Get() (rv []byte) {
-	return this.pool.Get().([]byte)
+	return *this.pool.Get().(*[]byte) // use ptr to avoid allocation
 }
 
 //
 // return a byte slice
 //
 func (this *BytesPool) Put(bb []byte) {
-	this.pool.Put(bb[:this.size])
+	slice := bb[:this.size]
+	this.pool.Put(&slice) // use ptr to avoid allocation
 }
 
 //

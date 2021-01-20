@@ -124,7 +124,6 @@ func (this *Map) RemoveUsing(rmf func(key string, value interface{}) bool) {
 			this.theMap.Store(m)
 		}
 	}
-	return
 }
 
 //
@@ -139,5 +138,4 @@ func (this *Map) Each(visit func(key string, value interface{})) {
 			visit(k, v)
 		}
 	}
-	return
 }

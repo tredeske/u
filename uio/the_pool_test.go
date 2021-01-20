@@ -38,4 +38,9 @@ func TestBytesPool(t *testing.T) {
 	}
 
 	p.Put(bb)
+
+	bb = p.Get()
+	if 0 == len(bb) {
+		t.Fatalf("Did not get byte slice again")
+	}
 }

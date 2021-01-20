@@ -1113,7 +1113,7 @@ func (this *Section) GetStrings(
 ) (err error) {
 	it, found := this.section[key]
 	if found {
-		*result, err = this.toStrings(key, it, validators...)
+		*result, err = this.toStrings(key, it, validators)
 	}
 	return
 }
@@ -1121,7 +1121,7 @@ func (this *Section) GetStrings(
 func (this *Section) toStrings(
 	key string,
 	it interface{},
-	validators ...StringValidator,
+	validators []StringValidator,
 ) (rv []string, err error) {
 
 	ok := false
@@ -1226,7 +1226,8 @@ func (this *Section) asString(key string, it interface{}) (rv string, err error)
 	switch typ := it.(type) {
 	case string:
 		rv = typ
-	case int, int16, int32, int64, uint, uint16, uint32, uint64, float32, float64, bool, time.Duration:
+	case int, int16, int32, int64, uint, uint16, uint32, uint64,
+		float32, float64, bool, time.Duration:
 		rv = fmt.Sprint(it)
 	default:
 		err = fmt.Errorf("Unable to convert value of %s to string: %#v",
@@ -1316,7 +1317,7 @@ func (this *Section) GetString(
 	return
 }
 
-// a StringValidator
+// a StringValidator to verify string not blank
 func StringNotBlank(v string) (err error) {
 	if 0 == len(v) {
 		err = errors.New("String value empty")
@@ -1324,7 +1325,17 @@ func StringNotBlank(v string) (err error) {
 	return
 }
 
-// create a StringValidator
+// create a StringValidator to verify value is blank or valid
+func StringBlankOr(validator StringValidator) StringValidator {
+	return func(v string) (err error) {
+		if 0 != len(v) {
+			err = validator(v)
+		}
+		return
+	}
+}
+
+// create a StringValidator to verify value is one of listed
 func StringOneOf(choices ...string) StringValidator {
 	return func(v string) (err error) {
 		for _, choice := range choices {
@@ -1336,7 +1347,7 @@ func StringOneOf(choices ...string) StringValidator {
 	}
 }
 
-// create a StringValidator
+// create a StringValidator to verify value not one of listed
 func StringNot(invalid ...string) StringValidator {
 	return func(v string) (err error) {
 		for _, iv := range invalid {
