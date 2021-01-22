@@ -56,11 +56,11 @@ func SimpleBoot() (rv Boot, err error) {
 // Control process boot
 //
 type Boot struct {
-	Name     string // what program calls itself
-	InstallD string // where program is installed
-	ConfigF  string // abs path to config file
-	LogF     string // path to log file, or empty/"stdout"
-	StdoutF  string // path to stdout file, or empty/"stdout" for stdout
+	Name     string           // what program calls itself
+	InstallD string           // where program is installed
+	ConfigF  string           // abs path to config file
+	LogF     string           // path to log file, or empty/"stdout"
+	StdoutF  string           // path to stdout file, or empty/"stdout" for stdout
 	Config   *uconfig.Section // the loaded config
 
 	//
@@ -324,10 +324,10 @@ func (this *Boot) Configure(
 					return false
 				}
 
-				config.AddSub("logDir", ulog.Dir)
-				config.AddSub("name", this.Name)
+				config.AddProp("logDir", ulog.Dir)
+				config.AddProp("name", this.Name)
 				var gconfig *uconfig.Array
-				err = config.GetValidArray(cspec, &gconfig)
+				err = config.GetArray(cspec, &gconfig)
 				if err != nil {
 					ulog.Errorf("Getting '%s' from %s: %s", cspec, this.ConfigF, err)
 					return false
@@ -363,10 +363,10 @@ func (this *Boot) loadComponents(
 
 	// generic component load
 	//
-	config.AddSub("logDir", ulog.Dir)
-	config.AddSub("name", this.Name)
+	config.AddProp("logDir", ulog.Dir)
+	config.AddProp("name", this.Name)
 	var gconfig *uconfig.Array
-	err = config.GetValidArray(cspec, &gconfig)
+	err = config.GetArray(cspec, &gconfig)
 	if err != nil {
 		return
 	}

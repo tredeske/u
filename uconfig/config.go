@@ -22,13 +22,19 @@ import (
 )
 
 const (
-	SUBS     = "substitutions"
+	PROPS    = "properties"
 	include_ = "include_"
 
 	MaxUint = ^uint(0)
 	MaxInt  = int(MaxUint >> 1)
 	MinInt  = -MaxInt - 1
 )
+
+//
+// Use with Chain.EachSection, Chain.EachSectionIf, Chain.ASection,
+// Chain.IfSection, Array.Each
+//
+type Visitor func(*Section) error
 
 // use with Section.GetInt to validate signed int
 type IntValidator func(int64) error
@@ -42,23 +48,23 @@ type StringValidator func(string) error
 //
 // A map of strings to values used for config.
 //
-// If the section has a key called "substitions", then the keys in that sub
-// section will be added as substitutions into the current one.
+// If the section has a key called "properties", then the keys in that sub
+// section will be added as properties into the current one.
 //
-// As string values are accessed, the values also become substitution parameters
+// As string values are accessed, the values also become properties
 // for expanding later accessed string values.
 //
 // Expansion occurs when a string value contains ${...} or {{...}}.
 //
 // The ${...} will be filled in with ENV variables, if available.
 //
-// The {{...}} will be filled in with substitution parameters as per the
+// The {{...}} will be filled in with properties as per the
 // go text/template package.  ***NOTE*** Make sure to add a '.' before
 // the key.  As in: {{.key}}.  All golang text template rules apply.
 //
-// Child sections inherit the substitutions of their parents.
+// Child sections inherit the properties of their parents.
 //
-// The following substitutions are automatically added:
+// The following properties are automatically added:
 // - home 			- the home dir of the user
 // - user			- the username of the user
 // - host			- the hostname of the host
@@ -105,7 +111,7 @@ func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 	if err != nil {
 		return nil, err
 	}
-	err = rv.addSubs()
+	err = rv.addProps()
 	return
 }
 
@@ -277,7 +283,7 @@ func (this *Section) toMap(it interface{}) (rv map[string]interface{}, err error
 	return
 }
 
-func (this *Section) DumpSubs() (rv string) {
+func (this *Section) DumpProps() (rv string) {
 	return this.expander.Dump()
 }
 func (this *Section) DumpVals() (rv string) {
@@ -308,7 +314,7 @@ func YamlLoad(file string, target interface{}) (err error) {
 }
 
 //
-// read in the specified yaml file, performing substitutions on the text, then
+// read in the specified yaml file, performing properties on the text, then
 // unmarshal it into target (a ptr to struct)
 //
 func (this *Section) StructFromYaml(file string, target interface{}) error {
@@ -330,7 +336,7 @@ func (this *Section) ToYaml(file string) error {
 }
 
 func (this *Section) asYaml() ([]byte, error) {
-	this.section[SUBS] = this.expander
+	this.section[PROPS] = this.expander
 	return yaml.Marshal(this.section)
 }
 
@@ -427,35 +433,35 @@ func (this *Section) Add(key string, value interface{}) {
 	this.section[key] = value
 }
 
-// add a substitution to the section.  the substitution will be expanded.
-func (this *Section) AddSub(key, value string) {
+// add a property to the section.  the property will be expanded.
+func (this *Section) AddProp(key, value string) {
 	expanded := this.Expand(value)
 	this.expander.Set(key, expanded)
 }
 
-// add the substitutions to the section.  the substitutions will be expanded.
-func (this *Section) AddSubs(substs map[string]string) {
-	for k, v := range substs {
-		this.AddSub(k, v)
+// add the properties to the section.  the properties will be expanded.
+func (this *Section) AddProps(props map[string]string) {
+	for k, v := range props {
+		this.AddProp(k, v)
 	}
 }
 
-// get the substitution
-func (this *Section) Sub(key string) string {
+// get the property
+func (this *Section) Prop(key string) string {
 	return this.expander.Get(key)
 }
 
-// get the substitution map
-func (this *Section) Subs() map[string]string {
+// get the property map
+func (this *Section) Props() map[string]string {
 	return this.expander.mapping
 }
 
-// get a copy of the substitution map
-func (this *Section) CloneSubs() map[string]string {
+// get a copy of the property map
+func (this *Section) CloneProps() map[string]string {
 	return this.expander.clone().mapping
 }
 
-// expand the text using the substitutions available in this section
+// expand the text using the properties available in this section
 func (this *Section) Expand(text string) string {
 	return this.expander.expand(text)
 }
@@ -480,42 +486,42 @@ func (this *Section) GetStruct(key string, dst interface{}) (err error) {
 }
 
 //
-// add any substitutions for this section in
+// add any properties for this section in
 // - need to get this map specially as expansion rules are different
 //
-func (this *Section) addSubs() (err error) {
-	it, found := this.section[SUBS]
+func (this *Section) addProps() (err error) {
+	it, found := this.section[PROPS]
 	if !found {
 		return
 	}
 	var mit map[string]interface{}
 	mit, err = this.toMap(it)
 	if err != nil {
-		return uerr.Chainf(err, "Unable to get '%s", SUBS)
+		return uerr.Chainf(err, "Unable to get '%s", PROPS)
 	} else if 0 == len(mit) {
 		return
 	}
-	subs := make(map[string]string)
+	props := make(map[string]string)
 	for k, v := range mit {
 		var str string
 		str, err = this.asString(k, v)
 		if err != nil {
 			return
 		}
-		subs[k] = str
+		props[k] = str
 	}
 	if err != nil {
-		return uerr.Chainf(err, "Unable to get '%s", SUBS)
+		return uerr.Chainf(err, "Unable to get '%s", PROPS)
 	}
-	err = this.expander.addAll(subs)
+	err = this.expander.addAll(props)
 	if err != nil {
-		return uerr.Chainf(err, "Unable to get '%s", SUBS)
+		return uerr.Chainf(err, "Unable to get '%s", PROPS)
 	}
 	return
 }
 
-// if key maps to a section, set val to it
-func (this *Section) GetSection(key string, val **Section) (err error) {
+// if key maps to a sub-section, set val to it
+func (this *Section) GetSectionIf(key string, val **Section) (err error) {
 	it, ok := this.section[key]
 	if ok {
 		m, err := this.getMap(it)
@@ -527,7 +533,7 @@ func (this *Section) GetSection(key string, val **Section) (err error) {
 				expander: this.expander.clone(),
 				section:  m,
 			}
-			err = rv.addSubs()
+			err = rv.addProps()
 			if nil == err {
 				*val = rv // success!
 			}
@@ -536,17 +542,17 @@ func (this *Section) GetSection(key string, val **Section) (err error) {
 	return
 }
 
-// same as GetSection, but val must be non nil when done
-func (this *Section) GetValidSection(key string, val **Section) (err error) {
-	err = this.GetSection(key, val)
-	if nil == err && nil == *val {
+// Get the section or error if it does not exist or is invalid
+func (this *Section) GetSection(key string, result **Section) (err error) {
+	err = this.GetSectionIf(key, result)
+	if nil == err && nil == *result {
 		err = fmt.Errorf("parsing config: no such section: %s", this.ctx(key))
 	}
 	return
 }
 
-// if key is a Array, set val to it
-func (this *Section) GetArray(key string, val **Array) (err error) {
+// if key is a Array, set result to it
+func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 	it, ok := this.section[key]
 	if !ok {
 		return
@@ -598,7 +604,7 @@ func (this *Section) GetArray(key string, val **Array) (err error) {
 		}
 		rv.sections = append(rv.sections, section)
 	}
-	*val = rv
+	*result = rv
 	return
 }
 
@@ -657,25 +663,25 @@ func (this *Section) arrayEntryInclude(
 }
 
 //
-// Same as GetArray, but if val ends up being nil, then error
+// Get the array or error if it does not exist or is invalid
 //
-func (this *Section) GetValidArray(key string, val **Array) (err error) {
-	err = this.GetArray(key, val)
-	if nil == err && nil == *val {
+func (this *Section) GetArray(key string, result **Array) (err error) {
+	err = this.GetArrayIf(key, result)
+	if nil == err && nil == *result {
 		err = fmt.Errorf("parsing config: missing array for %s", this.ctx(key))
 	}
 	return
 }
 
-// change val to boolean value if found and convertible to bool
-func (this *Section) GetBool(key string, val *bool) (err error) {
+// change result to boolean value if found and convertible to bool
+func (this *Section) GetBool(key string, result *bool) (err error) {
 	it, found := this.getIt(key, false)
 	if found {
-		switch typ := it.(type) {
+		switch actual := it.(type) {
 		case bool:
-			*val = typ
+			*result = actual
 		case string:
-			*val, err = strconv.ParseBool(typ)
+			*result, err = strconv.ParseBool(actual)
 		default:
 			err = fmt.Errorf("parsing config: value of %s not convertable "+
 				" to bool.  Is %s", this.ctx(key), reflect.TypeOf(it))
@@ -684,29 +690,25 @@ func (this *Section) GetBool(key string, val *bool) (err error) {
 	return
 }
 
-// if value is found and a string, then set val to it.
+// if value is found and a string, then set result to absolute path of value.
 //
-// otherwise, if value is found but not a string, then error
+// otherwise, if value is found but not a string or is blank, then error
 //
-// if val turns out to be empty, then error
-//
-// convert val to absolute path.
-//
-func (this *Section) GetPath(key string, val *string) (err error) {
+func (this *Section) GetPath(key string, result *string) (err error) {
 
 	it, ok := this.getIt(key, false)
 	if ok {
-		*val, ok = it.(string)
+		*result, ok = it.(string)
 		if !ok {
 			err = fmt.Errorf("parsing config: value of %s not convertable "+
 				" to path.  Is %s", this.ctx(key), reflect.TypeOf(it))
 			return
 		}
 	}
-	if 0 == len(*val) {
+	if 0 == len(*result) {
 		err = fmt.Errorf("parsing config: key='%s' no path set", this.ctx(key))
 	} else {
-		*val, err = filepath.Abs(*val)
+		*result, err = filepath.Abs(*result)
 		if err != nil {
 			err = uerr.Chainf(err, "parsing config: key='%s'", this.ctx(key))
 		}
@@ -715,13 +717,13 @@ func (this *Section) GetPath(key string, val *string) (err error) {
 }
 
 // same as GetPath, except also errors if unable to stat path
-func (this *Section) GetValidPath(key string, val *string) (err error) {
+func (this *Section) GetValidPath(key string, result *string) (err error) {
 
-	err = this.GetPath(key, val)
+	err = this.GetPath(key, result)
 	if err != nil {
 		return
 	}
-	_, err = os.Stat(*val)
+	_, err = os.Stat(*result)
 	if err != nil {
 		err = uerr.Chainf(err, "parsing config: key='%s'", this.ctx(key))
 	}
@@ -1359,15 +1361,15 @@ func StringNot(invalid ...string) StringValidator {
 	}
 }
 
-// if found, parse to regexp and set val
-func (this *Section) GetRegexp(key string, val **regexp.Regexp) (err error) {
+// if found and not blank, parse to regexp and set result
+func (this *Section) GetRegexpIf(key string, result **regexp.Regexp) (err error) {
 
 	raw, found, err := this.getString(key)
 	if err != nil {
 		return
 	}
 	if found && 0 != len(raw) {
-		*val, err = regexp.Compile(raw)
+		*result, err = regexp.Compile(raw)
 		if err != nil {
 			err = uerr.Chainf(err, "Unable to build regexp for '%s'", this.ctx(key))
 		}
@@ -1375,24 +1377,24 @@ func (this *Section) GetRegexp(key string, val **regexp.Regexp) (err error) {
 	return
 }
 
-// Same as GetRegexp, but error if val == nil
-func (this *Section) GetValidRegexp(key string, val **regexp.Regexp) (err error) {
+// get value as regexp
+func (this *Section) GetRegexp(key string, result **regexp.Regexp) (err error) {
 
-	err = this.GetRegexp(key, val)
-	if nil == *val {
-		err = fmt.Errorf("No value for '%s'", this.ctx(key))
+	err = this.GetRegexpIf(key, result)
+	if nil == err && nil == *result {
+		err = fmt.Errorf("No regexp value for '%s'", this.ctx(key))
 	}
 	return
 }
 
-// if found, parse to url and set val
-func (this *Section) GetUrl(key string, val **nurl.URL) (err error) {
+// if found and not blank, parse to url and set result
+func (this *Section) GetUrlIf(key string, result **nurl.URL) (err error) {
 	raw, found, err := this.getString(key)
 	if err != nil {
 		return
 	}
 	if found && 0 != len(raw) {
-		*val, err = nurl.Parse(raw)
+		*result, err = nurl.Parse(raw)
 		if err != nil {
 			err = uerr.Chainf(err, "Unable to build URL for '%s'", this.ctx(key))
 		}
@@ -1400,22 +1402,15 @@ func (this *Section) GetUrl(key string, val **nurl.URL) (err error) {
 	return
 }
 
-// Same as GetUrl, but error if val == nil
-func (this *Section) GetValidUrl(key string, val **nurl.URL) (err error) {
+// get and parse the url, setting result
+func (this *Section) GetUrl(key string, result **nurl.URL) (err error) {
 
-	err = this.GetUrl(key, val)
-	if nil == *val {
-		err = fmt.Errorf("No value for '%s'", this.ctx(key))
+	err = this.GetUrlIf(key, result)
+	if nil == err && nil == *result {
+		err = fmt.Errorf("No URL value for '%s'", this.ctx(key))
 	}
 	return
 }
-
-/*
-// get the named string, setting ok value to true if string found and set
-func (this *Section) GetStringOk(key string) (string, bool) {
-	return this.getString(key)
-}
-*/
 
 ///////////////////////////////////////////////////////
 
@@ -1434,6 +1429,6 @@ func (this *Section) Chain() *Chain {
 //
 func (this *Section) GetChain(key string) (rv *Chain) {
 	rv = &Chain{}
-	rv.Error = this.GetValidSection(key, &rv.Section)
+	rv.Error = this.GetSection(key, &rv.Section)
 	return
 }

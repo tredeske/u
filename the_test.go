@@ -45,7 +45,7 @@ func (this thingMgr_) NewGolum(name string, config *uconfig.Section) (err error)
 
 		//
 		EachSection("stuff",
-			func(idx int, s *uconfig.Section) (err error) {
+			func(s *uconfig.Section) (err error) {
 				aStuff := stuff_{}
 				return s.Chain().
 					GetString("foo", &aStuff.foo).

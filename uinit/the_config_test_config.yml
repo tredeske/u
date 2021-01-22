@@ -1,4 +1,4 @@
-substitutions:
+properties:
   one: oneV
   two: twoV
   three: threeV

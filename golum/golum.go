@@ -218,9 +218,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 	rv = &Loaded{
 		ready: make([]*golum_, 0, configs.Len()),
 	}
-	comp := 0
-	err = configs.Each(func(i int, config *uconfig.Section) (err error) {
-		comp = i
+	err = configs.Each(func(config *uconfig.Section) (err error) {
 
 		// load component
 		//
@@ -246,7 +244,7 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 		return
 	})
 	if err != nil {
-		err = uerr.Chainf(err, "Loading component %d", comp)
+		rv = nil
 	}
 	return
 }
@@ -330,7 +328,7 @@ func Reload(configs *uconfig.Array) (err error) {
 	log.Printf("G: Reload begin")
 	start := make([]*golum_, 0, configs.Len())
 	present := make(map[string]bool)
-	err = configs.Each(func(i int, config *uconfig.Section) (err error) {
+	err = configs.Each(func(config *uconfig.Section) (err error) {
 		g, err := loadGolum(config)
 		if err != nil {
 			return

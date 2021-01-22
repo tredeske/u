@@ -1,6 +1,10 @@
 package uconfig
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/tredeske/u/uerr"
+)
 
 //
 // an array of config sections
@@ -44,11 +48,12 @@ func (this *Array) Get(i int) *Section {
 }
 
 // iterate through the sections, aborting of visitor returns an error
-func (this *Array) Each(visitor func(int, *Section) error) (err error) {
+func (this *Array) Each(visitor Visitor) (err error) {
 	if nil != this {
 		for i, _ := range this.sections {
-			err = visitor(i, this.Get(i))
+			err = visitor(this.Get(i))
 			if err != nil {
+				err = uerr.Chainf(err, "section %d", i)
 				break
 			}
 		}

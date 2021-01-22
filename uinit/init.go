@@ -23,7 +23,7 @@ func InitConfig(configF string) (config *uconfig.Section, err error) {
 	ulog.Printf("Loaded config: '%s'", configF)
 
 	var dbg *uconfig.Section
-	err = config.GetSection("debug", &dbg)
+	err = config.GetSectionIf("debug", &dbg)
 	if nil == err && nil != dbg {
 		err = InitDebug(dbg)
 	}

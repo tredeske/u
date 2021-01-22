@@ -2,7 +2,9 @@ package uconfig
 
 import (
 	"fmt"
+	nurl "net/url"
 	"os"
+	"regexp"
 	"testing"
 	"time"
 
@@ -29,7 +31,7 @@ func TestSource(t *testing.T) {
 	}
 }
 
-func TestSubs(t *testing.T) {
+func TestProps(t *testing.T) {
 
 	globals, err := NewSection(`
 substitutions:
@@ -46,7 +48,7 @@ subbed:         "{{.one}}"
 	//
 	config, err := globals.NewChild(
 		`
-substitutions:
+properties:
     one:        oneVal
     two:        twoVal
     three:      "{{.one}}"
@@ -116,7 +118,7 @@ noEscapeCheck:  "{{.noEscape}}"
 	if err != nil {
 		t.Fatal(err)
 	} else if "fiveV" != s {
-		t.Fatalf("includedSub: '%s' != fiveV : %#v", s, config.Subs())
+		t.Fatalf("includedSub: '%s' != fiveV : %#v", s, config.Props())
 	}
 
 	s = "unset"
@@ -401,6 +403,8 @@ func TestGet(t *testing.T) {
 		"float64":  2.0,
 		"bool":     true,
 		"duration": "2s",
+		"regexp":   "foo.*bar",
+		"url":      "http://host/path",
 	}
 	s, err := NewSection(m)
 	if err != nil {
@@ -415,6 +419,12 @@ func TestGet(t *testing.T) {
 	boolV := false
 	durV := time.Second
 	var itV interface{}
+	var re *regexp.Regexp
+	var reExists *regexp.Regexp
+	var reNotSet *regexp.Regexp
+	var url *nurl.URL
+	var urlExists *nurl.URL
+	var urlNotExists *nurl.URL
 
 	err = s.Chain().
 		GetString("string", &stringV).
@@ -423,6 +433,12 @@ func TestGet(t *testing.T) {
 		GetIt("bool", &itV).
 		GetFloat64("float64", &floatV).
 		GetDuration("duration", &durV).
+		GetRegexp("regexp", &re).
+		GetRegexpIf("regexp", &reExists).
+		GetRegexpIf("regexp-does-not-exist", &reNotSet).
+		GetUrl("url", &url).
+		GetUrlIf("url", &urlExists).
+		GetUrlIf("url-does-not-exist", &urlNotExists).
 		Error
 	if err != nil {
 		t.Fatal(err)
@@ -436,6 +452,18 @@ func TestGet(t *testing.T) {
 		t.Fatal("Floats did not match")
 	} else if durV != 2*time.Second {
 		t.Fatalf("Durations did not match: %s", durV)
+	} else if nil == re {
+		t.Fatalf("regexp did not get set")
+	} else if nil == reExists {
+		t.Fatalf("regexp Exists did not get set")
+	} else if nil != reNotSet {
+		t.Fatalf("regexp !Exists did not get set")
+	} else if nil == url {
+		t.Fatalf("url did not get set")
+	} else if nil == urlExists {
+		t.Fatalf("url Exists did not get set")
+	} else if nil != urlNotExists {
+		t.Fatalf("url !Exists did not get set")
 	}
 	if val, ok := itV.(bool); !ok {
 		t.Fatal("unable to get bool val as interface{}")

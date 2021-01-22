@@ -23,8 +23,21 @@ type Chain struct {
 //
 type Builder func(config *Chain) (rv interface{}, err error)
 
-func (this *Chain) DumpSubs() string {
-	return this.Section.DumpSubs()
+//
+// Use with Chain.If, Chain.Must
+//
+type ChainVisitor func(config *Chain) (err error)
+
+//
+// Use with Chain.Construct, Chain.ConstructFrom, Chain.ConstructIf
+// for things that construct themselves from config
+//
+type Constructable interface {
+	FromConfig(config *Chain) (err error)
+}
+
+func (this *Chain) DumpProps() string {
+	return this.Section.DumpProps()
 }
 
 func (this *Chain) ctx(key string) string {
@@ -38,9 +51,9 @@ func (this *Chain) GetArray(key string, value **Array) *Chain {
 	return this
 }
 
-func (this *Chain) GetValidArray(key string, value **Array) *Chain {
+func (this *Chain) GetArrayIf(key string, value **Array) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetValidArray(key, value)
+		this.Error = this.Section.GetArrayIf(key, value)
 	}
 	return this
 }
@@ -48,13 +61,10 @@ func (this *Chain) GetValidArray(key string, value **Array) *Chain {
 //
 // get the array specified by key and iterate through the contained sections
 //
-func (this *Chain) EachSection(
-	key string,
-	visitor func(int, *Section) error,
-) *Chain {
+func (this *Chain) EachSection(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var arr *Array
-		this.Error = this.Section.GetValidArray(key, &arr)
+		this.Error = this.Section.GetArray(key, &arr)
 		if nil == this.Error {
 			this.Error = arr.Each(visitor)
 		}
@@ -65,13 +75,10 @@ func (this *Chain) EachSection(
 // get the array specified by key if it exists and
 // iterate through the contained sections
 //
-func (this *Chain) EachSectionIf(
-	key string,
-	visitor func(int, *Section) error,
-) *Chain {
+func (this *Chain) EachSectionIf(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var arr *Array
-		this.Error = this.Section.GetArray(key, &arr)
+		this.Error = this.Section.GetArrayIf(key, &arr)
 		if nil == this.Error && nil != arr {
 			this.Error = arr.Each(visitor)
 		}
@@ -80,15 +87,12 @@ func (this *Chain) EachSectionIf(
 }
 
 //
-// get the section specified by key and process it
+// get the sub-section specified by key and process it
 //
-func (this *Chain) ASection(
-	key string,
-	visitor func(*Section) error,
-) *Chain {
+func (this *Chain) ASection(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var s *Section
-		this.Error = this.Section.GetValidSection(key, &s)
+		this.Error = this.Section.GetSection(key, &s)
 		if nil == this.Error {
 			this.Error = visitor(s)
 		}
@@ -97,15 +101,12 @@ func (this *Chain) ASection(
 }
 
 //
-// if the section exists, process it
+// if the sub-section exists, process it
 //
-func (this *Chain) IfSection(
-	key string,
-	visitor func(*Section) error,
-) *Chain {
+func (this *Chain) IfSection(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var s *Section
-		this.Error = this.Section.GetSection(key, &s)
+		this.Error = this.Section.GetSectionIf(key, &s)
 		if nil == this.Error && nil != s {
 			this.Error = visitor(s)
 		}
@@ -113,7 +114,6 @@ func (this *Chain) IfSection(
 	return this
 }
 
-// if key maps to section, set value to section
 func (this *Chain) GetSection(key string, value **Section) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetSection(key, value)
@@ -121,15 +121,14 @@ func (this *Chain) GetSection(key string, value **Section) *Chain {
 	return this
 }
 
-// same as GetSection, but err is set if section is nil
-func (this *Chain) GetValidSection(key string, value **Section) *Chain {
+func (this *Chain) GetSectionIf(key string, value **Section) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetValidSection(key, value)
+		this.Error = this.Section.GetSectionIf(key, value)
 	}
 	return this
 }
 
-func (this *Chain) GetValidChain(key string, value **Chain) *Chain {
+func (this *Chain) GetChain(key string, value **Chain) *Chain {
 	if nil == this.Error {
 		*value = this.Section.GetChain(key)
 		this.Error = (*value).Error
@@ -165,11 +164,11 @@ func (this *Chain) GetFloat64(key string, value *float64) *Chain {
 func (this *Chain) GetInt(
 	key string,
 	result interface{},
-	validator ...IntValidator,
+	validators ...IntValidator,
 ) *Chain {
 
 	if nil == this.Error {
-		this.Error = this.Section.GetInt(key, result, validator...)
+		this.Error = this.Section.GetInt(key, result, validators...)
 	}
 	return this
 }
@@ -177,11 +176,11 @@ func (this *Chain) GetInt(
 func (this *Chain) GetUInt(
 	key string,
 	result interface{},
-	validator ...UIntValidator,
+	validators ...UIntValidator,
 ) *Chain {
 
 	if nil == this.Error {
-		this.Error = this.Section.GetUInt(key, result, validator...)
+		this.Error = this.Section.GetUInt(key, result, validators...)
 	}
 	return this
 }
@@ -202,7 +201,10 @@ func (this *Chain) GetPosInt(key string, value *int) *Chain {
 	return this
 }
 
-func (this *Chain) GetCreateDir(key string, value *string, perm os.FileMode,
+func (this *Chain) GetCreateDir(
+	key string,
+	value *string,
+	perm os.FileMode,
 ) *Chain {
 
 	if nil == this.Error {
@@ -218,9 +220,9 @@ func (this *Chain) GetRegexp(key string, value **regexp.Regexp) *Chain {
 	return this
 }
 
-func (this *Chain) GetValidRegexp(key string, value **regexp.Regexp) *Chain {
+func (this *Chain) GetRegexpIf(key string, value **regexp.Regexp) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetValidRegexp(key, value)
+		this.Error = this.Section.GetRegexpIf(key, value)
 	}
 	return this
 }
@@ -232,9 +234,9 @@ func (this *Chain) GetUrl(key string, value **nurl.URL) *Chain {
 	return this
 }
 
-func (this *Chain) GetValidUrl(key string, value **nurl.URL) *Chain {
+func (this *Chain) GetUrlIf(key string, value **nurl.URL) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetValidUrl(key, value)
+		this.Error = this.Section.GetUrlIf(key, value)
 	}
 	return this
 }
@@ -281,7 +283,7 @@ func (this *Chain) GetString(
 	return this
 }
 
-// if key resolves to []string, then set value
+// if key resolves to []string, then set result
 func (this *Chain) GetStrings(
 	key string,
 	result *[]string,
@@ -328,14 +330,14 @@ func (this *Chain) WarnExtraKeys(allowedKeys ...string) *Chain {
 }
 
 // run the specified checking function as part of the chain
-func (this *Chain) Check(fn func() (err error)) *Chain {
+func (this *Chain) ThenCheck(fn func() (err error)) *Chain {
 	if nil == this.Error {
 		this.Error = fn()
 	}
 	return this
 }
 
-// run the specified function as part of the chain if no preceding error
+// run the specified function as part of the chain
 func (this *Chain) Then(fn func()) *Chain {
 	if nil == this.Error {
 		fn()
@@ -344,16 +346,13 @@ func (this *Chain) Then(fn func()) *Chain {
 }
 
 //
-// run func with specified section if section exists
+// run builder with specified sub-section if section exists
 //
-func (this *Chain) If(
-	key string,
-	builder func(config *Chain) (err error),
-) *Chain {
+func (this *Chain) If(key string, builder ChainVisitor) *Chain {
 
 	if nil == this.Error {
 		var s *Section
-		this.Error = this.Section.GetSection(key, &s)
+		this.Error = this.Section.GetSectionIf(key, &s)
 		if nil == this.Error && nil != s {
 			chain := s.Chain()
 			err := builder(chain)
@@ -366,16 +365,13 @@ func (this *Chain) If(
 }
 
 //
-// run func with specified section if section exists, fail otherwise
+// run builder with specified sub-section if section exists, fail otherwise
 //
-func (this *Chain) Must(
-	key string,
-	builder func(config *Chain) (err error),
-) *Chain {
+func (this *Chain) Must(key string, builder ChainVisitor) *Chain {
 
 	if nil == this.Error {
 		var chain *Chain
-		this.GetValidChain(key, &chain)
+		this.GetChain(key, &chain)
 		if nil == this.Error {
 			err := builder(chain)
 			if err != nil {
@@ -386,21 +382,19 @@ func (this *Chain) Must(
 	return this
 }
 
+//
 // build value from named config section if it exists
 //
 // if builder returns nil, then no assignment is made to value
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
-func (this *Chain) BuildIf(
-	key string,
-	value interface{},
-	builder Builder,
-) *Chain {
+//
+func (this *Chain) BuildIf(key string, value interface{}, builder Builder) *Chain {
 
 	if nil == this.Error {
 		var s *Section
-		this.Error = this.Section.GetSection(key, &s)
+		this.Error = this.Section.GetSectionIf(key, &s)
 		if nil == this.Error && nil != s {
 			chain := s.Chain()
 			chain.Build(value, builder)
@@ -410,12 +404,14 @@ func (this *Chain) BuildIf(
 	return this
 }
 
+//
 // build value from named config section
 //
 // if builder returns nil, then no assignment is made to value
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
+//
 func (this *Chain) BuildFrom(
 	key string,
 	value interface{},
@@ -424,7 +420,7 @@ func (this *Chain) BuildFrom(
 
 	if nil == this.Error {
 		var chain *Chain
-		this.GetValidChain(key, &chain)
+		this.GetChain(key, &chain)
 		chain.Build(value, builder)
 		this.Error = chain.Error
 	}
@@ -439,10 +435,7 @@ func (this *Chain) BuildFrom(
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
 //
-func (this *Chain) Build(
-	value interface{},
-	builder Builder,
-) *Chain {
+func (this *Chain) Build(value interface{}, builder Builder) *Chain {
 
 	if nil == this.Error {
 		var it interface{}
@@ -455,31 +448,24 @@ func (this *Chain) Build(
 }
 
 //
-// Can be constructed
-//
-type Constructable interface {
-	Construct(c *Chain) (err error)
-}
-
-//
-// Construct target from config.
+// Construct target from current config section.
 //
 func (this *Chain) Construct(target Constructable) *Chain {
 
 	if nil == this.Error {
-		this.Error = target.Construct(this)
+		this.Error = target.FromConfig(this)
 	}
 	return this
 }
 
 //
-// Construct target from named config section.
+// Construct target from named config sub-section.
 //
 func (this *Chain) ConstructFrom(key string, target Constructable) *Chain {
 
 	if nil == this.Error {
 		var chain *Chain
-		this.GetValidChain(key, &chain)
+		this.GetChain(key, &chain)
 		chain.Construct(target)
 		this.Error = chain.Error
 	}
@@ -487,13 +473,13 @@ func (this *Chain) ConstructFrom(key string, target Constructable) *Chain {
 }
 
 //
-// Construct target from named config section if section exists.
+// Construct target from named config sub-section if sub-section exists.
 //
 func (this *Chain) ConstructIf(key string, target Constructable) *Chain {
 
 	if nil == this.Error {
 		var s *Section
-		this.Error = this.Section.GetSection(key, &s)
+		this.Error = this.Section.GetSectionIf(key, &s)
 		if nil == this.Error && nil != s {
 			chain := s.Chain()
 			chain.Construct(target)
