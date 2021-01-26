@@ -99,14 +99,10 @@ func (this *AutoReloadable) ReloadGolum(
 //
 // example:
 //     func (this *mgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-//         return golum.NewGolum(name, c, &ThingThatIsReloadable{})
+//         return golum.NewReloadable(name, c, &ThingThatIsReloadable{})
 //     }
 //
-func NewGolumForReloadable(
-	name string,
-	c *uconfig.Section,
-	g Reloadable,
-) (err error) {
+func NewReloadable(name string, c *uconfig.Section, g Reloadable) (err error) {
 
 	newG, err := g.Reload(name, c)
 	if err != nil {

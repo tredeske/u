@@ -64,7 +64,7 @@ type autoMgr_ struct {
 }
 
 func (this *autoMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-	return NewGolumForReloadable(name, c, &auto_{})
+	return NewReloadable(name, c, &auto_{})
 }
 
 type auto_ struct {
