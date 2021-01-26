@@ -180,7 +180,7 @@ func (this *Scheduler) Add(name, interval string, s Schedulable) (err error) {
 		// if cron is started and the dispatch time is too far away,
 		// try to put it into the init queue to run right away
 		nextT := this.theCron.Entry(h.cid).Next
-		if !nextT.IsZero() && nextT.Sub(time.Now()) > time.Minute {
+		if !nextT.IsZero() && time.Until(nextT) > time.Minute {
 			go h.Run()
 		}
 	}
@@ -505,7 +505,6 @@ func (this *Scheduler) UnlockJob(name string) {
 	if nil != j {
 		j.running.Clear()
 	}
-	return
 }
 
 //

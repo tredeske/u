@@ -46,7 +46,7 @@ func TestDelay(t *testing.T) {
 			t.Fatalf("Number %d does not match (%d != %d)", idx, i, j)
 		}
 		tStart := <-timesC
-		elapsed := time.Now().Sub(tStart)
+		elapsed := time.Since(tStart)
 		if dc.Delay > elapsed {
 			t.Fatalf("Number %d was only delayed by %dns", idx, elapsed)
 		}
@@ -63,6 +63,8 @@ func TestDelay(t *testing.T) {
 	it, ok = dc.Get()
 	if ok {
 		t.Fatalf("Did not get close")
+	} else if nil != it {
+		t.Fatalf("GetTry should not have returned non-nil value!")
 	}
 
 }

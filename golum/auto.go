@@ -7,17 +7,17 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
-// for use with AutoStartable
+// for use with AutoStartable/AutoReloadable - managed must implement
 type Startable interface {
 	Start() (err error)
 }
 
-// for use with AutoStoppable
+// for use with AutoStoppable/AutoReloadable - managed must implement
 type Stoppable interface {
 	Stop()
 }
 
-// for use with AutoReloadable
+// for use with AutoReloadable - managed must implement
 type Reloadable interface {
 	Startable
 	Stoppable
@@ -36,21 +36,20 @@ type Reloadable interface {
 // implemented by AutoReloadable and you
 //
 // example:
-//     type mgr_ struct {
+//     type mgr struct {
 //         golum.AutoReloadable
 //     }
-//     func (this *mgr_) ReloadablePrototype() Reloadable {
+//     func (this *mgr) ReloadablePrototype() Reloadable {
 //         return (*thingThatIsReloadable)(nil)
 //     }
 //
 type AutoManager interface {
-	// AutoReloadable provides this
 	Manager
 
 	// AutoReloadable provides this
 	FirstLoad(name string, c *uconfig.Section, r Reloadable) (err error)
 
-	// your manager provides this
+	// your Manager must implement this
 	ReloadablePrototype() (rv Reloadable)
 }
 
@@ -86,8 +85,17 @@ func (this *AutoStoppable) StopGolum(name string) {
 }
 
 //
-// mixin for Managers to automatically perform standard reload
+// mixin for Managers to automatically perform standard lifecycle
+//
 // managed golum must implement Reloadable
+//
+// example:
+//     type mgr struct {
+//         golum.AutoReloadable
+//     }
+//     func (this *mgr) ReloadablePrototype() Reloadable {
+//         return (*ThingThatIsReloadable)(nil)
+//     }
 //
 type AutoReloadable struct {
 	AutoStartable
@@ -96,7 +104,7 @@ type AutoReloadable struct {
 
 // implement Manager
 func (this *AutoReloadable) NewGolum(name string, c *uconfig.Section) (err error) {
-	return errors.New("Autoreloadable does not use NewGolum - did your Manager implement AutoManager?")
+	return errors.New("Autoreloadable does not use NewGolum - did your Manager implement AutoManager.ReloadablePrototype?")
 }
 
 // implement AutoManager

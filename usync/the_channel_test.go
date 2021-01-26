@@ -9,8 +9,7 @@ import (
 func TesItChan(t *testing.T) {
 
 	times := 17
-	var ch ItChan
-	ch = make(chan interface{}, 8)
+	var ch ItChan = make(chan interface{}, 8)
 
 	//
 	// test get from empty chan
@@ -18,11 +17,15 @@ func TesItChan(t *testing.T) {
 	it, ok := ch.GetTry()
 	if ok {
 		t.Fatalf("Got something from chan when shouldn't have")
+	} else if nil != it {
+		t.Fatalf("it should be nil")
 	}
 
 	it, ok = ch.GetWait(time.Millisecond)
 	if ok {
 		t.Fatalf("Got something from chan when shouldn't have")
+	} else if nil != it {
+		t.Fatalf("it should be nil")
 	}
 
 	//

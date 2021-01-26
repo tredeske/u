@@ -377,15 +377,6 @@ func (this *Chained) LinkResponseHeaders(key string) (rv map[string]string) {
 }
 
 //
-// setup a simple request
-//
-func (this *Chained) newRequest(method, url string, body io.Reader) *Chained {
-	this.ensureReq(method, url)
-	this.SetBody(body)
-	return this
-}
-
-//
 // Perform specialized adjustment of req before making the request
 //
 func (this *Chained) BeforeRequest(f func(req *http.Request) error) *Chained {

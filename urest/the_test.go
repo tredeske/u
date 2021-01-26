@@ -16,7 +16,7 @@ import (
 
 var (
 	responseC_ = make(chan error, 2)
-	ok_        = errors.New("OK")
+	errOk_     = errors.New("OK")
 )
 
 const (
@@ -40,7 +40,7 @@ func TestRequests(t *testing.T) {
 		Done()
 	if err != nil {
 		t.Fatalf("GET failed: %s", err)
-	} else if err = <-responseC_; err != ok_ {
+	} else if err = <-responseC_; err != errOk_ {
 		t.Fatalf("GET failed (server): %s", err)
 	} else if GET_RESPONSE != body.String() {
 		t.Fatalf("GET did not get expected response")
@@ -69,7 +69,7 @@ func TestRequests(t *testing.T) {
 		Done()
 	if err != nil {
 		t.Fatalf("POST failed: %s", err)
-	} else if err = <-responseC_; err != ok_ {
+	} else if err = <-responseC_; err != errOk_ {
 		t.Fatalf("POST failed (server): %s", err)
 	} else if !reflect.DeepEqual(jsonReq, jsonResp) {
 		t.Fatalf("POST did not get expected response")
@@ -91,7 +91,7 @@ func setupServer() (addr string) {
 		if !ok {
 			w.WriteHeader(400)
 			io.WriteString(w, "Missing X-Test request header")
-			responseC_ <- ok_
+			responseC_ <- errOk_
 			responseC_ <- fmt.Errorf("Missing X-Test request header")
 			return
 		}
@@ -99,7 +99,7 @@ func setupServer() (addr string) {
 		case "GET":
 			w.WriteHeader(200)
 			io.WriteString(w, GET_RESPONSE)
-			responseC_ <- ok_
+			responseC_ <- errOk_
 		case "POST":
 			w.WriteHeader(200)
 			_, err := uio.Copy(w, req.Body)
@@ -108,7 +108,7 @@ func setupServer() (addr string) {
 				log.Println(err)
 				responseC_ <- err
 			} else {
-				responseC_ <- ok_
+				responseC_ <- errOk_
 			}
 		default:
 			err := fmt.Errorf("Unknown request method: %s", req.Method)

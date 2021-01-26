@@ -160,7 +160,7 @@ func ExitOnSignals(sigs ...os.Signal) {
 // register the usual signals that should cause process exit
 //
 func ExitOnStandardSignals() {
-	signal.Notify(sigC_, os.Interrupt, os.Kill, syscall.SIGHUP, syscall.SIGTERM)
+	signal.Notify(sigC_, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 }
 
 //

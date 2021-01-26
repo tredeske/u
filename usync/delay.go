@@ -158,7 +158,7 @@ loop:
 			//
 			// compute delay til when we should release the item
 			//
-			delay := delayed.Deadline.Sub(time.Now())
+			delay := time.Until(delayed.Deadline)
 			if 100 < delay {
 				if nil == timer {
 					timer = time.NewTimer(delay)

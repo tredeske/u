@@ -85,7 +85,9 @@ func TestRegistry(t *testing.T) {
 
 		found := false
 		found, err = GetOk(k, &s)
-		if found {
+		if err != nil {
+			t.Fatalf("GetOk failed: %s", err)
+		} else if found {
 			t.Fatalf("Value of '%s' should have been removed", k)
 		}
 

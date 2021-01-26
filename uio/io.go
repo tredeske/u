@@ -37,11 +37,11 @@ type StopLossReader struct {
 	OnExceeded func() error // if set, produces error on bounds exceeded
 }
 
-var StopLossExceededError = errors.New("stop loss exceeded")
+var ErrStopLossExceeded = errors.New("stop loss exceeded")
 
 func (this *StopLossReader) Read(p []byte) (n int, err error) {
 	if this.N <= 0 {
-		err = StopLossExceededError
+		err = ErrStopLossExceeded
 		if nil != this.OnExceeded {
 			err = this.OnExceeded()
 		}

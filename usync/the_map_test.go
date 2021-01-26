@@ -35,6 +35,8 @@ func TestMap(t *testing.T) {
 		t.Fatalf("It was still there!")
 	} else if 0 != m.Len() {
 		t.Fatalf("Remove size not zero!")
+	} else if 0 != len(rv) {
+		t.Fatalf("rv was set!")
 	}
 
 	m.Add(key, value)
@@ -51,6 +53,8 @@ func TestMap(t *testing.T) {
 		t.Fatalf("RemoveUsing: It was still there!")
 	} else if 1 != m.Len() {
 		t.Fatalf("RemoveUsing size not 1!")
+	} else if 0 != len(rv) {
+		t.Fatalf("rv was set!")
 	}
 
 }

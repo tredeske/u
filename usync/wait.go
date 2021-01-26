@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var TimeoutError = errors.New("Operation timed out")
+var ErrTimeout = errors.New("Operation timed out")
 
 //
 // invoke done until it returns true or error, or the timeout occurs.
@@ -24,7 +24,7 @@ func Await(timeout, interval time.Duration, done func() (bool, error)) error {
 		}
 		time.Sleep(interval)
 	}
-	return TimeoutError
+	return ErrTimeout
 }
 
 //

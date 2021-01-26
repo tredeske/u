@@ -1,7 +1,6 @@
 package usync
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -17,7 +16,7 @@ func TestAtomicInt(t *testing.T) {
 		t.Fatalf("Value did not add to 10.")
 	}
 
-	s := fmt.Sprintf("%s", i)
+	s := i.String()
 	if "10" != s {
 		t.Fatalf("value string converted to '%s' instead of '10'", s)
 	}
