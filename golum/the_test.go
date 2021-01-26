@@ -8,7 +8,6 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
-	"github.com/tredeske/u/uregistry"
 )
 
 var (
@@ -61,26 +60,27 @@ components:
 }
 
 type autoMgr_ struct {
-	AutoStartable
-	AutoStoppable
-	Unreloadable
+	AutoReloadable
 }
 
 func (this *autoMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-	g := &auto_{Name: name}
-	err = c.Chain().
-		GetDuration("delay", &g.delay).
-		Error
-	if err != nil {
-		return
-	}
-	uregistry.Put(name, g)
-	return
+	return NewGolumForReloadable(name, c, &auto_{})
 }
 
 type auto_ struct {
 	Name  string
 	delay time.Duration
+}
+
+// implement Reloadable
+func (this *auto_) Reload(name string, c *uconfig.Section,
+) (rv Reloadable, err error) {
+	g := &auto_{Name: name}
+	rv = g
+	err = c.Chain().
+		GetDuration("delay", &g.delay).
+		Error
+	return
 }
 
 // implement Startable

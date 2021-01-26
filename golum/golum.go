@@ -13,20 +13,10 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
-// for use with AutoStartable
-type Startable interface {
-	Start() (err error)
-}
-
-// for use with AutoStoppable
-type Stoppable interface {
-	Stop()
-}
-
 //
 // implement to manage component lifecycle for your components
 //
-// See also Helper
+// See also Helper, AutoStartable, AutoStoppable, AutoReloadable
 //
 type Manager interface {
 	// create a new component with the specifed name and config
@@ -61,21 +51,6 @@ func (this *Unstartable) StartGolum(name string) (err error) {
 }
 
 //
-// default impl for managers that store golums in uregistry and which
-// implement Startable
-//
-type AutoStartable struct{}
-
-func (this *AutoStartable) StartGolum(name string) (err error) {
-	var g Startable
-	err = uregistry.GetValid(name, &g)
-	if nil == err {
-		err = g.Start()
-	}
-	return
-}
-
-//
 // default impl for Managers that do not support stop
 //
 type IgnoreStop struct{}
@@ -89,20 +64,6 @@ type Unstoppable struct{}
 
 func (this *Unstoppable) StopGolum(name string) {
 	ulog.Warnf("Cannot stop %s", name)
-}
-
-//
-// default impl for managers that store golums in uregistry and which
-// implement Stoppable
-//
-type AutoStoppable struct{}
-
-func (this *AutoStoppable) StopGolum(name string) {
-	var g Stoppable
-	err := uregistry.Remove(name, &g)
-	if nil == err && nil != g {
-		g.Stop()
-	}
 }
 
 //
@@ -123,48 +84,6 @@ func (this *Unreloadable) ReloadGolum(name string, c *uconfig.Section) (err erro
 	ulog.Warnf("Cannot reload %s", name)
 	return
 }
-
-/* does not appear possible
-
-//
-// default impl for managers that store golums in uregistry.
-// must also be AutoStoppable
-//
-type AutoReloadable struct{}
-
-func (this *AutoReloadable) ReloadGolum(name string, c *uconfig.Section) (err error) {
-	var existing Stoppable
-	err = uregistry.GetValid(name, &existing)
-	if err != nil {
-		return
-	}
-	rVal := reflect.ValueOf(this)
-	newF := rVal.MethodByName("NewGolum")
-	if newF.IsValid() {
-		err = errors.New("Does not implement NewGolum")
-		return
-	}
-	startF := rVal.MethodByName("StartGolum")
-	if startF.IsValid() {
-		err = errors.New("Does not implement StartGolum")
-		return
-	}
-	nameV := reflect.ValueOf(name)
-	cV := reflect.ValueOf(c)
-	errV := reflect.ValueOf(err)
-
-	retVals := newF.Call([]reflect.Value{nameV, cV})
-	errV.Set(retVals[0])
-	if err != nil {
-		return
-	}
-	existing.Stop()
-
-	retVals = startF.Call([]reflect.Value{nameV})
-	errV.Set(retVals[0])
-	return
-}
-*/
 
 //
 // handle to a loaded service
