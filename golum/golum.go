@@ -409,7 +409,12 @@ func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 
 func addGolum(g *golum_) (err error) {
 	log.Printf("G: New %s", g.name)
-	err = g.manager.NewGolum(g.name, g.config)
+	am, isAuto := g.manager.(AutoManager)
+	if isAuto {
+		err = am.FirstLoad(g.name, g.config, am.ReloadablePrototype())
+	} else {
+		err = g.manager.NewGolum(g.name, g.config)
+	}
 	if err != nil {
 		err = uerr.Chainf(err, "Creating '%s'", g.name)
 	} else {

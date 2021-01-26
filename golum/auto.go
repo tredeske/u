@@ -1,6 +1,8 @@
 package golum
 
 import (
+	"errors"
+
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uregistry"
 )
@@ -28,6 +30,28 @@ type Reloadable interface {
 	// Stop/Start will occur.
 	//
 	Reload(name string, config *uconfig.Section) (rv Reloadable, err error)
+}
+
+//
+// implemented by AutoReloadable and you
+//
+// example:
+//     type mgr_ struct {
+//         golum.AutoReloadable
+//     }
+//     func (this *mgr_) ReloadablePrototype() Reloadable {
+//         return (*thingThatIsReloadable)(nil)
+//     }
+//
+type AutoManager interface {
+	// AutoReloadable provides this
+	Manager
+
+	// AutoReloadable provides this
+	FirstLoad(name string, c *uconfig.Section, r Reloadable) (err error)
+
+	// your manager provides this
+	ReloadablePrototype() (rv Reloadable)
 }
 
 //
@@ -70,9 +94,26 @@ type AutoReloadable struct {
 	AutoStoppable
 }
 
-//
-// implement Manager (partial)
-//
+// implement Manager
+func (this *AutoReloadable) NewGolum(name string, c *uconfig.Section) (err error) {
+	return errors.New("Autoreloadable does not use NewGolum - did your Manager implement AutoManager?")
+}
+
+// implement AutoManager
+func (this *AutoReloadable) FirstLoad(
+	name string,
+	c *uconfig.Section,
+	r Reloadable, // provided by ReloadablePrototype
+) (err error) {
+	g, err := r.Reload(name, c)
+	if err != nil {
+		return
+	}
+	uregistry.Put(name, g)
+	return
+}
+
+// implement Manager
 func (this *AutoReloadable) ReloadGolum(
 	name string,
 	c *uconfig.Section,
@@ -91,24 +132,6 @@ func (this *AutoReloadable) ReloadGolum(
 	uregistry.Put(name, newG)
 	g.Stop()
 	err = newG.Start()
-	return
-}
-
-//
-// helper to implement NewGolum for AutoReloadable
-//
-// example:
-//     func (this *mgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-//         return golum.NewReloadable(name, c, &ThingThatIsReloadable{})
-//     }
-//
-func NewReloadable(name string, c *uconfig.Section, g Reloadable) (err error) {
-
-	newG, err := g.Reload(name, c)
-	if err != nil {
-		return
-	}
-	uregistry.Put(name, newG)
 	return
 }
 

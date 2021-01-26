@@ -63,8 +63,8 @@ type autoMgr_ struct {
 	AutoReloadable
 }
 
-func (this *autoMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-	return NewReloadable(name, c, &auto_{})
+func (this *autoMgr_) ReloadablePrototype() (rv Reloadable) {
+	return (*auto_)(nil)
 }
 
 type auto_ struct {
