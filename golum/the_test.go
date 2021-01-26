@@ -61,6 +61,7 @@ components:
 
 type autoMgr_ struct {
 	AutoReloadable
+	Unhelpful
 }
 
 func (this *autoMgr_) ReloadablePrototype() (rv Reloadable) {

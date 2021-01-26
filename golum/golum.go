@@ -16,9 +16,14 @@ import (
 //
 // implement to manage component lifecycle for your components
 //
-// See also Helper, AutoStartable, AutoStoppable, AutoReloadable
+// See also AutoStartable, AutoStoppable, AutoReloadable
 //
 type Manager interface {
+	//
+	// command line help (via -show)
+	//
+	HelpGolum(name string, help *uconfig.Help)
+
 	// create a new component with the specifed name and config
 	//
 	NewGolum(name string, config *uconfig.Section) (err error)
@@ -42,7 +47,7 @@ type Manager interface {
 type Disabled struct{}
 
 //
-// default impl for Managers that do not support start
+// mixin for Managers that do not support start
 //
 type Unstartable struct{}
 
@@ -51,14 +56,14 @@ func (this *Unstartable) StartGolum(name string) (err error) {
 }
 
 //
-// default impl for Managers that do not support stop
+// mixin for Managers that do not support stop
 //
 type IgnoreStop struct{}
 
 func (this *IgnoreStop) StopGolum(name string) {}
 
 //
-// default impl for Managers that do not support stop
+// mixin for Managers that do not support stop
 //
 type Unstoppable struct{}
 
@@ -67,7 +72,7 @@ func (this *Unstoppable) StopGolum(name string) {
 }
 
 //
-// default impl for Managers that do not support reload
+// mixin for Managers that do not support reload
 //
 type IgnoreReload struct{}
 
@@ -76,13 +81,22 @@ func (this *IgnoreReload) ReloadGolum(name string, c *uconfig.Section) (err erro
 }
 
 //
-// default impl for Managers that do not support reload
+// mixin for Managers that do not support reload
 //
 type Unreloadable struct{}
 
 func (this *Unreloadable) ReloadGolum(name string, c *uconfig.Section) (err error) {
 	ulog.Warnf("Cannot reload %s", name)
 	return
+}
+
+//
+// mixin to disable help
+//
+type Unhelpful struct{}
+
+func (this *Unhelpful) HelpGolum(name string, help *uconfig.Help) {
+	help.Init(name, "This component is antisocial and has no help")
 }
 
 //
@@ -395,14 +409,11 @@ func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 		}
 
 		//
-		// if it is a helper, then check the config
+		// check the config against the help
 		//
-		h, isHelper := g.manager.(Helper)
-		if isHelper {
-			help := &uconfig.Help{}
-			h.HelpGolum(g.name, help)
-			g.config.WarnUnknown(help)
-		}
+		help := &uconfig.Help{}
+		g.manager.HelpGolum(g.name, help)
+		g.config.WarnUnknown(help)
 	}
 	return
 }

@@ -11,13 +11,6 @@ import (
 )
 
 //
-// implement this in your Manager if you provide helpful info
-//
-type Helper interface {
-	HelpGolum(name string, help *uconfig.Help)
-}
-
-//
 // show info about named component.  if name is 'all', then list all.
 //
 func Show(name string, out io.Writer) {
@@ -40,14 +33,9 @@ func Show(name string, out io.Writer) {
 			fmt.Fprintf(out, "Unknown component: %s\n", name)
 			return
 		}
-		h, casted := mgr.(Helper)
-		if !casted {
-			fmt.Fprintf(out, "No help spec registered for component %s\n", name)
-			return
-		}
 
 		help := &uconfig.Help{}
-		h.HelpGolum(name, help)
+		mgr.HelpGolum(name, help)
 
 		content, err := yaml.Marshal(help)
 		if err != nil {

@@ -12,9 +12,9 @@ import (
 //
 // A thing to manage using golum
 //
-var theMgr_ thingMgr_
-
-type thingMgr_ struct{}
+type thingMgr_ struct {
+	golum.Unhelpful
+}
 
 type thing_ struct {
 	name    string
@@ -29,7 +29,7 @@ type stuff_ struct {
 	bar bool
 }
 
-func (this thingMgr_) NewGolum(name string, config *uconfig.Section) (err error) {
+func (this *thingMgr_) NewGolum(name string, config *uconfig.Section) (err error) {
 
 	g := &thing_{
 		name: name,
@@ -60,11 +60,11 @@ func (this thingMgr_) NewGolum(name string, config *uconfig.Section) (err error)
 	return
 }
 
-func (this thingMgr_) StartGolum(name string) (err error) { return }
+func (this *thingMgr_) StartGolum(name string) (err error) { return }
 
-func (this thingMgr_) StopGolum(name string) { uregistry.Remove(name) }
+func (this *thingMgr_) StopGolum(name string) { uregistry.Remove(name) }
 
-func (this thingMgr_) ReloadGolum(name string, c *uconfig.Section) (err error) {
+func (this *thingMgr_) ReloadGolum(name string, c *uconfig.Section) (err error) {
 	this.StopGolum(name)
 	err = this.NewGolum(name, c)
 	if nil == err {
@@ -116,7 +116,7 @@ func TestTesting(t *testing.T) {
 	//
 	// install the factory(ies)
 	//
-	golum.AddManager("testFactory", theMgr_)
+	golum.AddManager("testFactory", &thingMgr_{})
 
 	ulog.DebugEnabled = true
 
