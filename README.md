@@ -92,7 +92,7 @@ Some handy doodads for i/o.
 ulog
 ----
 
-For logging output.
+For logging output.  Has finer grained severity, and auto log file management.
 
 uregistry
 ---------
@@ -120,4 +120,4 @@ build & test
 
     go get gopkg.in/yaml.v2
     go build
-    go test . .u* ./golum
+    go test ./...
