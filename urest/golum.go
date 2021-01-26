@@ -154,9 +154,10 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 		}
 		p = help.Init(name, descr)
 	}
-	//	p.NewItem("httpAddress",
-	//		"string",
-	//		"host:port to listen on.  if not set, endpoint is disabled.").SetOptional()
+	p.NewItem("httpAddress",
+		"string",
+		"host:port to listen on.  if not set, endpoint is disabled.").
+		SetOptional()
 	p.NewItem("httpMaxHeaderBytes",
 		"int",
 		"Max number of bytes allowed in request headers").SetOptional()
