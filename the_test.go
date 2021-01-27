@@ -9,13 +9,6 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
-//
-// A thing to manage using golum
-//
-type thingMgr_ struct {
-	golum.Unhelpful
-}
-
 type thing_ struct {
 	name    string
 	a       string
@@ -29,13 +22,28 @@ type stuff_ struct {
 	bar bool
 }
 
-func (this *thingMgr_) NewGolum(name string, config *uconfig.Section) (err error) {
+func (this *thing_) Help(name string, help *uconfig.Help) {
+	p := help.Init(name, "This thing is a test")
+	p.NewItem("a", "string", "test element a")
+	p.NewItem("b", "string", "test element b")
+	p.NewItem("i", "int", "test element i")
+	p.NewItem("j", "int", "test element j")
+}
+
+func (this *thing_) Reload(
+	name string,
+	config *uconfig.Section,
+) (
+	rv golum.Reloadable,
+	err error,
+) {
 
 	g := &thing_{
 		name: name,
 		i:    -1,
 		j:    50,
 	}
+	rv = g
 
 	err = config.Chain().
 		GetString("a", &g.a, uconfig.StringNotBlank).
@@ -60,18 +68,9 @@ func (this *thingMgr_) NewGolum(name string, config *uconfig.Section) (err error
 	return
 }
 
-func (this *thingMgr_) StartGolum(name string) (err error) { return }
+func (this *thing_) Start() (err error) { return }
 
-func (this *thingMgr_) StopGolum(name string) { uregistry.Remove(name) }
-
-func (this *thingMgr_) ReloadGolum(name string, c *uconfig.Section) (err error) {
-	this.StopGolum(name)
-	err = this.NewGolum(name, c)
-	if nil == err {
-		err = this.StartGolum(name)
-	}
-	return
-}
+func (this *thing_) Stop() {}
 
 //
 // put together a YAML config
@@ -116,7 +115,7 @@ func TestTesting(t *testing.T) {
 	//
 	// install the factory(ies)
 	//
-	golum.AddManager("testFactory", &thingMgr_{})
+	golum.AddReloadable("testFactory", &thing_{})
 
 	ulog.DebugEnabled = true
 
@@ -142,5 +141,4 @@ func TestTesting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to get thingTwo: %s", err)
 	}
-
 }

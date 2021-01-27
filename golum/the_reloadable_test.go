@@ -8,23 +8,26 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
-	"github.com/tredeske/u/uregistry"
 )
 
 var (
-	testAdded_ bool
+	reloadableAdded_ bool
 )
 
-func TestAuto(t *testing.T) {
-	if !testAdded_ {
-		AddManager("auto", &autoMgr_{})
-		testAdded_ = true
+func setupReloadable() {
+	if !reloadableAdded_ {
+		reloadableAdded_ = true
+		AddReloadable("reloadable", &reloadable_{})
 	}
+}
+
+func TestReloadable(t *testing.T) {
+	setupReloadable()
 
 	err := TestLoadAndStart([]byte(`
 components:
-- name:         auto
-  type:         auto
+- name:         reloadable
+  type:         reloadable
 `))
 	if err != nil {
 		t.Fatalf("Unable to load and start: %s", err)
@@ -34,16 +37,13 @@ components:
 
 }
 
-func TestDelayedStart(t *testing.T) {
-	if !testAdded_ {
-		AddManager("auto", &autoMgr_{})
-		testAdded_ = true
-	}
+func TestReloadableDelayedStart(t *testing.T) {
+	setupReloadable()
 
 	err := TestLoadAndStart([]byte(`
 components:
-- name:         delayed
-  type:         auto
+- name:         delayed-r
+  type:         reloadable
   config:
     delay:      15s
 `))
@@ -60,33 +60,25 @@ components:
 	}
 }
 
-type autoMgr_ struct {
-	AutoStartable
-	AutoStoppable
-	IgnoreReload
-	Unhelpful
-}
-
-type auto_ struct {
+type reloadable_ struct {
+	UnhelpfulReloadable
 	Name  string
 	delay time.Duration
 }
 
-// implement Manager
-func (this *autoMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-	g := &auto_{Name: name}
+// implement Reloadable
+func (this *reloadable_) Reload(name string, c *uconfig.Section,
+) (rv Reloadable, err error) {
+	g := &reloadable_{Name: name}
+	rv = g
 	err = c.Chain().
 		GetDuration("delay", &g.delay).
 		Error
-	if err != nil {
-		return
-	}
-	uregistry.Put(name, g)
 	return
 }
 
 // implement Startable
-func (this *auto_) Start() (err error) {
+func (this *reloadable_) Start() (err error) {
 	if 0 != this.delay {
 		fmt.Printf("Delaying for %s", this.delay)
 		time.Sleep(this.delay)
@@ -96,6 +88,6 @@ func (this *auto_) Start() (err error) {
 }
 
 // implement Stopable
-func (this *auto_) Stop() {
+func (this *reloadable_) Stop() {
 	ulog.Printf("%s: stopped", this.Name)
 }

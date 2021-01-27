@@ -9,95 +9,8 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uerr"
-	"github.com/tredeske/u/ulog"
 	"github.com/tredeske/u/uregistry"
 )
-
-//
-// implement to manage component lifecycle for your components
-//
-// See also AutoStartable, AutoStoppable, AutoReloadable
-//
-type Manager interface {
-	//
-	// command line help (via -show)
-	//
-	HelpGolum(name string, help *uconfig.Help)
-
-	// create a new component with the specifed name and config
-	//
-	NewGolum(name string, config *uconfig.Section) (err error)
-
-	// start the named component
-	//
-	StartGolum(name string) (err error)
-
-	// stop the named component
-	//
-	StopGolum(name string)
-
-	// reload the named component with the new config
-	//
-	ReloadGolum(name string, config *uconfig.Section) (err error)
-}
-
-//
-// placeholder for disabled components
-//
-type Disabled struct{}
-
-//
-// mixin for Managers that do not support start
-//
-type Unstartable struct{}
-
-func (this *Unstartable) StartGolum(name string) (err error) {
-	return nil
-}
-
-//
-// mixin for Managers that do not support stop
-//
-type IgnoreStop struct{}
-
-func (this *IgnoreStop) StopGolum(name string) {}
-
-//
-// mixin for Managers that do not support stop
-//
-type Unstoppable struct{}
-
-func (this *Unstoppable) StopGolum(name string) {
-	ulog.Warnf("Cannot stop %s", name)
-}
-
-//
-// mixin for Managers that do not support reload
-//
-type IgnoreReload struct{}
-
-func (this *IgnoreReload) ReloadGolum(name string, c *uconfig.Section) (err error) {
-	return
-}
-
-//
-// mixin for Managers that do not support reload
-//
-type Unreloadable struct{}
-
-func (this *Unreloadable) ReloadGolum(name string, c *uconfig.Section) (err error) {
-	ulog.Warnf("Cannot reload %s", name)
-	return
-}
-
-//
-// mixin to disable help
-//
-type Unhelpful struct{}
-
-func (this *Unhelpful) HelpGolum(name string, help *uconfig.Help) {
-	help.Init(name, "This component is antisocial and has no help")
-}
 
 //
 // handle to a loaded service
@@ -107,16 +20,6 @@ type Loaded struct {
 }
 
 //
-// add a component lifecycle manager for the named type
-//
-func AddManager(name string, manager Manager) {
-	//log.Printf("Adding manager %s", name)
-	if _, found := managers_[name]; found {
-		panic("Duplicate golum manager installed: " + name)
-	}
-	managers_[name] = manager
-}
-
 // track a component
 //
 type golum_ struct {
@@ -420,95 +323,11 @@ func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 
 func addGolum(g *golum_) (err error) {
 	log.Printf("G: New %s", g.name)
-	am, isAuto := g.manager.(AutoManager)
-	if isAuto {
-		err = am.FirstLoad(g.name, g.config, am.ReloadablePrototype())
-	} else {
-		err = g.manager.NewGolum(g.name, g.config)
-	}
+	err = g.manager.NewGolum(g.name, g.config)
 	if err != nil {
 		err = uerr.Chainf(err, "Creating '%s'", g.name)
 	} else {
 		golums_.Store(g.name, g)
 	}
 	return
-}
-
-//
-// -----------------------------------------------------------
-//
-
-//
-// for test - load specified components
-//
-func TestLoadAndStart(config interface{}) (err error) {
-
-	s, err := uconfig.NewSection(config)
-	if err != nil {
-		return
-	}
-	var comps *uconfig.Array
-	err = s.GetArray("components", &comps)
-	if err != nil {
-		return
-	}
-	err = LoadAndStart(comps)
-	return
-}
-
-//
-// for test - reload components based on new config
-//
-func TestReload(config interface{}) (err error) {
-
-	s, err := uconfig.NewSection(config)
-	if err != nil {
-		return
-	}
-	var comps *uconfig.Array
-	err = s.GetArray("components", &comps)
-	if err != nil {
-		return
-	}
-	err = Reload(comps)
-	return
-}
-
-//
-// for test - stop named component
-//
-func TestStopComponent(name string) (err error) {
-	g, found := getGolum(name)
-	if !found {
-		return fmt.Errorf("No such component: %s", name)
-	}
-	g.manager.StopGolum(name)
-	return
-}
-
-//
-// for test - reload named component
-//
-func TestReloadComponent(name string) (err error) {
-	g, found := getGolum(name)
-	if !found {
-		return fmt.Errorf("No such component: %s", name)
-	}
-
-	err = g.manager.ReloadGolum(name, g.config)
-	return
-}
-
-//
-// for test - put this in a defer() to unload all components at end of test
-//
-func TestStop() {
-	ulog.Debugf("G: TestStop")
-	golums_.Range(
-		func(itK, itV interface{}) (cont bool) {
-			ulog.Debugf("G: stopping %s", itK)
-			stopGolum(itV.(*golum_))
-			return true
-		})
-	//managers_ = make(map[string]Manager)
 }

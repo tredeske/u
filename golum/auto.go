@@ -1,8 +1,6 @@
 package golum
 
 import (
-	"errors"
-
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uregistry"
 )
@@ -30,27 +28,20 @@ type Reloadable interface {
 	// Stop/Start will occur.
 	//
 	Reload(name string, config *uconfig.Section) (rv Reloadable, err error)
+
+	//
+	// provide command line help (via -show)
+	//
+	Help(name string, help *uconfig.Help)
 }
 
 //
-// implemented by AutoReloadable and you
+// mixin to disable help
 //
-// example:
-//     type mgr struct {
-//         golum.AutoReloadable
-//     }
-//     func (this *mgr) ReloadablePrototype() Reloadable {
-//         return (*thingThatIsReloadable)(nil)
-//     }
-//
-type AutoManager interface {
-	Manager
+type UnhelpfulReloadable struct{}
 
-	// AutoReloadable provides this
-	FirstLoad(name string, c *uconfig.Section, r Reloadable) (err error)
-
-	// your Manager must implement this
-	ReloadablePrototype() (rv Reloadable)
+func (this *UnhelpfulReloadable) Help(name string, help *uconfig.Help) {
+	help.Init(name, "This component is antisocial and has no help")
 }
 
 //
@@ -85,35 +76,24 @@ func (this *AutoStoppable) StopGolum(name string) {
 }
 
 //
-// mixin for Managers to automatically perform standard lifecycle
+// generic manager for Reloadable components
 //
-// managed golum must implement Reloadable
+// see AddReloadable
 //
-// example:
-//     type mgr struct {
-//         golum.AutoReloadable
-//     }
-//     func (this *mgr) ReloadablePrototype() Reloadable {
-//         return (*ThingThatIsReloadable)(nil)
-//     }
-//
-type AutoReloadable struct {
+type reloadableMgr_ struct {
 	AutoStartable
 	AutoStoppable
+	Prototype Reloadable
 }
 
 // implement Manager
-func (this *AutoReloadable) NewGolum(name string, c *uconfig.Section) (err error) {
-	return errors.New("Autoreloadable does not use NewGolum - did your Manager implement AutoManager.ReloadablePrototype?")
+func (this *reloadableMgr_) HelpGolum(name string, help *uconfig.Help) {
+	this.Prototype.Help(name, help)
 }
 
-// implement AutoManager
-func (this *AutoReloadable) FirstLoad(
-	name string,
-	c *uconfig.Section,
-	r Reloadable, // provided by ReloadablePrototype
-) (err error) {
-	g, err := r.Reload(name, c)
+// implement Manager
+func (this *reloadableMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
+	g, err := this.Prototype.Reload(name, c)
 	if err != nil {
 		return
 	}
@@ -122,7 +102,7 @@ func (this *AutoReloadable) FirstLoad(
 }
 
 // implement Manager
-func (this *AutoReloadable) ReloadGolum(
+func (this *reloadableMgr_) ReloadGolum(
 	name string,
 	c *uconfig.Section,
 ) (err error) {
