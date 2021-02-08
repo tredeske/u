@@ -24,7 +24,7 @@ type Chain struct {
 type Builder func(config *Chain) (rv interface{}, err error)
 
 //
-// Use with Chain.If, Chain.Must
+// Use with Chain.If, Chain.Must Chain.Each
 //
 type ChainVisitor func(config *Chain) (err error)
 
@@ -354,8 +354,7 @@ func (this *Chain) If(key string, builder ChainVisitor) *Chain {
 		var s *Section
 		this.Error = this.Section.GetSectionIf(key, &s)
 		if nil == this.Error && nil != s {
-			chain := s.Chain()
-			err := builder(chain)
+			err := builder(s.Chain())
 			if err != nil {
 				this.Error = uerr.Chainf(err, "Unable to build '%s'", this.ctx(key))
 			}
@@ -377,6 +376,42 @@ func (this *Chain) Must(key string, builder ChainVisitor) *Chain {
 			if err != nil {
 				this.Error = uerr.Chainf(err, "Unable to build '%s'", this.ctx(key))
 			}
+		}
+	}
+	return this
+}
+
+//
+// run builder against each sub section in named array
+//
+func (this *Chain) Each(key string, builder ChainVisitor) *Chain {
+
+	if nil == this.Error {
+		var arr *Array
+		this.Error = this.Section.GetArray(key, &arr)
+		if nil == this.Error {
+			this.Error = arr.Each(
+				func(s *Section) error {
+					return builder(s.Chain())
+				})
+		}
+	}
+	return this
+}
+
+//
+// run builder against each sub section in named array, if array exists
+//
+func (this *Chain) EachIf(key string, builder ChainVisitor) *Chain {
+
+	if nil == this.Error {
+		var arr *Array
+		this.Error = this.Section.GetArrayIf(key, &arr)
+		if nil == this.Error && nil != arr {
+			this.Error = arr.Each(
+				func(s *Section) error {
+					return builder(s.Chain())
+				})
 		}
 	}
 	return this
