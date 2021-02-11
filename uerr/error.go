@@ -42,6 +42,13 @@ func (this Error) Error() string {
 	return this.Message
 }
 
+//
+// implement errors.Unwrap interface
+//
+func (this Error) Unwrap() error {
+	return this.Cause
+}
+
 /*
 func Errorcf(code int, err error, format string, args ...interface{}) *Error {
 	this := &Error{Message: err.Error(), Code: code, Cause: err}

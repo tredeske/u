@@ -103,7 +103,7 @@ components:
       bar:                false
     - foo:                false
 
-substitutions:
+properties:
   subValue:               a value to sub in
 `
 

@@ -20,11 +20,15 @@ func TestError(t *testing.T) {
 	err = errType
 	if !CausedBy(err, err) {
 		t.Fatal("error should relate to errType")
+	} else if !errors.Is(err, errType) {
+		t.Fatal("error should relate (errors.Is) to errType")
 	}
 
 	err = Chainf(errType, "Chain error to base error")
 	if !CausedBy(err, errType) {
 		t.Fatal("extended error should relate to errType")
+	} else if !errors.Is(err, errType) {
+		t.Fatal("error should relate (errors.Is) to errType")
 	} else if CausedBy(err, errType2) {
 		t.Fatal("extended error should NOT relate to errType2")
 	}
