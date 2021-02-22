@@ -32,23 +32,8 @@ var (
 // simple boot using default values
 //
 func SimpleBoot() (rv Boot, err error) {
-	boot := Boot{}
-	err = boot.Boot()
-	if err != nil {
-		return
-	}
-
-	err = boot.Redirect(0)
-	if err != nil {
-		return
-	}
-
-	boot.Config, err = boot.Configure("components", nil)
-	if err != nil {
-		return
-	}
-
-	rv = boot
+	rv = Boot{}
+	err = rv.Simple()
 	return
 }
 
@@ -69,6 +54,29 @@ type Boot struct {
 	// go build -ldflags '-X main.Version=#{$stamp}-#{REV}'
 	//
 	Version string
+}
+
+//
+// simple boot using supplied Boot
+//
+func (this *Boot) Simple() (err error) {
+
+	err = this.Boot()
+	if err != nil {
+		return
+	}
+
+	err = this.Redirect(0)
+	if err != nil {
+		return
+	}
+
+	this.Config, err = this.Configure("components", nil)
+	if err != nil {
+		return
+	}
+
+	return
 }
 
 //
