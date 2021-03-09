@@ -10,7 +10,7 @@ import (
 //
 // Least Recently Used (LRU) eviction map
 //
-type LruStringMap struct {
+type LruMap struct {
 	m        sync.Map
 	length   int64
 	Capacity int
@@ -18,28 +18,48 @@ type LruStringMap struct {
 }
 
 type lruVal_ struct {
-	value string
+	value interface{}
 	used  int64
 }
 
 //
 // get the value from the map, setting ok to true if value found
 //
-func (this *LruStringMap) Get(key string) (rv string, ok bool) {
+func (this *LruMap) Get(key string) (rv interface{}, ok bool) {
 	var it interface{}
 	it, ok = this.m.Load(key)
 	if ok {
 		lruv := it.(*lruVal_)
-		lruv.used++
+		atomic.AddInt64(&lruv.used, 1)
 		rv = lruv.value
 	}
+	return
+}
+
+func (this *LruMap) GetString(key string) (rv string, ok bool) {
+	var it interface{}
+	it, ok = this.Get(key)
+	if ok {
+		rv = it.(string)
+	}
+	return
+}
+
+func (this *LruMap) GetOrAddString(key, value string) (rv string) {
+	var it interface{}
+	var ok bool
+	it, ok = this.Get(key)
+	if !ok {
+		it = this.add(key, value)
+	}
+	rv = it.(string)
 	return
 }
 
 //
 // get the value from the map, or add it if not found
 //
-func (this *LruStringMap) GetOrAdd(key, value string) (rv string) {
+func (this *LruMap) GetOrAdd(key string, value interface{}) (rv interface{}) {
 	var ok bool
 	rv, ok = this.Get(key)
 	if !ok {
@@ -49,13 +69,17 @@ func (this *LruStringMap) GetOrAdd(key, value string) (rv string) {
 }
 
 //
-// get the value from the map, or add it if not found
+// get the value from the map, or add it from values produced by func
+// if not found.
 //
-func (this *LruStringMap) GetOrAddF(
+// used in conjunction with key created using ustrings.UnsafeBytesToString,
+// as that is a temp lookup key
+//
+func (this *LruMap) GetOrAddF(
 	key string,
-	add func() (key, value string),
+	add func() (key string, value interface{}),
 ) (
-	rv string,
+	rv interface{},
 ) {
 	var ok bool
 	rv, ok = this.Get(key)
@@ -66,8 +90,11 @@ func (this *LruStringMap) GetOrAddF(
 	return
 }
 
-func (this *LruStringMap) add(key, value string) (rv string) {
+func (this *LruMap) add(key string, value interface{}) (rv interface{}) {
 
+	if nil == value {
+		panic("cannot add nil value to LruMap")
+	}
 	if this.Capacity <= int(atomic.LoadInt64(&this.length)) &&
 		this.running.SetUnlessSet() {
 		go this.evict()
@@ -78,14 +105,17 @@ func (this *LruStringMap) add(key, value string) (rv string) {
 		atomic.AddInt64(&this.length, 1)
 		rv = value
 	} else {
-		rv = (it.(*lruVal_)).value
+		lruv := it.(*lruVal_)
+		atomic.AddInt64(&lruv.used, 1)
+		rv = lruv.value
 	}
 	return
 }
 
-func (this *LruStringMap) evict() {
-	var any bool
+func (this *LruMap) evict() {
 	for this.running.IsSet() {
+		time.Sleep(100 * time.Millisecond)
+		any := false
 		length := int(atomic.LoadInt64(&this.length))
 		for this.Capacity < length {
 			var least int64 = math.MaxInt64
@@ -93,7 +123,7 @@ func (this *LruStringMap) evict() {
 			this.m.Range(
 				func(kIt, vIt interface{}) bool {
 					v := vIt.(*lruVal_)
-					if v.used < least {
+					if atomic.LoadInt64(&v.used) < least {
 						evictIt = kIt
 					}
 					return true
@@ -106,15 +136,13 @@ func (this *LruStringMap) evict() {
 			this.running.Clear()
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
-		any = false
 	}
 }
 
 //
 // get the size of the map
 //
-func (this *LruStringMap) Len() (size int) {
+func (this *LruMap) Len() (size int) {
 	return int(atomic.LoadInt64(&this.length))
 }
 
