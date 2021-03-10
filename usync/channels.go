@@ -60,7 +60,7 @@ func (this DeathChan) Wait(timeout time.Duration) (timeToDie bool) {
 //
 
 //
-// A generic channel
+// A generic channel - more of an example than anything else
 //
 type ItChan chan interface{}
 

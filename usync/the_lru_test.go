@@ -11,24 +11,24 @@ func TestLruMap(t *testing.T) {
 	const CAP = 5
 	const KEY = "foo"
 	const VAL = "bar"
-	m := LruMap{Capacity: CAP}
+	m := NewLruMap(CAP)
 
 	if 0 != m.Len() {
 		t.Fatalf("should be empty")
 	}
 
-	result, found := m.GetString(KEY)
+	result, found := m.GetAsString(KEY)
 	if found {
 		t.Fatalf("should not have found %s", KEY)
 	} else if 0 != len(result) {
 		t.Fatalf("should be 0 length")
 	}
 
-	result = m.GetOrAddString(KEY, VAL)
+	result = m.GetOrAddAsString(KEY, VAL)
 	if VAL != result {
 		t.Fatalf("got back %s instead", result)
 	}
-	result, found = m.GetString(KEY)
+	result, found = m.GetAsString(KEY)
 	if !found {
 		t.Fatalf("should have found %s", KEY)
 	} else if 0 == len(result) {
@@ -38,9 +38,9 @@ func TestLruMap(t *testing.T) {
 	}
 
 	invoked := false
-	result = m.GetOrAddF(KEY, func() (k string, v interface{}) {
+	result = m.GetOrAddF(KEY, func() (v interface{}) {
 		invoked = true
-		return KEY, VAL
+		return VAL
 	}).(string)
 	if invoked {
 		t.Fatalf("Should already be set!")
@@ -80,8 +80,8 @@ func BenchmarkLruSyncMapGetOrAdd(b *testing.B) {
 }
 
 // strictly for comparision
-func BenchmarkSingleGetOrAdd(b *testing.B) {
-	m := LruMap{Capacity: 8192}
+func BenchmarkLruSingleGetOrAdd(b *testing.B) {
+	m := NewLruMap(8192)
 	for i := 0; i < b.N; i++ {
 		m.GetOrAdd("foo", "foo")
 	}
@@ -104,7 +104,7 @@ func getInts() []string {
 func BenchmarkLruGetOrAdd(b *testing.B) {
 	keys := getInts()
 
-	m := LruMap{Capacity: 2 * MAX_INT}
+	m := NewLruMap(2 * MAX_INT)
 
 	unique := 0
 
@@ -112,9 +112,9 @@ func BenchmarkLruGetOrAdd(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		key := keys[i%MAX_INT]
 		m.GetOrAddF(key,
-			func() (k string, v interface{}) {
+			func() (v interface{}) {
 				unique++
-				return key, key
+				return key
 			})
 	}
 	if unique > MAX_INT {
@@ -125,22 +125,20 @@ func BenchmarkLruGetOrAdd(b *testing.B) {
 func BenchmarkLruEvict(b *testing.B) {
 	keys := getInts()
 
-	m := LruMap{Capacity: MAX_INT / 2}
+	m := NewLruMap(MAX_INT / 2)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := keys[i%MAX_INT]
 		m.GetOrAddF(key,
-			func() (k string, v interface{}) {
-				return key, key
-			})
+			func() (v interface{}) { return key })
 	}
 }
 
 func BenchmarkLruGetOrAddPar(b *testing.B) {
 	keys := getInts()
 
-	m := LruMap{Capacity: 2 * MAX_INT}
+	m := NewLruMap(2 * MAX_INT)
 
 	var index int64
 
@@ -150,9 +148,7 @@ func BenchmarkLruGetOrAddPar(b *testing.B) {
 			i := int(atomic.AddInt64(&index, 1))
 			key := keys[i%MAX_INT]
 			m.GetOrAddF(key,
-				func() (k string, v interface{}) {
-					return key, key
-				})
+				func() (v interface{}) { return key })
 		}
 	})
 }
@@ -160,7 +156,7 @@ func BenchmarkLruGetOrAddPar(b *testing.B) {
 func BenchmarkLruEvictPar(b *testing.B) {
 	keys := getInts()
 
-	m := LruMap{Capacity: MAX_INT / 2}
+	m := NewLruMap(MAX_INT / 2)
 
 	var index int64
 
@@ -170,9 +166,7 @@ func BenchmarkLruEvictPar(b *testing.B) {
 			i := int(atomic.AddInt64(&index, 1))
 			key := keys[i%MAX_INT]
 			m.GetOrAddF(key,
-				func() (k string, v interface{}) {
-					return key, key
-				})
+				func() (v interface{}) { return key })
 		}
 	})
 }
