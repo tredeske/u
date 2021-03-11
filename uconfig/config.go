@@ -6,12 +6,22 @@
 //
 //     properties:
 //       key:        value
+//       anInt:      10
 //
 //     components:
 //       - name:     instanceName
 //         type:     serviceType
 //         config:
-//           foo:    bar
+//           foo:    1
+//           bar:    hello there
+//           sub:
+//             foo:  2
+//             bar:  "{{.key}}"
+//           array:
+//             - foo: "{{.anInt}}"
+//               bar: array element 0
+//             - foo: 5
+//               bar: array element 1
 //           ...
 //       - name:     instance2Name
 //         type:     service2Type
@@ -41,14 +51,14 @@
 // All golang text template rules apply.
 //
 // The following properties are automatically added:
-// - home 			- the home dir of the user
-// - user			- the username of the user
-// - host			- the hostname of the host
-// - processName	- the process name of the process
-// - installDir		- where the process is installed
-//						{{installDir}} / bin / program     - or, if no bin -
-//						{{installDir}} / program
-// - initDir		- where the process is started from
+//     - home           - the home dir of the user
+//     - user           - the username of the user
+//     - host           - the hostname of the host
+//     - processName    - the process name of the process
+//     - installDir     - where the process is installed
+//                        {{installDir}} / bin / program    - or, if no bin -
+//                        {{installDir}} / program
+//     - initDir        - where the process is started from
 //
 //
 // Includes
@@ -61,7 +71,7 @@
 // Sections
 //
 // Each component has a config section.  A config section may contain
-// sub-sections and arrays of sub-sections
+// sub-sections and arrays of sub-sections.
 //
 package uconfig
 
