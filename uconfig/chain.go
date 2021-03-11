@@ -11,7 +11,36 @@ import (
 )
 
 //
-// Enable chaining of config calls
+// Chain provides a nicer means of accessing a config Section.
+//
+// Chain allows chaining of accessor functions to avoid error checking
+// boilerplate.
+//
+// The accessor functions enable accessing the config settings and sub-sections.
+//
+// The accessors also perform sensible type coercion.  For example, if a setting
+// is a string, but it is being accessed as an int, then it will be converted
+// to an int if possible.
+//
+// Validation funcs are also provided, or you can make your own.
+//
+// A Section is usually provided to you in the golum lifecycle methods for
+// creating or reloading your component.  It is simple to convert it to a Chain.
+//
+//     var s *uconfig.Section
+//     var foo, bar, baz int
+//
+//     err = s.Chain().
+//         GetInt("foo", &foo).
+//         GetInt("bar", &bar, uconfig.MustBePos).
+//         GetInt("baz", &baz, uconfig.ValidRange(5, 20)).
+//         Each("array",
+//             func(c *Chain) (err error) {
+//                 return c.
+//                     ...
+//                     Error
+//             }
+//         Error
 //
 type Chain struct {
 	Section *Section
@@ -19,18 +48,19 @@ type Chain struct {
 }
 
 //
-// Use with Chain.Build, Chain.BuildIf, Chain.BuildFrom
+// Builder works with Chain.Build, Chain.BuildIf, Chain.BuildFrom to
+// build rv from config.
 //
 type Builder func(config *Chain) (rv interface{}, err error)
 
 //
-// Use with Chain.If, Chain.Must Chain.Each
+// ChainVisitor works with Chain.If, Chain.Must, Chain.Each.
 //
 type ChainVisitor func(config *Chain) (err error)
 
 //
-// Use with Chain.Construct, Chain.ConstructFrom, Chain.ConstructIf
-// for things that construct themselves from config
+// Constructable works with Chain.Construct, Chain.ConstructFrom,
+// Chain.ConstructIf for things that construct themselves from config.
 //
 type Constructable interface {
 	FromConfig(config *Chain) (err error)
@@ -44,6 +74,7 @@ func (this *Chain) ctx(key string) string {
 	return this.Section.ctx(key)
 }
 
+// prefer Each()
 func (this *Chain) GetArray(key string, value **Array) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetArray(key, value)
@@ -51,6 +82,7 @@ func (this *Chain) GetArray(key string, value **Array) *Chain {
 	return this
 }
 
+// prefer EachIf()
 func (this *Chain) GetArrayIf(key string, value **Array) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetArrayIf(key, value)
@@ -58,6 +90,8 @@ func (this *Chain) GetArrayIf(key string, value **Array) *Chain {
 	return this
 }
 
+//
+// deprecated - use Each().
 //
 // get the array specified by key and iterate through the contained sections
 //
@@ -72,8 +106,10 @@ func (this *Chain) EachSection(key string, visitor Visitor) *Chain {
 	return this
 }
 
-// get the array specified by key if it exists and
-// iterate through the contained sections
+//
+// deprecated - use EachIf().
+//
+// get the array specified by key if it exists and iterate through the sections.
 //
 func (this *Chain) EachSectionIf(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
@@ -86,6 +122,8 @@ func (this *Chain) EachSectionIf(key string, visitor Visitor) *Chain {
 	return this
 }
 
+//
+// deprecated - use Must().
 //
 // get the sub-section specified by key and process it
 //
@@ -101,6 +139,8 @@ func (this *Chain) ASection(key string, visitor Visitor) *Chain {
 }
 
 //
+// deprecated - use If().
+//
 // if the sub-section exists, process it
 //
 func (this *Chain) IfSection(key string, visitor Visitor) *Chain {
@@ -114,6 +154,7 @@ func (this *Chain) IfSection(key string, visitor Visitor) *Chain {
 	return this
 }
 
+// deprecated
 func (this *Chain) GetSection(key string, value **Section) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetSection(key, value)
@@ -121,6 +162,7 @@ func (this *Chain) GetSection(key string, value **Section) *Chain {
 	return this
 }
 
+// deprecated
 func (this *Chain) GetSectionIf(key string, value **Section) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetSectionIf(key, value)

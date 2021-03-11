@@ -1,3 +1,39 @@
+//
+// Package golum is used to load components into the process
+// based on YAML configuration from uconfig.
+//
+// A component registers a service type manager with golum:
+//
+//     golum.AddReloadable("serviceType", reloadable)
+//
+// or (old school)
+//
+//     golum.AddManager("serviceType", manager)
+//
+// Later, golum is able to provide the YAML config to create the component
+//
+//     components:
+//       - name:     instanceName
+//         type:     serviceType
+//         config:
+//           foo:    bar
+//           ...
+//
+// Other components can lookup and rendezvous with it using uregistry:
+//
+//     var instance *Service
+//     err = uregistry.Get("instanceName", &instance)
+//
+// Test methods are also provided.  Take a look at some of the test cases in
+// this package for how they can be used.
+//
+// In an actual process, this is all managed from main with uboot.
+//
+// You can see the available components and their settings from the command line.
+//
+//     program -show all
+//     program -show [component]
+//
 package golum
 
 import (

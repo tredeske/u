@@ -1,3 +1,23 @@
+//
+// Package uregistry is a simple lookup service that allows objects to be
+// registered and later looked up.
+//
+// The golum package will automatically register modules in the default case.
+//
+// It is particularly helpful to break up cyclic dependencies.
+//
+//     value := "a string"
+//     var thing *Thing = ...
+//     registry.Put( "name", value)
+//     registry.Put( "thing", thing)
+//
+//     var rv string
+//     var aThing *Thing
+//     err := registry.Get( "name", &rv )
+//     err := registry.Get( "thing", &aThing )
+//     err := registry.GetValid( "thing", &aThing )
+//     registry.MustGet( "thing", &aThing )
+//
 package uregistry
 
 import (
@@ -6,19 +26,6 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 )
-
-//
-// A registry is a simple lookup service that allows objects to be registered
-// and later looked up.
-//
-// It is particularly helpful to break up cyclic dependencies.
-//
-// value := "a string"
-// registry.Put( "name", value)
-//
-// var rv string
-// err := registry.Get( "name", &rv )
-//
 
 var (
 	lock_ sync.RWMutex
@@ -38,19 +45,26 @@ func Exists(key string) (exists bool) {
 //
 // Same as GetValid(), but panic instead of returning an error
 //
-func MustGet(key string, rv interface{}) (rvAgain interface{}) {
+// rv is the address of a variable you want to set to the result
+//
+//     var thing *Thing
+//     uregistry.MustGet("thing", &thing)
+//
+func MustGet(key string, rv interface{}) {
 	err := GetValid(key, rv)
 	if err != nil {
 		panic(err)
 	}
-	rvAgain = rv
 	return
 }
 
 //
 // Get item matching key, setting rv to item if found
 //
-// rv must be a pointer to the type of item you're looking for
+// rv is the address of a variable you want to set to the result
+//
+//     var thing *Thing
+//     err = uregistry.Get("thing", &thing)
 //
 func Get(key string, rv interface{}) (err error) {
 	_, err = GetOk(key, rv)
@@ -70,6 +84,11 @@ func GetIt(key string) (rv interface{}) {
 //
 // Same as Get(), but also returns whether value was found or not
 //
+// rv is the address of a variable you want to set to the result
+//
+//     var thing *Thing
+//     ok, err = uregistry.GetOk("thing", &thing)
+//
 func GetOk(key string, rv interface{}) (found bool, err error) {
 	var it interface{}
 	lock_.RLock()
@@ -84,6 +103,11 @@ func GetOk(key string, rv interface{}) (found bool, err error) {
 //
 // Same as Get(), but fails if not found
 //
+// rv is the address of a variable you want to set to the result
+//
+//     var thing *Thing
+//     err = uregistry.GetValid("thing", &thing)
+//
 func GetValid(key string, rv interface{}) (err error) {
 	found := false
 	found, err = GetOk(key, rv)
@@ -95,6 +119,9 @@ func GetValid(key string, rv interface{}) (err error) {
 
 //
 // put value into registry, overwriting any existing entry
+//
+//    var thing *Thing
+//    uregistry.Put("thing", thing)
 //
 func Put(key string, value interface{}) {
 	lock_.Lock()

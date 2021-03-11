@@ -1,3 +1,68 @@
+//
+// Package uconfig enables access to the configuration loaded by
+// uboot / golum.
+//
+// This is typically YAML that looks like this:
+//
+//     properties:
+//       key:        value
+//
+//     components:
+//       - name:     instanceName
+//         type:     serviceType
+//         config:
+//           foo:    bar
+//           ...
+//       - name:     instance2Name
+//         type:     service2Type
+//         config:
+//           ...
+//
+// Properties
+//
+// The properties section provides substitutable values that can be used
+// in later sections.  Properties can use substitutions from other properties.
+//
+// As string values are accessed, the values also become properties
+// for expanding later accessed string values.
+//
+// Expansion occurs when a string value contains ${VAR} or {{.KEY}}.
+//
+// The ${VAR} will be filled in with ENV variables, if available.
+//
+// The {{.KEY}} will be filled in with properties as per the
+// go text/template package.
+//
+//     properties:
+//       key:        value
+//       fromEnv:    ${ENV_VAR}
+//       basedOnKey: {{.key}}    # NOTE: the '.' is critical
+//
+// All golang text template rules apply.
+//
+// The following properties are automatically added:
+// - home 			- the home dir of the user
+// - user			- the username of the user
+// - host			- the hostname of the host
+// - processName	- the process name of the process
+// - installDir		- where the process is installed
+//						{{installDir}} / bin / program     - or, if no bin -
+//						{{installDir}} / program
+// - initDir		- where the process is started from
+//
+//
+// Includes
+//
+// Other files can be included with the 'include_' directive, as in:
+//
+// include_:        /path/to/file.yml
+//
+//
+// Sections
+//
+// Each component has a config section.  A config section may contain
+// sub-sections and arrays of sub-sections
+//
 package uconfig
 
 import (
@@ -37,37 +102,22 @@ const (
 type Visitor func(*Section) error
 
 //
-// A map of strings to values used for config.
+// Section represents a config section, and allows access to the settings
+// in the config.
 //
-// If the section has a key called "properties", then the keys in that sub
-// section will be added as properties into the current one.
+// Methods are provided for accessing settings.  Many of these methods will
+// perform type coercion.  For example, if a setting is provided as a string
+// but is being requested as an int, then the setting will be converted to
+// an int if possible.
 //
-// As string values are accessed, the values also become properties
-// for expanding later accessed string values.
+// The newer Chain API is preferred over this one.  To convert a Section to
+// a Chain:
 //
-// Expansion occurs when a string value contains ${...} or {{...}}.
+//     var s *uconfig.Section
+//     chain := s.Chain()...
 //
-// The ${...} will be filled in with ENV variables, if available.
-//
-// The {{...}} will be filled in with properties as per the
-// go text/template package.  ***NOTE*** Make sure to add a '.' before
-// the key.  As in: {{.key}}.  All golang text template rules apply.
-//
-// Child sections inherit the properties of their parents.
-//
-// The following properties are automatically added:
-// - home 			- the home dir of the user
-// - user			- the username of the user
-// - host			- the hostname of the host
-// - processName	- the process name of the process
-// - installDir		- where the process is installed
-//						{{installDir}} / bin / program     - or, if no bin -
-//						{{installDir}} / program
-// - initDir		- where the process is started from
-//
-// Other files can be included with the 'include_' directive, as in:
-//
-// include_:        /path/to/file.yml
+// A Section will typically be provided by the golum lifecycle methods to
+// you, so you don't have to create one in 99% of the cases.
 //
 type Section struct {
 	Context  string

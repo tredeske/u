@@ -1,3 +1,30 @@
+//
+// Package uboot manages process startup, setting up logging, signal handling,
+// and loading of components through golum and uconfig.
+//
+// This works well for processes with minimal command line flags, and
+// behavior defined by YAML config (see uconfig) (see golum).
+//
+//     func main() {
+//         _, err := uboot.SimpleBoot()
+//         if err != nil {
+//             ulog.Fatalf(..., err)
+//         }
+//
+//         ...
+//
+//         uexit.SimpleSignalHandling()
+//     }
+//
+// From the command line, it is possible to see what components are supported:
+//
+//     program -show all
+//     program -show [component]
+//
+// To run program:
+//
+//     program -config config.yml -log [stdout|logfile]
+//
 package uboot
 
 import (
