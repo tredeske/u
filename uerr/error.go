@@ -86,29 +86,38 @@ func Chainf(cause error, format string, args ...interface{}) *UError {
 //
 // create a specific type of error from an existing cause
 //
+// 'as' must be typed as follows:
+//
 //     type MyError struct {
 //         uerr.UError
 //     }
 //     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
 //
-func Recast(novel, cause error, format string, args ...interface{}) error {
-	return RecastCode(novel, cause, 0, format, args...)
+func Recast(as, cause error, format string, args ...interface{}) error {
+	return RecastCode(as, cause, 0, format, args...)
 }
 
 //
 // create a specific type of error from an existing cause, with error code
 //
+// 'as' must be typed as follows:
+//
+//     type MyError struct {
+//         uerr.UError
+//     }
+//     err := uerr.NovelCode(&MyError{}, cause, 5, "my message about %s", "this")
+//
 func RecastCode(
-	novel, cause error,
+	as, cause error,
 	code int,
 	format string, args ...interface{},
 ) error {
-	chainable, ok := novel.(chainable)
+	chainable, ok := as.(chainable)
 	if !ok {
 		return Chainf(cause, "UNCHAINABLE ERROR: "+format, args...)
 	}
 	chainable.Chainf(cause, format, args...).SetCode(code)
-	return novel
+	return as
 }
 
 //
