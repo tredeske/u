@@ -56,7 +56,7 @@ func TestMixin(t *testing.T) {
 	cause := errors.New("a cause")
 
 	var err error
-	err = NovelCode(&MyError{}, cause, 5, "errors are fun")
+	err = RecastCode(&MyError{}, cause, 5, "errors are fun")
 
 	if !errors.Is(err, cause) {
 		t.Fatalf("errors.Is does not match!")

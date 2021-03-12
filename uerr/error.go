@@ -18,12 +18,12 @@
 //     }
 //     var cause error
 //
-//     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
+//     err := uerr.Recast(&MyError{}, cause, "my message about %s", "this")
 //
 //     - or, to add an error code -
 //
 //     var code int
-//     err := uerr.NovelCode(&MyError{}, cause, code, "my message about %s", "this")
+//     err := uerr.RecastCode(&MyError{}, cause, code, "my message")
 //
 // You can also use directly:
 //
@@ -91,14 +91,14 @@ func Chainf(cause error, format string, args ...interface{}) *UError {
 //     }
 //     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
 //
-func Novel(novel, cause error, format string, args ...interface{}) error {
-	return NovelCode(novel, cause, 0, format, args...)
+func Recast(novel, cause error, format string, args ...interface{}) error {
+	return RecastCode(novel, cause, 0, format, args...)
 }
 
 //
 // create a specific type of error from an existing cause, with error code
 //
-func NovelCode(
+func RecastCode(
 	novel, cause error,
 	code int,
 	format string, args ...interface{},
@@ -135,15 +135,24 @@ func (this *UError) Chainf(
 		cause = nil
 	}
 	this.Cause = cause
+
+	var causeMsg string
+	if nil != cause {
+		causeMsg = cause.Error()
+		if 0 == len(causeMsg) {
+			causeMsg = fmt.Sprintf("%T", cause)
+		}
+	}
+
 	if 0 != len(format) {
 		msg := fmt.Sprintf(format, args...)
 		if nil == cause {
 			this.Message = msg
 		} else {
-			this.Message = msg + ", caused by: " + cause.Error()
+			this.Message = msg + ", caused by: " + causeMsg
 		}
 	} else if nil != cause {
-		this.Message = cause.Error()
+		this.Message = causeMsg
 	}
 	return this
 }
