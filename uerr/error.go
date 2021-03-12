@@ -6,11 +6,12 @@
 //     var cause error
 //     err := uerr.Chainf(cause, "Nasty problem %d", 5)
 //
-//     -or-
+//     - or, to add an error code -
 //
 //     err := uerr.Chainf(cause, "Nasty problem %d", 5).SetCode(5)
 //
-// Or, you can make your own types based on it:
+// Or, you can make your own types based on it
+// (to enable distinguishment with errors.Is / errors.As):
 //
 //     type MyError struct {
 //         uerr.UError
@@ -19,7 +20,7 @@
 //
 //     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
 //
-//     -or-
+//     - or, to add an error code -
 //
 //     var code int
 //     err := uerr.NovelCode(&MyError{}, cause, code, "my message about %s", "this")
@@ -27,7 +28,13 @@
 // You can also use directly:
 //
 //     var err error
-//     err = &uerr.UError{Message: fmt.Sprintf(format, ...), Code: code}
+//     err = &uerr.UError{
+//         Message: fmt.Sprintf(format, ...),
+//         Code: code,
+//     }
+//     err = &uerr.UError{}.
+//         Chainf(cause, format, ...).
+//         SetCode(code)
 //
 package uerr
 
@@ -59,6 +66,8 @@ func (this *UError) Error() string {
 }
 
 //
+// get cause of this error.
+//
 // support errors.Is() and errors.As().
 //
 // implement errors.Unwrap interface
@@ -89,7 +98,11 @@ func Novel(novel, cause error, format string, args ...interface{}) error {
 //
 // create a specific type of error from an existing cause, with error code
 //
-func NovelCode(novel, cause error, code int, format string, args ...interface{}) error {
+func NovelCode(
+	novel, cause error,
+	code int,
+	format string, args ...interface{},
+) error {
 	chainable, ok := novel.(chainable)
 	if !ok {
 		return Chainf(cause, "UNCHAINABLE ERROR: "+format, args...)
@@ -110,7 +123,14 @@ func (this *UError) SetCode(code int) *UError {
 	return this
 }
 
-func (this *UError) Chainf(cause error, format string, args ...interface{}) *UError {
+//
+// set the cause (if non-nil) and message of this error
+//
+func (this *UError) Chainf(
+	cause error,
+	format string, args ...interface{},
+) *UError {
+
 	if IsNil(cause) {
 		cause = nil
 	}
@@ -154,12 +174,11 @@ func CausedBy(err, causedBy error) bool {
 }
 
 //
-// walk the error cause chain and run matchF until it returns true or we
-// get to the root cause
+// Does any error in the chain match criteria?
 //
-func CauseMatches(err error, matchF func(err error) bool) bool {
+func CauseMatches(err error, criteria func(err error) bool) bool {
 	for {
-		if matchF(err) {
+		if criteria(err) {
 			return true
 		}
 		err = errors.Unwrap(err)
@@ -172,7 +191,7 @@ func CauseMatches(err error, matchF func(err error) bool) bool {
 //
 // Does any error in the chain have an Error string containing match?
 //
-func CauseMatchesString(err error, match string) (rv bool) {
+func CauseMatchesString(err error, match string) bool {
 	return CauseMatches(err,
 		func(err error) bool {
 			return strings.Contains(err.Error(), match)
