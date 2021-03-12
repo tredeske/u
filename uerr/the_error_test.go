@@ -48,3 +48,39 @@ func TestError(t *testing.T) {
 		t.Fatal("no match!")
 	}
 }
+
+func TestMixin(t *testing.T) {
+	type MyError struct {
+		UError
+	}
+	cause := errors.New("a cause")
+
+	var err error
+	err = NovelCode(&MyError{}, cause, 5, "errors are fun")
+
+	if !errors.Is(err, cause) {
+		t.Fatalf("errors.Is does not match!")
+	}
+
+	_ = error(err)
+
+	_, isError := err.(error)
+	if !isError {
+		t.Fatalf("Not an error!")
+	}
+
+	_, isUError := err.(chainable)
+	if !isUError {
+		t.Fatalf("Not an UError!")
+	}
+
+	_, isCorrectError := err.(*MyError)
+	if !isCorrectError {
+		t.Fatalf("Not correct kind of error")
+	}
+
+	var myError *MyError
+	if !errors.As(err, &myError) {
+		t.Fatalf("errors.As does not match!")
+	}
+}

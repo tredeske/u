@@ -1,176 +1,176 @@
-package uerr
-
-import (
-	"fmt"
-	"strings"
-)
-
 //
-// Enables chaining errors
+// Package uerr enables chaining errors and has some error related utilities.
 //
-// You can use directly:
+// To chain an error:
 //
-//     return &u.Error{Message: fmt.Sprintf(format, ...), Code: code}
-// -or-
-//     err error
-//     return u.Errorcf{code, err, format, ...)}
-// -or-
-//     *Error err
-//     err.Chainf( "some additional %s", "information" )
-//     return err
+//     var cause error
+//     err := uerr.Chainf(cause, "Nasty problem %d", 5)
+//
+//     -or-
+//
+//     err := uerr.Chainf(cause, "Nasty problem %d", 5).SetCode(5)
 //
 // Or, you can make your own types based on it:
 //
-//     type struct MyError { u.Error }
+//     type MyError struct {
+//         uerr.UError
+//     }
+//     var cause error
 //
-// then:
+//     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
 //
-//     (&MyError{}).Fillcf( code, err, format, ... )
-//   ...
+//     -or-
 //
-type Error struct {
+//     var code int
+//     err := uerr.NovelCode(&MyError{}, cause, code, "my message about %s", "this")
+//
+// You can also use directly:
+//
+//     var err error
+//     err = &uerr.UError{Message: fmt.Sprintf(format, ...), Code: code}
+//
+package uerr
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+)
+
+type UError struct {
 	Message string
 	Code    int
 	Cause   error
-	Also    error
+}
+
+type chainable interface {
+	Chainf(cause error, format string, args ...interface{}) *UError
+	SetCode(code int) *UError
 }
 
 //
+// get string error message.
+//
 // implement error interface
 //
-func (this Error) Error() string {
+func (this *UError) Error() string {
 	return this.Message
 }
 
 //
+// support errors.Is() and errors.As().
+//
 // implement errors.Unwrap interface
 //
-func (this Error) Unwrap() error {
+func (this *UError) Unwrap() error {
 	return this.Cause
-}
-
-/*
-func Errorcf(code int, err error, format string, args ...interface{}) *Error {
-	this := &Error{Message: err.Error(), Code: code, Cause: err}
-	return this.Chainf(format, args...)
-}
-*/
-
-//
-// create a new error based on marker and cause, adding additional info
-//
-// this is useful if an error occurs (cause) and you want to mark the error
-// as being of a certain type (marker)
-//
-func ChainMarkf(cause, marker error, format string, args ...interface{}) *Error {
-	if nil == cause {
-		return Chainf(marker, format, args...)
-	}
-	this := &Error{
-		Cause:   cause,
-		Also:    marker,
-		Message: cause.Error(),
-	}
-	this.Chainf(marker.Error())
-	return this.Chainf(format, args...)
 }
 
 //
 // create a new error based on cause, adding additional info
 //
-func Chainf(cause error, format string, args ...interface{}) *Error {
-	this := &Error{Cause: cause}
-	if nil != cause {
-		this.Message = cause.Error()
+func Chainf(cause error, format string, args ...interface{}) *UError {
+	return (&UError{}).Chainf(cause, format, args...)
+}
+
+//
+// create a specific type of error from an existing cause
+//
+//     type MyError struct {
+//         uerr.UError
+//     }
+//     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
+//
+func Novel(novel, cause error, format string, args ...interface{}) error {
+	return NovelCode(novel, cause, 0, format, args...)
+}
+
+//
+// create a specific type of error from an existing cause, with error code
+//
+func NovelCode(novel, cause error, code int, format string, args ...interface{}) error {
+	chainable, ok := novel.(chainable)
+	if !ok {
+		return Chainf(cause, "UNCHAINABLE ERROR: "+format, args...)
 	}
-	return this.Chainf(format, args...)
+	chainable.Chainf(cause, format, args...).SetCode(code)
+	return novel
 }
 
-/*
-func (this *Error) Fillcf(code int, err error, format string, args ...interface{}) *Error {
-	this.Message = err.Error()
-	return this.Chainf(format, args...)
+//
+// is the error really nil?
+//
+func IsNil(err error) bool {
+	return err == nil || reflect.ValueOf(err).IsNil()
 }
-*/
 
-func (this *Error) SetCode(code int) *Error {
+func (this *UError) SetCode(code int) *UError {
 	this.Code = code
 	return this
 }
 
-func (this *Error) Chainf(format string, args ...interface{}) *Error {
+func (this *UError) Chainf(cause error, format string, args ...interface{}) *UError {
+	if IsNil(cause) {
+		cause = nil
+	}
+	this.Cause = cause
 	if 0 != len(format) {
 		msg := fmt.Sprintf(format, args...)
-		if 0 == len(this.Message) {
+		if nil == cause {
 			this.Message = msg
 		} else {
-			this.Message = msg + ", caused by: " + this.Message
+			this.Message = msg + ", caused by: " + cause.Error()
 		}
+	} else if nil != cause {
+		this.Message = cause.Error()
 	}
 	return this
 }
 
 //
-// is the specified error in the the causal chain of errors?
+// is causedBy in the the causal chain of errors?
 //
-func (this *Error) CausedBy(err error) (rv bool) {
-	if nil == err {
+// this method predates errors.Is - prefer errors.Is
+//
+func (this *UError) CausedBy(causedBy error) (rv bool) {
+	if IsNil(causedBy) {
 		rv = false
-	} else if err == this || err == this.Cause || err == this.Also {
+	} else if causedBy == this || causedBy == this.Cause {
 		rv = true
 	} else if nil != this.Cause {
-		if eerror, ok := this.Cause.(*Error); ok {
-			rv = eerror.CausedBy(err)
-		}
+		rv = errors.Is(this.Cause, causedBy)
 	}
 	return
 }
 
 //
+// deprecated - use errors.Is or errors.As
+//
 // is the one error caused by the other?
 //
-func CausedBy(err, causedBy error) (rv bool) {
-	if err == causedBy {
-		rv = true
-	} else if nil != err && nil != causedBy {
-		eerror, isUerrError := err.(*Error)
-		if isUerrError {
-			rv = eerror.CausedBy(causedBy)
-		}
-	}
-	return
+func CausedBy(err, causedBy error) bool {
+	return errors.Is(err, causedBy)
 }
 
 //
 // walk the error cause chain and run matchF until it returns true or we
 // get to the root cause
 //
-func CauseMatches(err error, matchF func(err error) bool) (rv bool) {
+func CauseMatches(err error, matchF func(err error) bool) bool {
 	for {
-		rv = matchF(err)
-		if rv || nil == err {
-			break
+		if matchF(err) {
+			return true
 		}
-		eerror, isUerrError := err.(*Error)
-		if !isUerrError {
-			break
-		}
-		if nil != eerror.Also {
-			rv = matchF(eerror.Also)
-			if rv {
-				break
-			}
-		}
-		err = eerror.Cause
+		err = errors.Unwrap(err)
 		if nil == err {
-			break
+			return false
 		}
 	}
-	return
 }
 
 //
-//
+// Does any error in the chain have an Error string containing match?
 //
 func CauseMatchesString(err error, match string) (rv bool) {
 	return CauseMatches(err,
