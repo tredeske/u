@@ -51,9 +51,13 @@ type UError struct {
 	Cause   error
 }
 
-type chainable interface {
+type chainable_ interface {
 	Chainf(cause error, format string, args ...interface{}) *UError
 	SetCode(code int) *UError
+}
+
+type codeAware_ interface {
+	GetCode() int
 }
 
 //
@@ -112,7 +116,7 @@ func RecastCode(
 	code int,
 	format string, args ...interface{},
 ) error {
-	chainable, ok := as.(chainable)
+	chainable, ok := as.(chainable_)
 	if !ok {
 		return Chainf(cause, "UNCHAINABLE ERROR: "+format, args...)
 	}
@@ -130,6 +134,31 @@ func IsNil(err error) bool {
 func (this *UError) SetCode(code int) *UError {
 	this.Code = code
 	return this
+}
+
+// impl chainAware_
+func (this *UError) GetCode() (code int) {
+	return this.Code
+}
+
+//
+// If a non-zero code is set in the error chain, return it
+//
+func GetCode(err error) (code int, found bool) {
+	for {
+		codeAware, ok := err.(codeAware_)
+		if ok {
+			code = codeAware.GetCode()
+			if 0 != code {
+				found = true
+				return
+			}
+		}
+		err = errors.Unwrap(err)
+		if nil == err {
+			return
+		}
+	}
 }
 
 //

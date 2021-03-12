@@ -49,6 +49,27 @@ func TestError(t *testing.T) {
 	}
 }
 
+func TestCode(t *testing.T) {
+	const CODE = 2
+	cause := errors.New("cause")
+	chained := Chainf(cause, "chain").SetCode(CODE)
+	again := Chainf(chained, "chain again")
+
+	code, ok := GetCode(again)
+	if !ok {
+		t.Fatalf("Could not get code")
+	} else if CODE != code {
+		t.Fatalf("Code not correct")
+	}
+
+	code, ok = GetCode(cause)
+	if ok {
+		t.Fatalf("should be no code")
+	} else if 0 != code {
+		t.Fatalf("code should be zero")
+	}
+}
+
 func TestMixin(t *testing.T) {
 	type MyError struct {
 		UError
@@ -69,7 +90,7 @@ func TestMixin(t *testing.T) {
 		t.Fatalf("Not an error!")
 	}
 
-	_, isUError := err.(chainable)
+	_, isUError := err.(chainable_)
 	if !isUError {
 		t.Fatalf("Not an UError!")
 	}
