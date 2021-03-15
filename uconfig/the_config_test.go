@@ -404,7 +404,7 @@ func TestGetInt(t *testing.T) {
 		//fmt.Printf("HERE %d\n", checker.value)
 		switch checker.value.(type) {
 		case *int, *int64, *int32, *int16, *int8:
-			err = s.GetInt(key, checker.value, validIntF, ValidRange(0, 2000000))
+			err = s.GetInt(key, checker.value, validIntF, IntRange(0, 2000000))
 		default:
 			err = s.GetUInt(key, checker.value, validUIntF)
 		}

@@ -20,7 +20,7 @@ var (
 )
 
 // return a range validator for GetInt
-func ValidRange(min, max int64) IntValidator {
+func IntRange(min, max int64) IntValidator {
 	return func(v int64) (err error) {
 		if v < min {
 			err = fmt.Errorf("value (%d) less than min (%d)", v, min)
@@ -32,7 +32,7 @@ func ValidRange(min, max int64) IntValidator {
 }
 
 // return a range validator for GetUInt
-func ValidUIntRange(min, max uint64) UIntValidator {
+func UIntRange(min, max uint64) UIntValidator {
 	return func(v uint64) (err error) {
 		if v < min {
 			err = fmt.Errorf("value (%d) less than min (%d)", v, min)
@@ -44,7 +44,7 @@ func ValidUIntRange(min, max uint64) UIntValidator {
 }
 
 // return a validator to error if v is not positive
-func MustBePos() IntValidator {
+func IntPos() IntValidator {
 	return func(v int64) (err error) {
 		if v <= 0 {
 			err = fmt.Errorf("int is not positive (is %d)", v)
@@ -54,7 +54,7 @@ func MustBePos() IntValidator {
 }
 
 // return a validator to error if v is negative
-func MustBeNonNeg() IntValidator {
+func IntNonNeg() IntValidator {
 	return func(v int64) (err error) {
 		if v < 0 {
 			err = fmt.Errorf("int is not positive (is %d)", v)
