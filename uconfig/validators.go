@@ -43,36 +43,44 @@ func ValidUIntRange(min, max uint64) UIntValidator {
 	}
 }
 
-// validator to error if v is not positive
-var MustBePos = func(v int64) (err error) {
-	if v <= 0 {
-		err = fmt.Errorf("int is not positive (is %d)", v)
+// return a validator to error if v is not positive
+func MustBePos() IntValidator {
+	return func(v int64) (err error) {
+		if v <= 0 {
+			err = fmt.Errorf("int is not positive (is %d)", v)
+		}
+		return
 	}
-	return
 }
 
-// validator to error if v is negative
-var MustBeNonNeg = func(v int64) (err error) {
-	if v < 0 {
-		err = fmt.Errorf("int is not positive (is %d)", v)
+// return a validator to error if v is negative
+func MustBeNonNeg() IntValidator {
+	return func(v int64) (err error) {
+		if v < 0 {
+			err = fmt.Errorf("int is not positive (is %d)", v)
+		}
+		return
 	}
-	return
 }
 
 // a StringValidator to verify string blank
-func StringBlank(v string) (err error) {
-	if 0 != len(v) {
-		err = ErrStringNotBlank
+func StringBlank() StringValidator {
+	return func(v string) (err error) {
+		if 0 != len(v) {
+			err = ErrStringNotBlank
+		}
+		return
 	}
-	return
 }
 
 // a StringValidator to verify string not blank
-func StringNotBlank(v string) (err error) {
-	if 0 == len(v) {
-		err = ErrStringBlank
+func StringNotBlank() StringValidator {
+	return func(v string) (err error) {
+		if 0 == len(v) {
+			err = ErrStringBlank
+		}
+		return
 	}
-	return
 }
 
 // either one or other must be true

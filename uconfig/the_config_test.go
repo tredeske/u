@@ -224,7 +224,7 @@ func TestGetString(t *testing.T) {
 	for k, _ := range success {
 		result := ""
 		err = s.Chain().
-			GetString(k, &result, StringNotBlank).
+			GetString(k, &result, StringNotBlank()).
 			Error
 		if err != nil {
 			t.Fatalf("Unable to get string: %s", err)
@@ -243,7 +243,7 @@ func TestGetString(t *testing.T) {
 
 	result = ""
 	err = s.GetString("string", &result,
-		StringAnd(StringNotBlank, StringOneOf("stringV")))
+		StringAnd(StringNotBlank(), StringOneOf("stringV")))
 	if err != nil {
 		t.Fatalf("Unable to get string with AND validation: %s", err)
 	} else if 0 == len(result) {
@@ -252,7 +252,7 @@ func TestGetString(t *testing.T) {
 
 	result = ""
 	err = s.GetString("string", &result,
-		StringOr(StringBlank, StringOneOf("stringV")))
+		StringOr(StringBlank(), StringOneOf("stringV")))
 	if err != nil {
 		t.Fatalf("Unable to get string with OR validation: %s", err)
 	} else if 0 == len(result) {
@@ -292,7 +292,7 @@ func TestGetStringFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := ""
-	err = s.GetString("blank", &result, StringNotBlank)
+	err = s.GetString("blank", &result, StringNotBlank())
 	if nil == err {
 		t.Fatalf("Should be blank")
 	} else if 0 != len(result) {

@@ -46,7 +46,7 @@ func (this *thing_) Reload(
 	rv = g
 
 	err = config.Chain().
-		GetString("a", &g.a, uconfig.StringNotBlank).
+		GetString("a", &g.a, uconfig.StringNotBlank()).
 		GetString("b", &g.b).
 		GetInt("i", &g.i).
 		GetInt("g.j", &g.j).

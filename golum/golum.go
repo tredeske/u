@@ -318,9 +318,9 @@ func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 	}
 	err = config.Chain().
 		WarnExtraKeys("name", "type", "disabled", "config", "hosts", "note").
-		GetString("name", &g.name, uconfig.StringNotBlank).
+		GetString("name", &g.name, uconfig.StringNotBlank()).
 		Then(func() { config.NameContext(g.name) }).
-		GetString("type", &manager, uconfig.StringNotBlank).
+		GetString("type", &manager, uconfig.StringNotBlank()).
 		GetBool("disabled", &g.disabled).
 		GetStrings("hosts", &g.hosts).
 		GetSection("config", &g.config).

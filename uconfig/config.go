@@ -1115,7 +1115,7 @@ func (this *Section) GetValidInt(
 // same as GetInt, but error if result <= 0
 func (this *Section) GetPosInt(key string, result *int) (err error) {
 
-	return this.GetInt(key, result, MustBePos)
+	return this.GetInt(key, result, MustBePos())
 }
 
 // if found, parse into []string and update val
