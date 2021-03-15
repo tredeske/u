@@ -25,6 +25,10 @@
 //     var code int
 //     err := uerr.RecastCode(&MyError{}, cause, code, "my message")
 //
+//     - or, if not chaining from a cause -
+//
+//     err := uerr.Cast(&MyError{}, "my message")
+//
 // You can also use directly:
 //
 //     var err error
@@ -87,6 +91,21 @@ func Chainf(cause error, format string, args ...interface{}) *UError {
 	return (&UError{}).Chainf(cause, format, args...)
 }
 
+//
+// create a specific type of error
+//
+// 'as' must be typed as follows:
+//
+//     type MyError struct {
+//         uerr.UError
+//     }
+//     err := uerr.Novel(&MyError{}, "my message about %s", "this")
+//
+func Cast(as error, format string, args ...interface{}) error {
+	return RecastCode(as, nil, 0, format, args...)
+}
+
+//
 //
 // create a specific type of error from an existing cause
 //
