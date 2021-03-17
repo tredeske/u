@@ -3,6 +3,7 @@ package uinit
 import (
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
+	"github.com/tredeske/u/ustrings"
 )
 
 func InitDebug(config *uconfig.Section) (err error) {
@@ -14,18 +15,19 @@ func InitDebug(config *uconfig.Section) (err error) {
 	if err != nil {
 		return
 	}
-	for _, item := range enable {
-		if "all" == item {
-			ulog.DebugEnabled = true
-		} else {
-			ulog.DebugEnabledFor[item] = true
+
+	if ustrings.Contains(enable, "all") {
+		ulog.DebugEnabled = true
+	} else {
+		for _, item := range enable {
+			ulog.SetDebugEnabledFor(item)
 		}
 	}
-	for _, item := range disable {
-		if "all" == item {
-			ulog.DebugEnabled = false
-		} else {
-			ulog.DebugDisabledFor[item] = true
+	if ustrings.Contains(disable, "all") {
+		ulog.DebugEnabled = false
+	} else {
+		for _, item := range disable {
+			ulog.SetDebugDisabledFor(item)
 		}
 	}
 	return

@@ -2,13 +2,10 @@ package usync
 
 import (
 	"math"
-	"reflect"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/cornelk/hashmap"
-	"github.com/dchest/siphash"
 )
 
 const (
@@ -19,6 +16,9 @@ const (
 
 //
 // Least Recently Used (LRU) eviction map
+//
+// Lookup is by unique hash, which can be computed with HashString, HashBytes,
+// or by using one of he convenience accessors.
 //
 type LruMap struct {
 	m        *hashmap.HashMap
@@ -38,21 +38,6 @@ type lruv_ struct {
 	used  int64
 }
 
-func HashBytes(b []byte) uintptr {
-	return uintptr(siphash.Hash(sipHashKey1_, sipHashKey2_, b))
-}
-
-func HashString(s string) uintptr {
-	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bh := reflect.SliceHeader{
-		Data: sh.Data,
-		Len:  sh.Len,
-		Cap:  sh.Len,
-	}
-	buf := *(*[]byte)(unsafe.Pointer(&bh))
-	return uintptr(siphash.Hash(sipHashKey1_, sipHashKey2_, buf))
-}
-
 //
 // get the value from the map, setting ok to true if value found
 //
@@ -67,6 +52,9 @@ func (this *LruMap) GetByBytes(key []byte) (rv interface{}, ok bool) {
 	return this.GetByHash(HashBytes(key))
 }
 
+//
+// Refer to HashString or HashBytes
+//
 func (this *LruMap) GetByHash(hash uintptr) (rv interface{}, ok bool) {
 	var it interface{}
 	it, ok = this.m.GetHashedKey(hash)
@@ -128,6 +116,9 @@ func (this *LruMap) GetOrAddByBytes(
 	return this.GetOrAddByHash(HashBytes(key), add)
 }
 
+//
+// Refer to HashString or HashBytes
+//
 func (this *LruMap) GetOrAddByHash(
 	hash uintptr,
 	add func() (value interface{}),

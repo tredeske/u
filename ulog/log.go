@@ -16,6 +16,10 @@
 //     ulog.Debugf("some debug message: %s", aString)
 //     ulog.DebugfFor("party", "some debug message: %s", aString)
 //
+//     precomputedBool := ulog.IsDebugEnabledFor("party")
+//     ...
+//     ulog.DebugfIf(precomputedBool, "some debug message")
+//
 // Guard methods help detect when debug is disabled so that expensive operations
 // are not performed.
 //
@@ -24,6 +28,12 @@
 //     }
 //     if ulog.IsDebugEnabledFor("party") {
 //         ulog.DebugfFor("party", "some debug message: %s", expensive())
+//     }
+//
+//     precomputedBool := ulog.IsDebugEnabledFor("party")
+//     ...
+//     if precomputedBool {
+//         ulog.Debugf("some debug message: %s", expensive())
 //     }
 //
 // The 'For' methods indicate you are emitting a debug message 'for' a
@@ -49,7 +59,11 @@
 //         disable: ["list", "of", "components"]
 //     components:
 //
-// The special "all" string is reserved for enabling/disabling all debug.  Example:
+// The special "all" string is reserved for enabling/disabling all debug. The
+// following are equivalent since a single string will be converted to an array:
+//
+//     debug:
+//         enable: all
 //
 //     debug:
 //         enable: ["all"]
@@ -57,7 +71,7 @@
 // The following will enable all debugging, except for certain components.
 //
 //     debug:
-//         enable: ["all"]
+//         enable: all
 //         disable: ["compA", "compB"]
 //
 // The list of strings works with methods such as
