@@ -9,64 +9,49 @@ var ( // see uinit/debug.go
 )
 
 //
+// manage debug state for component
+//
+type Debug struct {
+	Enabled   bool
+	component string
+	Prefix    string
+}
+
+func NewDebug(component string) *Debug {
+	return (&Debug{}).Construct(component)
+}
+
+// construct in place
+func (this *Debug) Construct(component string) *Debug {
+	this.Enabled = IsDebugEnabledFor(component)
+	this.component = component
+	this.Prefix = "DEBUG: " + component + ": "
+	return this
+}
+
+// output a debug message for the component if it is enabled for debug
+func (this Debug) F(format string, args ...interface{}) {
+	if this.Enabled {
+		if 0 == len(args) {
+			log.Printf(this.Prefix + format)
+		} else {
+			log.Printf(this.Prefix+format, args...)
+		}
+	}
+}
+
+//
 // these are meant to be set upon program initialization, and then read-only
 // from that point on
 //
 
-func SetDebugEnabledFor(party string) {
-	debugEnabledFor_[party] = true
+func SetDebugEnabledFor(component string) {
+	debugEnabledFor_[component] = true
 }
 
-func SetDebugDisabledFor(party string) {
-	debugDisabledFor_[party] = true
+func SetDebugDisabledFor(component string) {
+	debugDisabledFor_[component] = true
 }
-
-/*
-const (
-	enableSz_  = 8
-	disableSz_ = 8
-)
-
-var en_ = enabling_{
-	enabledM:  make(map[uintptr]struct{}),
-	disabledM: make(map[uintptr]struct{}),
-}
-
-type enabling_ struct {
-	enabled   [enableSz_]uintptr
-	disabled  [disableSz_]uintptr
-	enabledM  map[uintptr]struct{}
-	disabledM map[uintptr]struct{}
-}
-
-func (this enabling_) mapDisabled(h uintptr) bool {
-	_, ok := this.disabledM[h]
-	return ok
-}
-
-func (this enabling_) mapEnabled(h uintptr) bool {
-	_, ok := this.enabledM[h]
-	return ok
-}
-
-func isEnabledFor(h uintptr) bool {
-	if DebugEnabled {
-		return 0 == en_.disabled[0] ||
-			!(en_.disabled[0] == h || en_.disabled[1] == h ||
-				en_.disabled[2] == h || en_.disabled[3] == h ||
-				en_.disabled[4] == h || en_.disabled[5] == h ||
-				en_.disabled[6] == h || en_.disabled[7] == h) ||
-			(0 != en_.disabled[7] && en_.mapDisabled(h))
-	} else {
-		return 0 != en_.enabled[0] &&
-			(en_.enabled[0] == h || en_.enabled[1] == h ||
-				en_.enabled[2] == h || en_.enabled[3] == h ||
-				en_.enabled[4] == h || en_.enabled[5] == h ||
-				en_.enabled[6] == h || en_.enabled[7] == h ||
-				(0 != en_.enabled[7] && en_.mapEnabled(h)))
-	}
-}
-*/
 
 // output a debug message if DebugEnabled
 func Debugf(format string, args ...interface{}) {
@@ -90,12 +75,12 @@ func Debugln(args ...interface{}) {
 }
 
 // output a debug message if IsDebugEnabledFor("party")
-func DebugfFor(from string, format string, args ...interface{}) {
-	if IsDebugEnabledFor(from) {
+func DebugfFor(component string, format string, args ...interface{}) {
+	if IsDebugEnabledFor(component) {
 		if 0 == len(args) {
-			log.Printf("DEBUG: %s: %s", from, format)
+			log.Printf("DEBUG: %s: %s", component, format)
 		} else {
-			log.Printf("DEBUG: "+from+": "+format, args...)
+			log.Printf("DEBUG: "+component+": "+format, args...)
 		}
 	}
 }
@@ -120,7 +105,8 @@ func IsDebugEnabled() bool {
 	return DebugEnabled
 }
 
-// is debug enabled for 'from'?
-func IsDebugEnabledFor(from string) bool {
-	return (DebugEnabled && !debugDisabledFor_[from]) || debugEnabledFor_[from]
+// is debug enabled for component?
+func IsDebugEnabledFor(component string) bool {
+	return (DebugEnabled && !debugDisabledFor_[component]) ||
+		debugEnabledFor_[component]
 }

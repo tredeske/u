@@ -20,6 +20,9 @@
 //     ...
 //     ulog.DebugfIf(precomputedBool, "some debug message")
 //
+//     debug := ulog.NewDebug("party")
+//     debug.F("some debug message")
+//
 // Guard methods help detect when debug is disabled so that expensive operations
 // are not performed.
 //
