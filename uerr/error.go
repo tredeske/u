@@ -45,7 +45,6 @@ package uerr
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 )
 
@@ -143,13 +142,6 @@ func RecastCode(
 	return as
 }
 
-//
-// is the error really nil?
-//
-func IsNil(err error) bool {
-	return err == nil || reflect.ValueOf(err).IsNil()
-}
-
 func (this *UError) SetCode(code int) *UError {
 	this.Code = code
 	return this
@@ -188,9 +180,6 @@ func (this *UError) Chainf(
 	format string, args ...interface{},
 ) *UError {
 
-	if IsNil(cause) {
-		cause = nil
-	}
 	this.Cause = cause
 
 	var causeMsg string
@@ -220,7 +209,7 @@ func (this *UError) Chainf(
 // this method predates errors.Is - prefer errors.Is
 //
 func (this *UError) CausedBy(causedBy error) (rv bool) {
-	if IsNil(causedBy) {
+	if nil == causedBy {
 		rv = false
 	} else if causedBy == this || causedBy == this.Cause {
 		rv = true
