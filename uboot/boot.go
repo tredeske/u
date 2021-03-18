@@ -44,7 +44,6 @@ import (
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uinit"
-	"github.com/tredeske/u/uio"
 	"github.com/tredeske/u/ulog"
 )
 
@@ -68,12 +67,12 @@ func SimpleBoot() (rv Boot, err error) {
 // Control process boot
 //
 type Boot struct {
-	Name     string           // what program calls itself
-	InstallD string           // where program is installed
-	ConfigF  string           // abs path to config file
-	LogF     string           // path to log file, or empty/"stdout"
-	StdoutF  string           // path to stdout file, or empty/"stdout" for stdout
-	Config   *uconfig.Section // the loaded config
+	Name     string // what program calls itself
+	InstallD string // where program is installed
+	ConfigF  string // abs path to config file
+	LogF     string // path to log file, or empty/"stdout"
+	//StdoutF  string           // path to stdout file, or empty/"stdout" for stdout
+	Config *uconfig.Section // the loaded config
 
 	//
 	// set by build system.  examples:
@@ -181,17 +180,9 @@ func (this *Boot) Boot() (err error) {
 	// if we're running in 'go test' or if cmdline says so, then output to stdout
 	//
 	if "stdout" == this.LogF || Testing {
-		ulog.UseStdout = true
-		this.StdoutF = "stdout"
-	} else if 0 != len(this.LogF) {
-		this.LogF, err = filepath.Abs(this.LogF)
-		if err != nil {
-			return
-		}
-		ulog.Dir = filepath.Dir(this.LogF)
-	} else {
-		ulog.Dir = path.Join(this.InstallD, "log")
-		this.LogF = path.Join(ulog.Dir, this.Name+".log")
+		this.LogF = "stdout"
+	} else if 0 == len(this.LogF) {
+		this.LogF = path.Join(this.InstallD, "log", this.Name+".log")
 	}
 
 	/*
@@ -233,47 +224,48 @@ func (this *Boot) Redirect(maxSz int64) (err error) {
 	//
 	// ulog
 	//
-	ulog.Init(this.LogF, maxSz)
+	err = ulog.Init(this.LogF, maxSz)
+	if err != nil {
+		return
+	}
 
 	//
 	// redirect stdout, stderr to file, if necessary
 	//
 
-	if 0 == len(this.StdoutF) {
-		if ulog.UseStdout {
-			this.StdoutF = "stdout"
-		} else {
-			this.StdoutF = this.Name + ".stdout"
-		}
-	}
-
-	if "stdout" != this.StdoutF {
+	if "stdout" != this.LogF {
 
 		if maxSz <= 0 {
 			maxSz = 40 * 1024 * 1024
 		}
-
-		this.StdoutF = ulog.GetLogName(this.StdoutF)
-		stdoutD := path.Dir(this.StdoutF)
-		if !uio.FileExists(stdoutD) {
-			if err = os.MkdirAll(stdoutD, 02775); err != nil {
-				return uerr.Chainf(err, "problem creating %s", stdoutD)
-			}
-		}
-
-		fi, err := os.Stat(this.StdoutF)
-		if err == nil && fi.Size() > int64(maxSz) {
-			dst := this.StdoutF + ".last"
-			os.Remove(dst)
-			os.Rename(this.StdoutF, dst)
-		}
-		fd, err := syscall.Open(this.StdoutF,
-			syscall.O_WRONLY|syscall.O_APPEND|syscall.O_CREAT, 0664)
+		var absLogF string
+		absLogF, err = filepath.Abs(this.LogF)
 		if err != nil {
-			return err
-		} else if err = syscall.Dup2(fd, 1); err != nil {
-			return err
-		} else if err = syscall.Dup2(fd, 2); err != nil {
+			return
+		}
+		dir := filepath.Dir(absLogF)
+		stdoutF := path.Join(dir, this.Name+".stdout")
+
+		var w *ulog.WriteManager
+		w, err = ulog.NewWriteManager(stdoutF, maxSz)
+		if err != nil {
+			return
+		}
+
+		pipes := [2]int{}
+		err = syscall.Pipe(pipes[:])
+		if err != nil {
+			return uerr.Chainf(err, "problem creating stdout pipe")
+		}
+
+		go stdouter(pipes[0], w)
+
+		err = syscall.Dup2(pipes[1], 1)
+		if err != nil {
+			return
+		}
+		err = syscall.Dup2(pipes[1], 2)
+		if err != nil {
 			return err
 		}
 		// add a marker to the stdout so we can triage panics
@@ -295,6 +287,34 @@ Starting
 `, this.Name, this.Version, this.InstallD, this.ConfigF)
 
 	return nil
+}
+
+//
+// output stdout / stderr to a managed file
+//
+func stdouter(fd int, w *ulog.WriteManager) {
+	buff := make([]byte, 4096)
+	_ = buff[4095] // bounds check elimination
+	var nread, nwrote, pos int
+	var err error
+	for {
+		nread, err = syscall.Read(fd, buff)
+		if err != nil {
+			ulog.Fatalf("stdout writer read failed: %T, %s", err, err)
+		} else if 0 == nread {
+			continue
+		}
+		pos = 0
+	again:
+		nwrote, err = w.Write(buff[pos:nread])
+		if err != nil {
+			ulog.Fatalf("stdout writer write failed: %T, %s", err, err)
+		}
+		pos += nwrote
+		if pos != nread {
+			goto again
+		}
+	}
 }
 
 //
@@ -359,7 +379,7 @@ func (this *Boot) Configure(
 					return false
 				}
 
-				config.AddProp("logDir", ulog.Dir)
+				//config.AddProp("logDir", ulog.Dir)
 				config.AddProp("name", this.Name)
 				var gconfig *uconfig.Array
 				err = config.GetArray(cspec, &gconfig)
@@ -398,7 +418,7 @@ func (this *Boot) loadComponents(
 
 	// generic component load
 	//
-	config.AddProp("logDir", ulog.Dir)
+	//config.AddProp("logDir", ulog.Dir)
 	config.AddProp("name", this.Name)
 	var gconfig *uconfig.Array
 	err = config.GetArray(cspec, &gconfig)

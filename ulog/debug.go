@@ -1,6 +1,9 @@
 package ulog
 
-import "log"
+import (
+	"encoding/hex"
+	"log"
+)
 
 var ( // see uinit/debug.go
 	DebugEnabled      = false                 // turn on all debug
@@ -38,6 +41,35 @@ func (this Debug) F(format string, args ...interface{}) {
 			log.Printf(this.Prefix+format, args...)
 		}
 	}
+}
+
+//
+// output a hex dump as part of a message, preventing its creation if not enabled.
+//
+//     var d Debug
+//     var b []byte
+//     d.F("hex dump:\n%s", d.Dump(b))
+//
+func (this Debug) Dump(b []byte) string {
+	if this.Enabled {
+		return hex.Dump(b)
+	}
+	return ""
+}
+
+//
+// output a hex dump as part of a message, preventing its creation if not enabled.
+//
+//     enableDump := true
+//     var d Debug
+//     var b []byte
+//     d.F("hex dump:\n%s", d.DumpIf(enableDump, b))
+//
+func (this Debug) DumpIf(on bool, b []byte) string {
+	if on && this.Enabled {
+		return hex.Dump(b)
+	}
+	return "[dump disabled]"
 }
 
 //

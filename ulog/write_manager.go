@@ -22,12 +22,17 @@ type WriteManager struct {
 //
 // create a new writer to manage a log file, with max bytes per log file
 //
-func NewWriteManager(file string, max int64) (*WriteManager, error) {
-	rv := &WriteManager{
-		name: file,
+func NewWriteManager(file string, max int64) (rv *WriteManager, err error) {
+	absFile, err := filepath.Abs(file)
+	if err != nil {
+		return
+	}
+	rv = &WriteManager{
+		name: absFile,
 		max:  max,
 	}
-	return rv, rv.next()
+	err = rv.next()
+	return
 }
 
 //
@@ -43,6 +48,8 @@ func (this *WriteManager) Close() error {
 	}
 	return nil
 }
+
+func (this *WriteManager) Dir() string { return filepath.Dir(this.name) }
 
 //
 // implement io.Writer

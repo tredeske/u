@@ -9,6 +9,14 @@
 //  * Error - an important feature has failed and cannot make progress
 //  * Fatal - log message and exit program
 //
+//
+// Standard log:
+//
+// The Init() method configures the default golang logger, too, so using
+// the golang standard log package works just fine alongside this.  uboot
+// calls this automatically.
+//
+//
 // Debug:
 //
 // Various debug methods are provided.

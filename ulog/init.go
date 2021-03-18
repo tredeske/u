@@ -4,30 +4,19 @@ import (
 	"io"
 	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 )
 
 var (
-	//
-	// the output to use for logging
-	// may be set by uboot
-	//
-	W io.Writer = os.Stdout
-
-	//
-	// Can't get at the default log.Logger, so this wraps W
-	//
-	L *log.Logger
 
 	//
 	// file location where log files go
-	// may be set by uboot
 	//
-	Dir = ""
+	dir_ = ""
 
-	UseStdout = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
+	testing_ = strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
+	stdout_  = true
 
 	maxSz_ = int64(40 * 1024 * 1024)
 )
@@ -35,52 +24,41 @@ var (
 //
 // Get name of log file to use, or 'stdout'
 //
-func GetLogName(base string) (rv string) {
+// This name is based on what was set in Init, so if stdout was configured
+// there, then the output will be to stdout.
+//
+func getLogName(base string) (rv string) {
 
-	if UseStdout {
+	if testing_ || stdout_ || 0 == len(base) || "stdout" == base {
 		rv = "stdout"
-
-	} else if 0 == len(base) {
-		rv = filepath.Base(os.Args[0]) + ".log"
-		if 0 != len(Dir) {
-			rv = filepath.Join(Dir, rv)
-		}
 
 	} else if strings.ContainsRune(base, '/') {
 		rv = base
 
+	} else if 0 != len(dir_) {
+		rv = filepath.Join(dir_, base)
+
 	} else {
-		rv = filepath.Join(Dir, base)
+		rv = base
 	}
 	return
 }
 
 //
-// Get the named writer
+// Create a new logger based on provided info and on what was set in Init
 //
-func GetWriter(base string, maxSz int64) (name string, rv io.Writer, err error) {
-
-	if 0 >= maxSz {
-		maxSz = maxSz_
-	}
-
-	name = GetLogName(base)
-	if "stdout" == name {
-		rv = os.Stdout
-
-	} else {
-		rv, err = NewWriteManager(name, maxSz)
-	}
-	return
-}
-
-//
-//
-//
-func NewLogger(base string, maxSz int64) (name string, rv *log.Logger, err error) {
+func NewLogger(base string, maxSz int64) (rv *log.Logger, err error) {
 
 	var w io.Writer
-	name, w, err = GetWriter(base, maxSz)
+	output := getLogName(base)
+	if "stdout" == output {
+		w = os.Stdout
+	} else {
+		if 0 >= maxSz {
+			maxSz = maxSz_
+		}
+		w, err = NewWriteManager(output, maxSz)
+	}
 	if nil == err {
 		rv = log.New(w, "", log.LstdFlags)
 	}
@@ -88,8 +66,12 @@ func NewLogger(base string, maxSz int64) (name string, rv *log.Logger, err error
 }
 
 //
-// Initialize log output to go to logF.  If logF is empty, then use
-// ulog.Dir/[prog name] setting.  If that is empty, then use stdout.
+// Initialize log output (ulog and golang standard log) to go to logF.
+//
+// If logF is empty or set to 'stdout', then use stdout
+//
+// Otherwise, the log file will be written to and managed (rotated when
+// maxSz reached).
 //
 // maxSz is the maximum output file size.  if unset, we use default of 40M.
 //
@@ -97,34 +79,26 @@ func NewLogger(base string, maxSz int64) (name string, rv *log.Logger, err error
 //
 func Init(logF string, maxSz int64) (err error) {
 
-	if 0 < maxSz {
-		maxSz_ = maxSz
-	}
+	var w io.Writer
 
-	if 0 == len(logF) {
-		logF = GetLogName(logF)
-	}
+	if 0 == len(logF) || "stdout" == logF {
+		stdout_ = true
+		w = os.Stdout
 
-	if 0 != len(logF) && "stdout" != logF && !UseStdout {
-		if strings.ContainsRune(logF, '/') || 0 == len(Dir) {
-			logF, err = filepath.Abs(logF)
-			if err != nil {
-				return
-			}
-			logD := path.Dir(logF)
-			if 0 == len(Dir) {
-				Dir = logD
-			}
+	} else { // file
+		stdout_ = false
+		if 0 < maxSz {
+			maxSz_ = maxSz
 		}
-
-		_, W, err = GetWriter(logF, maxSz_)
-		if nil == err {
-			L = log.New(W, "", log.LstdFlags)
-			log.SetOutput(W)
+		var wMgr *WriteManager
+		wMgr, err = NewWriteManager(logF, maxSz_)
+		if nil != wMgr {
+			dir_ = wMgr.Dir()
+			w = wMgr
 		}
-	} else {
-		L = log.New(os.Stdout, "", log.LstdFlags)
-		UseStdout = true
+	}
+	if nil == err {
+		log.SetOutput(w)
 	}
 	return
 }
