@@ -52,7 +52,7 @@ func TestError(t *testing.T) {
 func TestCode(t *testing.T) {
 	const CODE = 2
 	cause := errors.New("cause")
-	chained := Chainf(cause, "chain").SetCode(CODE)
+	chained := ChainfCode(cause, CODE, "chain")
 	again := Chainf(chained, "chain again")
 
 	code, ok := GetCode(again)
@@ -104,4 +104,32 @@ func TestMixin(t *testing.T) {
 	if !errors.As(err, &myError) {
 		t.Fatalf("errors.As does not match!")
 	}
+}
+
+func TestNil(t *testing.T) {
+        if !IsNil(nil) {
+                t.Fatalf("IsNil fails on naked nil")
+        }
+        var err error
+        if !IsNil(err) {
+                t.Fatalf("IsNil fails on var nil")
+        }
+
+        f := func(err error) bool {
+                return IsNil(err)
+        }
+        if !f(nil) {
+                t.Fatalf("IsNil fails on func nil")
+        }
+
+        rf := func(err error) error {
+                return err
+        }
+        if !IsNil(rf(err)) {
+                t.Fatalf("IsNil fails on returned nil")
+        }
+        if !IsNil(rf(nil)) {
+                t.Fatalf("IsNil fails on returned nil")
+        }
+
 }

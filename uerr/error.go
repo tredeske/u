@@ -1,17 +1,19 @@
 //
 // Package uerr enables chaining errors and has some error related utilities.
 //
-// To chain an error:
+// To chain an error (works with errors.Is):
 //
 //     var cause error
 //     err := uerr.Chainf(cause, "Nasty problem %d", 5)
 //
 //     - or, to add an error code -
 //
-//     err := uerr.Chainf(cause, "Nasty problem %d", 5).SetCode(5)
+//     err := uerr.ChainfCode(cause, 5, "Nasty problem %d", 5)
 //
-// Or, you can make your own types based on it
-// (to enable distinguishment with errors.Is / errors.As):
+// Or, if you want different types to represent different errors, you can
+// base your own error types on Error.
+//
+// (Enables use with errors.As):
 //
 //     type MyError struct {
 //         uerr.UError
@@ -29,22 +31,12 @@
 //
 //     err := uerr.Cast(&MyError{}, "my message")
 //
-// You can also use directly:
-//
-//     var err error
-//     err = &uerr.UError{
-//         Message: fmt.Sprintf(format, ...),
-//         Code: code,
-//     }
-//     err = &uerr.UError{}.
-//         Chainf(cause, format, ...).
-//         SetCode(code)
-//
 package uerr
 
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -55,8 +47,8 @@ type UError struct {
 }
 
 type chainable_ interface {
-	Chainf(cause error, format string, args ...interface{}) *UError
-	SetCode(code int) *UError
+	chainf(cause error, format string, args ...interface{}) *UError
+	setCode(code int) *UError
 }
 
 type codeAware_ interface {
@@ -87,47 +79,60 @@ func (this *UError) Unwrap() error {
 // create a new error based on cause, adding additional info
 //
 func Chainf(cause error, format string, args ...interface{}) *UError {
-	return (&UError{}).Chainf(cause, format, args...)
+	return (&UError{}).chainf(cause, format, args...)
+}
+
+func ChainfCode(cause error, code int, format string, args ...interface{}) *UError {
+	return (&UError{}).chainf(cause, format, args...).setCode(code)
 }
 
 //
-// create a specific type of error
+// create a specific type of error denoted by as.
+//
+// if you do not need a new type, use uerr.Chainf()
 //
 // 'as' must be typed as follows:
 //
 //     type MyError struct {
 //         uerr.UError
 //     }
-//     err := uerr.Novel(&MyError{}, "my message about %s", "this")
+//     err := uerr.Cast(&MyError{}, "my message about %s", "this")
 //
 func Cast(as error, format string, args ...interface{}) error {
 	return RecastCode(as, nil, 0, format, args...)
 }
 
+func CastCode(as error, code int, format string, args ...interface{}) error {
+	return RecastCode(as, nil, code, format, args...)
+}
+
 //
+// Recast cause into a new type of error denoted by as, with error code.
 //
-// create a specific type of error from an existing cause
+// if you do not need a new type, use uerr.Chainf()
 //
 // 'as' must be typed as follows:
 //
 //     type MyError struct {
 //         uerr.UError
 //     }
-//     err := uerr.Novel(&MyError{}, cause, "my message about %s", "this")
+//     err := uerr.Recast(&MyError{}, cause, "my message about %s", "this")
 //
 func Recast(as, cause error, format string, args ...interface{}) error {
 	return RecastCode(as, cause, 0, format, args...)
 }
 
 //
-// create a specific type of error from an existing cause, with error code
+// Recast cause into a new type of error denoted by as, with error code.
+//
+// if you do not need a new type, use uerr.ChainfCode()
 //
 // 'as' must be typed as follows:
 //
 //     type MyError struct {
 //         uerr.UError
 //     }
-//     err := uerr.NovelCode(&MyError{}, cause, 5, "my message about %s", "this")
+//     err := uerr.RecastCode(&MyError{}, cause, 5, "my message about %s", "this")
 //
 func RecastCode(
 	as, cause error,
@@ -138,16 +143,16 @@ func RecastCode(
 	if !ok {
 		return Chainf(cause, "UNCHAINABLE ERROR: "+format, args...)
 	}
-	chainable.Chainf(cause, format, args...).SetCode(code)
+	chainable.chainf(cause, format, args...).setCode(code)
 	return as
 }
 
-func (this *UError) SetCode(code int) *UError {
+func (this *UError) setCode(code int) *UError {
 	this.Code = code
 	return this
 }
 
-// impl chainAware_
+// impl codeAware_
 func (this *UError) GetCode() (code int) {
 	return this.Code
 }
@@ -175,7 +180,7 @@ func GetCode(err error) (code int, found bool) {
 //
 // set the cause (if non-nil) and message of this error
 //
-func (this *UError) Chainf(
+func (this *UError) chainf(
 	cause error,
 	format string, args ...interface{},
 ) *UError {
@@ -203,6 +208,7 @@ func (this *UError) Chainf(
 	return this
 }
 
+/*
 //
 // is causedBy in the the causal chain of errors?
 //
@@ -218,6 +224,7 @@ func (this *UError) CausedBy(causedBy error) (rv bool) {
 	}
 	return
 }
+*/
 
 //
 // deprecated - use errors.Is or errors.As
@@ -251,4 +258,12 @@ func CauseMatchesString(err error, match string) bool {
 		func(err error) bool {
 			return strings.Contains(err.Error(), match)
 		})
+}
+
+func IsNil(err error) bool {
+	if nil == err {
+		return true
+	}
+	v := reflect.ValueOf(err)
+	return (!v.IsValid()) || v.IsNil()
 }
