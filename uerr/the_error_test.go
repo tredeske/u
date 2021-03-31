@@ -90,7 +90,7 @@ func TestMixin(t *testing.T) {
 		t.Fatalf("Not an error!")
 	}
 
-	_, isUError := err.(chainable_)
+	_, isUError := err.(Chainable)
 	if !isUError {
 		t.Fatalf("Not an UError!")
 	}
@@ -106,30 +106,52 @@ func TestMixin(t *testing.T) {
 	}
 }
 
+func TestPanicIfNotMixedIn(t *testing.T) {
+	defer func() {
+		x := recover()
+		if nil == x {
+			panic("should have been a panic")
+		}
+	}()
+
+	Cast(&UError{}, "this should panic")
+}
+
+func TestPanicIfReused(t *testing.T) {
+	defer func() {
+		x := recover()
+		if nil == x {
+			panic("should have been a panic")
+		}
+	}()
+
+	Cast(&UError{Message: "wow"}, "this should panic")
+}
+
 func TestNil(t *testing.T) {
-        if !IsNil(nil) {
-                t.Fatalf("IsNil fails on naked nil")
-        }
-        var err error
-        if !IsNil(err) {
-                t.Fatalf("IsNil fails on var nil")
-        }
+	if !IsNil(nil) {
+		t.Fatalf("IsNil fails on naked nil")
+	}
+	var err error
+	if !IsNil(err) {
+		t.Fatalf("IsNil fails on var nil")
+	}
 
-        f := func(err error) bool {
-                return IsNil(err)
-        }
-        if !f(nil) {
-                t.Fatalf("IsNil fails on func nil")
-        }
+	f := func(err error) bool {
+		return IsNil(err)
+	}
+	if !f(nil) {
+		t.Fatalf("IsNil fails on func nil")
+	}
 
-        rf := func(err error) error {
-                return err
-        }
-        if !IsNil(rf(err)) {
-                t.Fatalf("IsNil fails on returned nil")
-        }
-        if !IsNil(rf(nil)) {
-                t.Fatalf("IsNil fails on returned nil")
-        }
+	rf := func(err error) error {
+		return err
+	}
+	if !IsNil(rf(err)) {
+		t.Fatalf("IsNil fails on returned nil")
+	}
+	if !IsNil(rf(nil)) {
+		t.Fatalf("IsNil fails on returned nil")
+	}
 
 }

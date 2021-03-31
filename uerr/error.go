@@ -1,19 +1,38 @@
 //
 // Package uerr enables chaining errors and has some error related utilities.
 //
-// To chain an error (works with errors.Is):
+// errors.Is
 //
-//     var cause error
-//     err := uerr.Chainf(cause, "Nasty problem %d", 5)
+// errors.Is works by checking to see if an error *value* matches.  When used
+// with uerr, errors.Is will tell you if the cause in the current error chain
+// matches.
+//
+// To support errors.Is, contextual information can be added to error returns
+// as the stack is unwound.
+//
+//     var err error
+//     err = someFuncThatMayError()
+//     if err != nil {
+//         err = uerr.Chainf(cause, "Nasty problem %d", 5)
+//         return err
+//     }
 //
 //     - or, to add an error code -
 //
-//     err := uerr.ChainfCode(cause, 5, "Nasty problem %d", 5)
+//     err = uerr.ChainfCode(cause, 5, "Nasty problem %d", 5)
 //
-// Or, if you want different types to represent different errors, you can
-// base your own error types on Error.
+// The Chainf methods merely add additional contextual information to the
+// cause error.
 //
-// (Enables use with errors.As):
+//
+// errors.As
+//
+// errors.As works by checking to see if an error *type* matches.  uerr provides
+// additional support so that any error along the chain can be detected as
+// matching.
+//
+// NOTE: in the following examples, it is important to supply a *new* instance
+// of the specialized error type, and to not reuse.
 //
 //     type MyError struct {
 //         uerr.UError
@@ -46,7 +65,12 @@ type UError struct {
 	Cause   error
 }
 
-type chainable_ interface {
+//
+// a chainable error
+//
+type Chainable interface {
+	error
+	Unwrap() error
 	chainf(cause error, format string, args ...interface{}) *UError
 	setCode(code int) *UError
 }
@@ -91,18 +115,18 @@ func ChainfCode(cause error, code int, format string, args ...interface{}) *UErr
 //
 // if you do not need a new type, use uerr.Chainf()
 //
-// 'as' must be typed as follows:
+// 'as' must be a new instance and must be typed as follows:
 //
 //     type MyError struct {
 //         uerr.UError
 //     }
 //     err := uerr.Cast(&MyError{}, "my message about %s", "this")
 //
-func Cast(as error, format string, args ...interface{}) error {
+func Cast(as Chainable, format string, args ...interface{}) error {
 	return RecastCode(as, nil, 0, format, args...)
 }
 
-func CastCode(as error, code int, format string, args ...interface{}) error {
+func CastCode(as Chainable, code int, format string, args ...interface{}) error {
 	return RecastCode(as, nil, code, format, args...)
 }
 
@@ -111,14 +135,14 @@ func CastCode(as error, code int, format string, args ...interface{}) error {
 //
 // if you do not need a new type, use uerr.Chainf()
 //
-// 'as' must be typed as follows:
+// 'as' must be a new instance and must be typed as follows:
 //
 //     type MyError struct {
 //         uerr.UError
 //     }
 //     err := uerr.Recast(&MyError{}, cause, "my message about %s", "this")
 //
-func Recast(as, cause error, format string, args ...interface{}) error {
+func Recast(as Chainable, cause error, format string, args ...interface{}) error {
 	return RecastCode(as, cause, 0, format, args...)
 }
 
@@ -127,7 +151,7 @@ func Recast(as, cause error, format string, args ...interface{}) error {
 //
 // if you do not need a new type, use uerr.ChainfCode()
 //
-// 'as' must be typed as follows:
+// 'as' must be a new instance and must be typed as follows:
 //
 //     type MyError struct {
 //         uerr.UError
@@ -135,15 +159,16 @@ func Recast(as, cause error, format string, args ...interface{}) error {
 //     err := uerr.RecastCode(&MyError{}, cause, 5, "my message about %s", "this")
 //
 func RecastCode(
-	as, cause error,
+	as Chainable,
+	cause error,
 	code int,
 	format string, args ...interface{},
 ) error {
-	chainable, ok := as.(chainable_)
-	if !ok {
-		return Chainf(cause, "UNCHAINABLE ERROR: "+format, args...)
+	_, isUError := as.(*UError)
+	if isUError {
+		panic("'as' parameter needs to mixin UError struct, not be one")
 	}
-	chainable.chainf(cause, format, args...).setCode(code)
+	as.chainf(cause, format, args...).setCode(code)
 	return as
 }
 
@@ -185,6 +210,9 @@ func (this *UError) chainf(
 	format string, args ...interface{},
 ) *UError {
 
+	if nil != this.Cause || 0 != len(this.Message) {
+		panic("detected reuse of UError instance - Cast/Recast must use new instance")
+	}
 	this.Cause = cause
 
 	var causeMsg string
