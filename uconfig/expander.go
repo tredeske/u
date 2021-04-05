@@ -101,6 +101,8 @@ func newExpander(watch *Watch) (rv expander_) {
 	rv.mapping["installDir"] = InstallD
 	rv.mapping["initDir"] = InitD
 	rv.mapping["host"] = ThisHost
+	rv.mapping["thisHost"] = ThisHost
+	rv.mapping["thisIp"] = ThisIp
 	rv.mapping["processName"] = ThisProcess
 	return
 }

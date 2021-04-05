@@ -53,7 +53,8 @@
 // The following properties are automatically added:
 //     - home           - the home dir of the user
 //     - user           - the username of the user
-//     - host           - the hostname of the host
+//     - thisHost       - the hostname (nodename) of the host
+//     - thisIp         - the first listed (non loopback) IP
 //     - processName    - the process name of the process
 //     - installDir     - where the process is installed
 //                        {{installDir}} / bin / program    - or, if no bin -

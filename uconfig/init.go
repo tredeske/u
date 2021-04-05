@@ -1,6 +1,8 @@
 package uconfig
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 
 var (
 	ThisHost    = ""
+	ThisIp      = ""
 	ThisProcess = "" // set by boot
 	LocalAddrs  = make(map[string]bool)
 	ThisD       = ""
@@ -64,13 +67,43 @@ func InitEnv() (err error) {
 		//
 		// to avoid delays, ensure /etc/hosts can resolve all interfaces
 		//
-		names, err := net.LookupAddr(addr)
-		if err == nil && 0 != len(names) {
+		names, errLookup := net.LookupAddr(addr)
+		if errLookup == nil && 0 != len(names) {
 			LocalAddrs[addr] = true
 			for _, name := range names {
 				LocalAddrs[name] = true
 			}
 		}
 	}
-	return nil
+
+	err = findLocalIp()
+	return
+}
+
+func findLocalIp() (err error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return
+	}
+	for _, in := range interfaces {
+		if "lo" == in.Name {
+			continue
+		}
+		var addrs []net.Addr
+		addrs, err = in.Addrs()
+		if err != nil {
+			return
+		} else if 0 == len(addrs) {
+			continue
+		}
+		addr, ok := addrs[0].(*net.IPNet)
+		if !ok {
+			err = fmt.Errorf("Did not get back expected addr type: %T", addrs[0])
+			return
+		}
+		ThisIp = addr.IP.String()
+		return ///////////////////////////// success
+	}
+	err = errors.New("Unable to determine src addr")
+	return
 }
