@@ -95,18 +95,6 @@ func StringOr(one, other StringValidator) StringValidator {
 	}
 }
 
-// both one and other must be true
-func StringAnd(one, other StringValidator) StringValidator {
-	return func(v string) (err error) {
-		err = one(v)
-		if err != nil {
-			return
-		}
-		err = other(v)
-		return
-	}
-}
-
 // create a StringValidator to verify value is blank or valid
 func StringBlankOr(validator StringValidator) StringValidator {
 	return func(v string) (err error) {

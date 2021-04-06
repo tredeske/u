@@ -15,9 +15,16 @@
 //     components:
 //       - name:     instanceName
 //         type:     serviceType
+//         disabled: false
+//         hosts:    []
+//         note:     a few words about this
 //         config:
 //           foo:    bar
 //           ...
+//
+// * disabled: optional flag to disable the component
+// * hosts:    optional array to indicate which hosts component is enabled on
+// * note:     optional field to describe component
 //
 // Other components can lookup and rendezvous with it using uregistry:
 //
@@ -328,7 +335,11 @@ func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 	if err != nil {
 		return
 	}
+
 	if !g.disabled {
+		//
+		// if hosts specified, then disable unless we are on a listed host
+		//
 		if 0 != len(g.hosts) {
 			g.disabled = true
 			for _, h := range g.hosts {

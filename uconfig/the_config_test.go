@@ -242,8 +242,7 @@ func TestGetString(t *testing.T) {
 	}
 
 	result = ""
-	err = s.GetString("string", &result,
-		StringAnd(StringNotBlank(), StringOneOf("stringV")))
+	err = s.GetString("string", &result, StringNotBlank(), StringOneOf("stringV"))
 	if err != nil {
 		t.Fatalf("Unable to get string with AND validation: %s", err)
 	} else if 0 == len(result) {

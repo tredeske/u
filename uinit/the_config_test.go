@@ -4,6 +4,8 @@ import (
 	"os"
 	"path"
 	"testing"
+
+	"github.com/tredeske/u/uconfig"
 )
 
 func TestInitConfig(t *testing.T) {
@@ -26,5 +28,11 @@ func TestInitConfig(t *testing.T) {
 	if "oneV" != one {
 		config.Log()
 		t.Fatalf("one does not match: 'oneVs' != '%s'", one)
+	}
+
+	if 0 == len(uconfig.ThisHost) {
+		t.Fatalf("uconfig.ThisHost not set")
+	} else if 0 == len(uconfig.ThisIp) {
+		t.Fatalf("uconfig.ThisIp not set")
 	}
 }

@@ -8,9 +8,16 @@
 //       key:        value
 //       anInt:      10
 //
+//     autoreload:   true
+//
+//     debug:
+//
 //     components:
 //       - name:     instanceName
 //         type:     serviceType
+//         note:     a note about this
+//         disabled: false
+//         hosts:    ["optional", "hosts", "enabled", "on"]
 //         config:
 //           foo:    1
 //           bar:    hello there
@@ -51,14 +58,12 @@
 // All golang text template rules apply.
 //
 // The following properties are automatically added:
-//     - home           - the home dir of the user
-//     - user           - the username of the user
+//     - homeDir        - the home dir of the user
+//     - thisUser       - the username of the user
 //     - thisHost       - the hostname (nodename) of the host
 //     - thisIp         - the first listed (non loopback) IP
-//     - processName    - the process name of the process
-//     - installDir     - where the process is installed
-//                        {{installDir}} / bin / program    - or, if no bin -
-//                        {{installDir}} / program
+//     - thisProcess    - the process name of the process
+//     - thisDir        - where the process is installed
 //     - initDir        - where the process is started from
 //
 //

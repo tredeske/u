@@ -95,15 +95,19 @@ func newExpander(watch *Watch) (rv expander_) {
 		watch:   watch,
 	}
 	if user, home := UserInfo(); "" != user {
-		rv.mapping["user"] = user
-		rv.mapping["home"] = home
+		rv.mapping["user"] = user // deprecated
+		rv.mapping["thisUser"] = user
+		rv.mapping["home"] = home // deprecated
+		rv.mapping["homeDir"] = home
 	}
 	rv.mapping["installDir"] = InstallD
+	rv.mapping["thisDir"] = InstallD // deprecated
 	rv.mapping["initDir"] = InitD
-	rv.mapping["host"] = ThisHost
+	rv.mapping["host"] = ThisHost // deprecated
 	rv.mapping["thisHost"] = ThisHost
 	rv.mapping["thisIp"] = ThisIp
-	rv.mapping["processName"] = ThisProcess
+	rv.mapping["thisProcess"] = ThisProcess
+	rv.mapping["processName"] = ThisProcess // deprecated
 	return
 }
 

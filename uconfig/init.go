@@ -2,11 +2,12 @@ package uconfig
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tredeske/u/ulog"
 )
 
 var (
@@ -98,10 +99,15 @@ func findLocalIp() (err error) {
 		}
 		addr, ok := addrs[0].(*net.IPNet)
 		if !ok {
-			err = fmt.Errorf("Did not get back expected addr type: %T", addrs[0])
-			return
+			ulog.Warnf("Did not get back expected addr type for %s: %T",
+				in.Name, addrs[0])
+			continue
 		}
-		ThisIp = addr.IP.String()
+		ip := addr.IP
+		if ip.IsLoopback() || ip.IsMulticast() {
+			continue
+		}
+		ThisIp = ip.String()
 		return ///////////////////////////// success
 	}
 	err = errors.New("Unable to determine src addr")
