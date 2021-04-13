@@ -96,11 +96,24 @@ package ulog
 import (
 	"fmt"
 	"log"
+	"sync/atomic"
 
 	"github.com/tredeske/u/uexit"
 )
 
+var (
+	// count of TODOs logged
+	Todos int64
+
+	// count of WARNs logged
+	Warns int64
+
+	// count of ERRORs logged
+	Errors int64
+)
+
 func TODO(format string, args ...interface{}) {
+	atomic.AddInt64(&Todos, 1)
 	if 0 == len(args) {
 		log.Printf("TODO: " + format)
 	} else {
@@ -117,6 +130,7 @@ func Printf(format string, args ...interface{}) {
 }
 
 func Warnf(format string, args ...interface{}) {
+	atomic.AddInt64(&Warns, 1)
 	if 0 == len(args) {
 		log.Printf("WARN: " + format)
 	} else {
@@ -125,6 +139,7 @@ func Warnf(format string, args ...interface{}) {
 }
 
 func Errorf(format string, args ...interface{}) {
+	atomic.AddInt64(&Errors, 1)
 	if 0 == len(args) {
 		log.Printf("ERROR: " + format)
 	} else {
