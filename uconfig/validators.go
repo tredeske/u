@@ -3,6 +3,7 @@ package uconfig
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 )
 
 // use with Section.GetInt to validate signed int
@@ -53,11 +54,21 @@ func IntPos() IntValidator {
 	}
 }
 
-// return a validator to error if v is negative
-func IntNonNeg() IntValidator {
+// return a validator to error if v not at least min
+func IntAtLeast(min int64) IntValidator {
 	return func(v int64) (err error) {
-		if v < 0 {
-			err = fmt.Errorf("int is not positive (is %d)", v)
+		if v < min {
+			err = fmt.Errorf("int is not at least %s (is %d)", min, v)
+		}
+		return
+	}
+}
+
+// return a validator to error if v not a power of 2 > 0
+func IntPow2() IntValidator {
+	return func(v int64) (err error) {
+		if 1 != bits.OnesCount64(v) {
+			err = fmt.Errorf("int (%d) is not a power of 2", v)
 		}
 		return
 	}
