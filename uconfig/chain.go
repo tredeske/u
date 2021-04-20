@@ -196,9 +196,13 @@ func (this *Chain) GetDuration(key string, value *time.Duration) *Chain {
 	return this
 }
 
-func (this *Chain) GetFloat64(key string, value *float64) *Chain {
+func (this *Chain) GetFloat64(
+	key string,
+	value *float64,
+	validators ...FloatValidator,
+) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetFloat64(key, value)
+		this.Error = this.Section.GetFloat64(key, value, validators...)
 	}
 	return this
 }

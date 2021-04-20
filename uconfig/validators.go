@@ -6,19 +6,34 @@ import (
 	"math/bits"
 )
 
-// use with Section.GetInt to validate signed int
+// use with Section.GetFloat64, Chain.GetFloat64 to validate float
+type FloatValidator func(float64) error
+
+// use with Section.GetInt, Chain.GetInt to validate signed int
 type IntValidator func(int64) error
 
-// use with Section.GetUInt to validate unsigned int
+// use with Section.GetUInt, Chain.GetUInt to validate unsigned int
 type UIntValidator func(uint64) error
 
-// use with Section.GetString to validate string
+// use with Section.GetString, Chain.GetString to validate string
 type StringValidator func(string) error
 
 var (
 	ErrStringBlank    = errors.New("String value empty")
 	ErrStringNotBlank = errors.New("String value not empty")
 )
+
+// return a range validator for GetInt
+func FloatRange(min, max float64) FloatValidator {
+	return func(v float64) (err error) {
+		if v < min {
+			err = fmt.Errorf("value (%f) less than min (%f)", v, min)
+		} else if v > max {
+			err = fmt.Errorf("value (%f) greater than max (%f)", v, max)
+		}
+		return
+	}
+}
 
 // return a range validator for GetInt
 func IntRange(min, max int64) IntValidator {
@@ -58,7 +73,7 @@ func IntPos() IntValidator {
 func IntAtLeast(min int64) IntValidator {
 	return func(v int64) (err error) {
 		if v < min {
-			err = fmt.Errorf("int is not at least %s (is %d)", min, v)
+			err = fmt.Errorf("int is not at least %d (is %d)", min, v)
 		}
 		return
 	}
@@ -67,7 +82,7 @@ func IntAtLeast(min int64) IntValidator {
 // return a validator to error if v not a power of 2 > 0
 func IntPow2() IntValidator {
 	return func(v int64) (err error) {
-		if 1 != bits.OnesCount64(v) {
+		if 1 != bits.OnesCount64(uint64(v)) {
 			err = fmt.Errorf("int (%d) is not a power of 2", v)
 		}
 		return

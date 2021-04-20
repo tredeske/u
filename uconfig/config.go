@@ -821,9 +821,15 @@ func (this *Section) GetDuration(key string, val *time.Duration) (err error) {
 }
 
 // if found, parse to float64 and update val
-func (this *Section) GetFloat64(key string, val *float64) (err error) {
+func (this *Section) GetFloat64(
+	key string,
+	val *float64,
+	validators ...FloatValidator,
+) (err error) {
+
 	it, ok := this.getIt(key, false)
 	if !ok {
+		err = this.validFloat(key, *val, validators)
 		return // leave val unset (default val)
 	}
 	*val, ok = it.(float64)
@@ -838,6 +844,27 @@ func (this *Section) GetFloat64(key string, val *float64) (err error) {
 	} else {
 		err = fmt.Errorf("parsing config: value of %s not convertable "+
 			" to int64.  Is %s", this.ctx(key), reflect.TypeOf(it))
+	}
+	if err != nil {
+		return
+	}
+	err = this.validFloat(key, *val, validators)
+	return
+}
+
+func (this *Section) validFloat(
+	key string,
+	val float64,
+	validators []FloatValidator,
+) (err error) {
+	for _, validF := range validators {
+		if nil != validF {
+			err = validF(val)
+			if err != nil {
+				err = uerr.Chainf(err, this.ctx(key))
+				return
+			}
+		}
 	}
 	return
 }
@@ -889,6 +916,8 @@ func (this *Section) GetInt(
 		case *int16:
 			err = this.validInt(key, int64(*p), validators)
 		case *int8:
+			err = this.validInt(key, int64(*p), validators)
+		case *byte:
 			err = this.validInt(key, int64(*p), validators)
 		}
 		return // leave val unset (default val)
