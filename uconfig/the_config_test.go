@@ -520,6 +520,130 @@ func TestGet(t *testing.T) {
 	}
 }
 
+func TestIntValidators(t *testing.T) {
+	var err error
+	const (
+		min = 5
+		max = 9
+	)
+	rangeV := IntRange(min, max)
+
+	for i := -5; i < 15; i++ {
+		err = rangeV(int64(i))
+		if i < min || i > max {
+			if nil == err {
+				t.Fatalf("%d NOT in range and should have errored", i)
+			}
+		} else if err != nil {
+			t.Fatalf("%d in range and should NOT have errored", i)
+		}
+	}
+
+	posV := IntPos()
+	for i := -5; i < 15; i++ {
+		err = posV(int64(i))
+		if i <= 0 {
+			if nil == err {
+				t.Fatalf("%d NOT positive and should have errored", i)
+			}
+		} else if err != nil {
+			t.Fatalf("%d positive and should NOT have errored", i)
+		}
+	}
+
+	nonNegV := IntNonNeg()
+	for i := -5; i < 15; i++ {
+		err = nonNegV(int64(i))
+		if i < 0 {
+			if nil == err {
+				t.Fatalf("%d negative and should have errored", i)
+			}
+		} else if err != nil {
+			t.Fatalf("%d NOT negative and should NOT have errored", i)
+		}
+	}
+
+	atLeastV := IntAtLeast(min)
+	for i := -5; i < 15; i++ {
+		err = atLeastV(int64(i))
+		if i < min {
+			if nil == err {
+				t.Fatalf("%d > %d and should have errored", i, min)
+			}
+		} else if err != nil {
+			t.Fatalf("%d >= %d and should NOT have errored", i, min)
+		}
+	}
+
+	pow2V := IntPow2()
+	for i := -5; i < 15; i++ {
+		err = pow2V(int64(i))
+		switch i {
+		case 1, 2, 4, 8:
+			if err != nil {
+				t.Fatalf("%d is a power of 2 and should NOT have errored", i)
+			}
+		default:
+			if nil == err {
+				t.Fatalf("%d NOT a power of 2 and should have errored", i)
+			}
+		}
+	}
+}
+
+func TestStringValidators(t *testing.T) {
+	var err error
+	stringBlank := StringBlank()
+
+	err = stringBlank("")
+	if err != nil {
+		t.Fatalf("did not detect string blank")
+	}
+	err = stringBlank("wow")
+	if nil == err {
+		t.Fatalf("did not detect non-blank string")
+	}
+
+	stringNotBlank := StringNotBlank()
+
+	err = stringNotBlank("wow")
+	if err != nil {
+		t.Fatalf("did not detect string not blank")
+	}
+	err = stringNotBlank("")
+	if nil == err {
+		t.Fatalf("did not detect blank string")
+	}
+
+	choices := []string{"thing1", "thing2", "thing3"}
+	stringOneOf := StringOneOf(choices...)
+
+	err = stringOneOf("thing2")
+	if err != nil {
+		t.Fatalf("did not detect valid choice")
+	}
+	err = stringOneOf("")
+	if nil == err {
+		t.Fatalf("did not detect invalid choice (blank)")
+	}
+	err = stringOneOf("foo")
+	if nil == err {
+		t.Fatalf("did not detect invalid choice")
+	}
+
+	re := regexp.MustCompile("match.this")
+	stringMatch := StringMatch(re)
+
+	err = stringMatch("match this string")
+	if err != nil {
+		t.Fatalf("should have matched and been valid")
+	}
+	err = stringMatch("foo")
+	if nil == err {
+		t.Fatalf("should NOT have matched")
+	}
+}
+
 func TestPath(t *testing.T) {
 	thePath := "/tmp/configTestDir"
 	os.RemoveAll(thePath)

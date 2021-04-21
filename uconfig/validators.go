@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"regexp"
 )
 
 // use with Section.GetFloat64, Chain.GetFloat64 to validate float
@@ -69,6 +70,16 @@ func IntPos() IntValidator {
 	}
 }
 
+// return a validator to error if v is negative
+func IntNonNeg() IntValidator {
+	return func(v int64) (err error) {
+		if v < 0 {
+			err = fmt.Errorf("int is negative (is %d)", v)
+		}
+		return
+	}
+}
+
 // return a validator to error if v not at least min
 func IntAtLeast(min int64) IntValidator {
 	return func(v int64) (err error) {
@@ -82,8 +93,8 @@ func IntAtLeast(min int64) IntValidator {
 // return a validator to error if v not a power of 2 > 0
 func IntPow2() IntValidator {
 	return func(v int64) (err error) {
-		if 1 != bits.OnesCount64(uint64(v)) {
-			err = fmt.Errorf("int (%d) is not a power of 2", v)
+		if 1 > v || 1 != bits.OnesCount64(uint64(v)) {
+			err = fmt.Errorf("int (%d) is not a power of 2 > 0", v)
 		}
 		return
 	}
@@ -104,6 +115,16 @@ func StringNotBlank() StringValidator {
 	return func(v string) (err error) {
 		if 0 == len(v) {
 			err = ErrStringBlank
+		}
+		return
+	}
+}
+
+// a StringValidator to verify string matches regular expression
+func StringMatch(re *regexp.Regexp) StringValidator {
+	return func(v string) (err error) {
+		if !re.MatchString(v) {
+			err = fmt.Errorf("%s does not match %s", v, re.String())
 		}
 		return
 	}
@@ -143,6 +164,7 @@ func StringOneOf(choices ...string) StringValidator {
 	}
 }
 
+/*
 // create a StringValidator to verify value not one of listed
 func StringNot(invalid ...string) StringValidator {
 	return func(v string) (err error) {
@@ -154,3 +176,4 @@ func StringNot(invalid ...string) StringValidator {
 		return
 	}
 }
+*/
