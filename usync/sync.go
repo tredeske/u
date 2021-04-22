@@ -31,6 +31,64 @@ func (this *AtomicBool) SetUnlessSet() (changed bool) {
 
 //------------------------------------------------------------------
 
+//
+// a set of 64 booleans that are safe to access by multiple threads
+//
+type AtomicBools struct {
+	v uint64
+}
+
+func (this *AtomicBools) GetAll() uint64 {
+	return atomic.LoadUint64(&this.v)
+}
+
+func (this *AtomicBools) SetAll(newV uint64) {
+	atomic.StoreUint64(&this.v, newV)
+}
+
+// return true if able to set
+func (this *AtomicBools) SetAllUnlessSet(oldV, newV uint64) (changed bool) {
+	return atomic.CompareAndSwapUint64(&this.v, oldV, newV)
+}
+
+func (this *AtomicBools) IsSet(bit int) bool {
+	return 0 != ((1 << bit) & atomic.LoadUint64(&this.v))
+}
+
+func (this *AtomicBools) Clear(bit int) {
+retry:
+	oldV := atomic.LoadUint64(&this.v)
+	newV := oldV &^ (1 << bit)
+	if !atomic.CompareAndSwapUint64(&this.v, oldV, newV) {
+		goto retry
+	}
+}
+
+func (this *AtomicBools) Set(bit int) {
+retry:
+	oldV := atomic.LoadUint64(&this.v)
+	newV := oldV | (1 << bit)
+	if !atomic.CompareAndSwapUint64(&this.v, oldV, newV) {
+		goto retry
+	}
+}
+
+// return true if able to set
+func (this *AtomicBools) SetUnlessSet(bit int) (changed bool) {
+retry:
+	oldV := atomic.LoadUint64(&this.v)
+	newV := oldV | (1 << bit)
+	if oldV != newV {
+		if !atomic.CompareAndSwapUint64(&this.v, oldV, newV) {
+			goto retry
+		}
+		return true
+	}
+	return false
+}
+
+//------------------------------------------------------------------
+
 type AtomicInt struct {
 	v int64
 }
