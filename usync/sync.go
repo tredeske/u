@@ -97,6 +97,25 @@ func (this *AtomicInt) Add(amount int64) (result int64) {
 	return atomic.AddInt64(&this.v, amount)
 }
 
+func (this *AtomicInt) AddIfLessThan(
+	amount, lessThan int64,
+) (
+	result int64, added bool,
+) {
+
+retry:
+	oldV := atomic.LoadInt64(&this.v)
+	newV := oldV + amount
+	if newV < lessThan {
+		added = this.Cas(oldV, newV)
+		if !added {
+			goto retry
+		}
+		result = newV
+	}
+	return
+}
+
 func (this *AtomicInt) Cas(oldV, newV int64) (swapped bool) {
 	return atomic.CompareAndSwapInt64(&this.v, oldV, newV)
 }
