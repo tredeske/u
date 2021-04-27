@@ -5,6 +5,7 @@ import (
 	nurl "net/url"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func TestSource(t *testing.T) {
 func TestProps(t *testing.T) {
 
 	globals, err := NewSection(`
-substitutions:
+properties:
     one:        gVal
 
 subbed:         "{{.one}}"
@@ -181,6 +182,20 @@ noEscapeCheck:  "{{.noEscape}}"
 	//
 	m := config.AsResolvedMap()
 	ulog.Printf("%#v", m)
+	for k, it := range m {
+		fmt.Println(k)
+		if strings.ContainsRune(k, '{') {
+			t.Fatalf("resolved key (%s) contains '{'", k)
+		}
+		switch v := it.(type) {
+		case string:
+			v = strings.Join(strings.Split(v, "{{.notSubbed}}"), "")
+			if strings.ContainsRune(v, '{') &&
+				!strings.Contains(v, "NoSuchMethod") {
+				t.Fatalf("resolved value (%s) contains '{'", v)
+			}
+		}
+	}
 }
 
 func TestDiff(t *testing.T) {
