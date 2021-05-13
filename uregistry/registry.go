@@ -33,6 +33,15 @@ var (
 )
 
 //
+// some unit test situations require this between tests.
+//
+func TestClearAll() {
+	lock_.Lock()
+	map_ = make(map[string]interface{})
+	lock_.Unlock()
+}
+
+//
 // does the specified value exist in the registry?
 //
 func Exists(key string) (exists bool) {

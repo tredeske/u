@@ -5,6 +5,7 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
+	"github.com/tredeske/u/uregistry"
 )
 
 //
@@ -79,5 +80,6 @@ func TestStop() {
 			stopGolum(itV.(*golum_))
 			return true
 		})
+	uregistry.TestClearAll()
 	//managers_ = make(map[string]Manager)
 }

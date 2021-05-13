@@ -16,7 +16,8 @@ type Help yaml.MapSlice
 //
 func (this *Help) Init(name, note string) (rv *Help) {
 	params := &Help{}
-	*this = append(*this, yaml.MapItem{Key: name, Value: note},
+	*this = append(*this,
+		yaml.MapItem{Key: name, Value: note},
 		yaml.MapItem{Key: "params", Value: params})
 	return params
 }
