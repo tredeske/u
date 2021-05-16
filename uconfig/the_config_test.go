@@ -232,10 +232,29 @@ func TestGetString(t *testing.T) {
 			t.Fatalf("string result not set")
 		}
 	}
+
 	result := ""
 	err = s.GetString("string", &result, StringOneOf("stringV"))
 	if err != nil {
 		t.Fatalf("Unable to get string with validation: %s", err)
+	} else if 0 == len(result) {
+		t.Fatalf("string result not set")
+	}
+
+	result = ""
+	err = s.GetString("string", &result,
+		StringAnd(StringNotBlank, StringOneOf("stringV")))
+	if err != nil {
+		t.Fatalf("Unable to get string with AND validation: %s", err)
+	} else if 0 == len(result) {
+		t.Fatalf("string result not set")
+	}
+
+	result = ""
+	err = s.GetString("string", &result,
+		StringOr(StringBlank, StringOneOf("stringV")))
+	if err != nil {
+		t.Fatalf("Unable to get string with OR validation: %s", err)
 	} else if 0 == len(result) {
 		t.Fatalf("string result not set")
 	}
