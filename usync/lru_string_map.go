@@ -66,6 +66,16 @@ func (this *LruMap) GetByHash(hash uintptr) (rv interface{}, ok bool) {
 	return
 }
 
+//
+// Refer to HashString or HashBytes
+//
+func (this *LruMap) SetByHash(hash uintptr, v interface{}) {
+	this.m.SetHashedKey(hash, &lruv_{value: v})
+	if this.capacity <= this.m.Len() && this.evicting.SetUnlessSet() {
+		go this.evict()
+	}
+}
+
 func (this *LruMap) GetAsString(key string) (rv string, ok bool) {
 	var it interface{}
 	it, ok = this.Get(key)
@@ -128,11 +138,7 @@ func (this *LruMap) GetOrAddByHash(
 	rv, ok := this.GetByHash(hash)
 	if !ok && nil != add {
 		rv = add()
-		this.m.SetHashedKey(hash, &lruv_{value: rv})
-
-		if this.capacity <= this.m.Len() && this.evicting.SetUnlessSet() {
-			go this.evict()
-		}
+		this.SetByHash(hash, rv)
 	}
 	return
 }
