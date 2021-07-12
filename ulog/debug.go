@@ -3,12 +3,13 @@ package ulog
 import (
 	"encoding/hex"
 	"log"
+	"sync"
 )
 
 var ( // see uinit/debug.go
-	DebugEnabled      = false                 // turn on all debug
-	debugEnabledFor_  = make(map[string]bool) // turn on selective debug
-	debugDisabledFor_ = make(map[string]bool) // turn off selective debug
+	DebugEnabled      = false      // turn on all debug
+	debugEnabledFor_  = sync.Map{} // turn on selective debug
+	debugDisabledFor_ = sync.Map{} // turn off selective debug
 )
 
 //
@@ -78,11 +79,13 @@ func (this Debug) DumpIf(on bool, b []byte) string {
 //
 
 func SetDebugEnabledFor(component string) {
-	debugEnabledFor_[component] = true
+	debugEnabledFor_.Store(component, true)
+	//debugEnabledFor_[component] = true
 }
 
 func SetDebugDisabledFor(component string) {
-	debugDisabledFor_[component] = true
+	debugDisabledFor_.Store(component, true)
+	//debugDisabledFor_[component] = true
 }
 
 // output a debug message if DebugEnabled
@@ -139,6 +142,11 @@ func IsDebugEnabled() bool {
 
 // is debug enabled for component?
 func IsDebugEnabledFor(component string) bool {
-	return (DebugEnabled && !debugDisabledFor_[component]) ||
-		debugEnabledFor_[component]
+	if DebugEnabled {
+		_, ok := debugDisabledFor_.Load(component)
+		return !ok
+	} else {
+		_, ok := debugEnabledFor_.Load(component)
+		return ok
+	}
 }
