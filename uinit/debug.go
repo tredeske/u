@@ -1,8 +1,6 @@
 package uinit
 
 import (
-	"fmt"
-
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
 	"github.com/tredeske/u/ustrings"
@@ -17,8 +15,6 @@ func InitDebug(config *uconfig.Section) (err error) {
 	if err != nil {
 		return
 	}
-
-	fmt.Printf("XXXX: InitDebug: %v, %v", enable, disable)
 
 	if ustrings.Contains(enable, "all") {
 		ulog.DebugEnabled = true
