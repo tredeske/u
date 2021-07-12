@@ -2,6 +2,7 @@ package u
 
 import (
 	"testing"
+	"time"
 
 	"github.com/tredeske/u/golum"
 	"github.com/tredeske/u/uconfig"
@@ -77,7 +78,7 @@ func (this *thing_) Stop() {}
 //
 var config_ = `
 debug:
-    enable: ["all"]
+  enable:                 ["all"]
 
 components:
 
@@ -117,8 +118,6 @@ func TestTesting(t *testing.T) {
 	//
 	golum.AddReloadable("testFactory", &thing_{})
 
-	ulog.DebugEnabled = true
-
 	//
 	// start up your stuff from YAML config
 	//
@@ -126,6 +125,11 @@ func TestTesting(t *testing.T) {
 	defer golum.TestStop()
 	if err != nil {
 		t.Fatalf("Unable to config: %s", err)
+	}
+
+	time.Sleep(time.Second)
+	if !ulog.DebugEnabled {
+		t.Fatalf("debug not enabled for all")
 	}
 
 	//

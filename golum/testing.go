@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tredeske/u/uconfig"
+	"github.com/tredeske/u/uinit"
 	"github.com/tredeske/u/ulog"
 	"github.com/tredeske/u/uregistry"
 )
@@ -17,6 +18,15 @@ func TestLoadAndStart(config interface{}) (err error) {
 	if err != nil {
 		return
 	}
+
+	var dbg *uconfig.Section
+	err = s.GetSectionIf("debug", &dbg)
+	if err != nil {
+		return
+	} else if nil != dbg {
+		err = uinit.InitDebug(dbg)
+	}
+
 	var comps *uconfig.Array
 	err = s.GetArray("components", &comps)
 	if err != nil {

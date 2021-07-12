@@ -79,11 +79,13 @@ func (this Debug) DumpIf(on bool, b []byte) string {
 //
 
 func SetDebugEnabledFor(component string) {
+	log.Println("ENABLING DEBUG FOR " + component)
 	debugEnabledFor_.Store(component, true)
 	//debugEnabledFor_[component] = true
 }
 
 func SetDebugDisabledFor(component string) {
+	log.Println("DISABLING DEBUG FOR " + component)
 	debugDisabledFor_.Store(component, true)
 	//debugDisabledFor_[component] = true
 }

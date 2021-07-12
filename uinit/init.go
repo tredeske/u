@@ -24,7 +24,9 @@ func InitConfig(configF string) (config *uconfig.Section, err error) {
 
 	var dbg *uconfig.Section
 	err = config.GetSectionIf("debug", &dbg)
-	if nil == err && nil != dbg {
+	if err != nil {
+		return
+	} else if nil != dbg {
 		err = InitDebug(dbg)
 	}
 	return

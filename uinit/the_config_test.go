@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tredeske/u/uconfig"
+	"github.com/tredeske/u/ulog"
 )
 
 func TestInitConfig(t *testing.T) {
@@ -18,6 +19,14 @@ func TestInitConfig(t *testing.T) {
 	config, err := InitConfig(configF)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if ulog.DebugEnabled {
+		t.Fatalf("debug should not be enabled for all")
+	} else if !ulog.IsDebugEnabledFor("foo") {
+		t.Fatalf("debug *should* be enabled for foo")
+	} else if ulog.IsDebugEnabledFor("bar") {
+		t.Fatalf("debug should *not* be enabled for bar")
 	}
 
 	one := ""
