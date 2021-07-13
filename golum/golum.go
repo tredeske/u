@@ -16,6 +16,7 @@
 //       - name:     instanceName
 //         type:     serviceType
 //         disabled: false
+//         timeout:  2s
 //         hosts:    []
 //         note:     a few words about this
 //         config:
@@ -25,6 +26,7 @@
 // * disabled: optional flag to disable the component
 // * hosts:    optional array to indicate which hosts component is enabled on
 // * note:     optional field to describe component
+// * timeout:  optional how much time to wait for component to start, or fail
 //
 // Other components can lookup and rendezvous with it using uregistry:
 //
@@ -44,7 +46,6 @@
 package golum
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -70,8 +71,13 @@ type golum_ struct {
 	manager  Manager
 	disabled bool
 	hosts    []string
+	timeout  time.Duration
 	config   *uconfig.Section
 }
+
+const (
+	MIN_TIMEOUT time.Duration = 2 * time.Second
+)
 
 var (
 	managers_ map[string]Manager = make(map[string]Manager) // by type
@@ -167,35 +173,15 @@ func Unload(name string) (unloaded bool) {
 func (this *Loaded) Start() (err error) {
 	log.Printf("G: Start begin")
 
-	//
-	// start each thing in a goroutine and timeout if things take too long
-	//
-	// we really should add the context to the StartGolum
-	//
-	startC := make(chan error)
-	timeout := time.Duration(len(this.ready)*50) * time.Millisecond
-	if timeout < time.Second {
-		timeout = time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	for i, g := range this.ready {
 		log.Printf("G: Starting %s", g.name)
-		go func() {
-			err := g.manager.StartGolum(g.name)
-			startC <- err
-		}()
-		select {
-		case err = <-startC:
-		case <-ctx.Done():
-			err = fmt.Errorf("Start of '%s' timed out", g.name)
-		}
+		err = startGolum(g)
 		if err != nil {
-			err = uerr.Chainf(err, "Starting %s", g.name)
 			return
 		}
 		this.ready[i] = nil
 	}
+
 	log.Printf("G: Start complete")
 	return
 }
@@ -254,13 +240,30 @@ func Reload(configs *uconfig.Array) (err error) {
 	//
 	for _, g := range start {
 		log.Printf("G: Starting %s", g.name)
-		err = g.manager.StartGolum(g.name)
+		err = startGolum(g)
 		if err != nil {
-			err = uerr.Chainf(err, "Starting %s", g.name)
 			return
 		}
 	}
 	log.Printf("G: Reload complete")
+	return
+}
+
+func startGolum(g *golum_) (err error) {
+	timer := time.NewTimer(g.timeout)
+	startC := make(chan error)
+	go func() {
+		startC <- g.manager.StartGolum(g.name)
+	}()
+	select {
+	case err = <-startC:
+		timer.Stop()
+		if err != nil {
+			err = uerr.Chainf(err, "Starting %s", g.name)
+		}
+	case <-timer.C:
+		err = fmt.Errorf("Start of '%s' timed out after %s", g.name, g.timeout)
+	}
 	return
 }
 
@@ -309,9 +312,8 @@ func ReloadOne(s *uconfig.Section) (err error) {
 			return
 		}
 		log.Printf("G: Starting %s", g.name)
-		err = g.manager.StartGolum(g.name)
+		err = startGolum(g)
 		if err != nil {
-			err = uerr.Chainf(err, "Starting %s", g.name)
 			return
 		}
 	}
@@ -321,15 +323,18 @@ func ReloadOne(s *uconfig.Section) (err error) {
 func loadGolum(config *uconfig.Section) (g *golum_, err error) {
 	manager := ""
 	g = &golum_{
-		config: &uconfig.Section{},
+		config:  &uconfig.Section{},
+		timeout: MIN_TIMEOUT,
 	}
 	err = config.Chain().
-		WarnExtraKeys("name", "type", "disabled", "config", "hosts", "note").
+		WarnExtraKeys("name", "type", "disabled", "config", "hosts", "note",
+			"timeout").
 		GetString("name", &g.name, uconfig.StringNotBlank()).
 		Then(func() { config.NameContext(g.name) }).
 		GetString("type", &manager, uconfig.StringNotBlank()).
 		GetBool("disabled", &g.disabled).
 		GetStrings("hosts", &g.hosts).
+		GetDuration("timeout", &g.timeout).
 		GetSection("config", &g.config).
 		Error
 	if err != nil {
