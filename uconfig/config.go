@@ -922,6 +922,16 @@ func (this *Section) GetInt(
 		}
 		return // leave val unset (default val)
 	}
+	return this.asInt(key, it, result, validators)
+
+}
+
+func (this *Section) asInt(
+	key string,
+	it interface{},
+	result interface{},
+	validators []IntValidator,
+) (err error) {
 
 	var val int64
 	switch typed := it.(type) {
@@ -1151,6 +1161,52 @@ func (this *Section) GetValidInt(
 func (this *Section) GetPosInt(key string, result *int) (err error) {
 
 	return this.GetInt(key, result, IntPos())
+}
+
+// if found, parse into []int and update val
+func (this *Section) GetInts(
+	key string,
+	result *[]int,
+	validators ...IntValidator,
+) (err error) {
+	it, found := this.section[key]
+	if found {
+		*result, err = this.toInts(key, it, validators)
+	}
+	return
+}
+
+func (this *Section) toInts(
+	key string,
+	it interface{},
+	validators []IntValidator,
+) (rv []int, err error) {
+
+	ok := false
+	rv, ok = it.([]int)
+	if !ok {
+		raw, isArray := it.([]interface{})
+		if isArray {
+			rv = make([]int, len(raw))
+			for i, v := range raw {
+				err = this.asInt(key, v, &rv[i], validators)
+				if err != nil {
+					rv = nil
+					return
+				}
+			}
+
+		} else { // not an array, so attempt to create an array
+
+			rv = make([]int, 1)
+			err = this.asInt(key, it, &rv[0], validators)
+			if err != nil {
+				rv = nil
+				return
+			}
+		}
+	}
+	return
 }
 
 // if found, parse into []string and update val

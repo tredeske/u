@@ -69,6 +69,9 @@ array:
 - include_:     array_include.yml
 - Z:            Z_VAL
 noEscapeCheck:  "{{.noEscape}}"
+strings:        ["one", 2, "three"]
+ints:           [1, 5, 7]
+int:            1
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -196,6 +199,43 @@ noEscapeCheck:  "{{.noEscape}}"
 			}
 		}
 	}
+
+	//
+	// string list
+	//
+	var strings []string
+	err = config.GetStrings("strings", &strings)
+	if err != nil {
+		t.Fatal(err)
+	} else if 3 != len(strings) {
+		t.Fatalf("strings: 3 != len(%v)", strings)
+	} else if "2" != strings[1] {
+		t.Fatalf("strings: '2' != '%s'", strings[1])
+	}
+
+	//
+	// int list
+	//
+	var ints []int
+	err = config.GetInts("ints", &ints)
+	if err != nil {
+		t.Fatal(err)
+	} else if 3 != len(ints) {
+		t.Fatalf("ints: 3 != len(%v)", ints)
+	} else if 5 != ints[1] {
+		t.Fatalf("ints: 5 != '%d'", ints[1])
+	}
+
+	ints = ints[:0]
+	err = config.GetInts("int", &ints) // singular
+	if err != nil {
+		t.Fatal(err)
+	} else if 1 != len(ints) {
+		t.Fatalf("ints: 3 != len(%v)", ints)
+	} else if 1 != ints[0] {
+		t.Fatalf("ints: 1 != '%d'", ints[0])
+	}
+
 }
 
 func TestDiff(t *testing.T) {

@@ -219,6 +219,18 @@ func (this *Chain) GetInt(
 	return this
 }
 
+func (this *Chain) GetInts(
+	key string,
+	result *[]int,
+	validators ...IntValidator,
+) *Chain {
+
+	if nil == this.Error {
+		this.Error = this.Section.GetInts(key, result, validators...)
+	}
+	return this
+}
+
 func (this *Chain) GetUInt(
 	key string,
 	result interface{},
