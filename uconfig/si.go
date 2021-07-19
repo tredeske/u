@@ -104,6 +104,14 @@ func multiplier(s string) (mult int64, rv string, err error) {
 	}
 	rv = s
 
+	//
+	// hex numbers do not have si
+	//
+	if 2 < n && '0' == s[0] && ('x' == s[1] || 'X' == s[1]) {
+		return
+	}
+
+	//
 	// detect SI units
 	// k = 1000
 	// ki = 1024
