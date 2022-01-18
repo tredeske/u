@@ -122,5 +122,7 @@ build & test
     go get gopkg.in/yaml.v2
     go build
     go test ./...
-    go test -v  -run=Benchmark -benchtime=3s -benchmem -bench=. ./usync
+    go vet ./...
+    go test -run=^Z -benchtime=3s -benchmem -bench=. ./usync
+    go test -run=^Z -benchtime=3s -benchmem -bench=. ./uthrottle
 ```

@@ -111,13 +111,12 @@ func TestContext(t *testing.T) {
 	c.SetTimeout(4 * time.Second)
 
 	go func() {
-		err := c.ShToNull()
-		if nil == err {
-			t.Fatalf("Should be an error at this point, since job should be cancelled")
-		}
+		time.Sleep(50 * time.Millisecond)
+		c.Cancel()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
-	c.Cancel()
-
+	err = c.ShToNull()
+	if nil == err {
+		t.Fatalf("Should be an error at this point, since job should be cancelled")
+	}
 }

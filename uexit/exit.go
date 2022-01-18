@@ -44,7 +44,7 @@ type exitHandler_ struct {
 }
 
 var (
-	sigC_         chan os.Signal     = make(chan os.Signal)
+	sigC_         chan os.Signal     = make(chan os.Signal, 8)
 	exitC_        chan int           = make(chan int)
 	exitHandlerC_ chan *exitHandler_ = make(chan *exitHandler_) // sync!
 	exitDoneC_    chan bool          = make(chan bool, 32)

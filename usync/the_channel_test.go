@@ -1,7 +1,6 @@
 package usync
 
 import (
-	"sync"
 	"testing"
 	"time"
 )
@@ -31,8 +30,8 @@ func TesItChan(t *testing.T) {
 	//
 	// test PutWait
 	//
-	var wg sync.WaitGroup
-	wg.Add(1)
+
+	resultC := make(chan bool)
 
 	go func() {
 		for i := 0; i < times; i++ {
@@ -43,10 +42,7 @@ func TesItChan(t *testing.T) {
 			}
 		}
 		ok := ch.PutRecover(-1)
-		if ok {
-			t.Fatalf("should not have been successful")
-		}
-		wg.Done()
+		resultC <- ok
 	}()
 
 	for i := 0; i < times; i++ {
@@ -59,6 +55,9 @@ func TesItChan(t *testing.T) {
 			t.Fatalf("incorrect value!")
 		}
 	}
-	close(ch) // force feeder to pop out of PutRecover
-	wg.Wait() // wait for feeder
+	close(ch)      // force feeder to pop out of PutRecover
+	ok = <-resultC // wait for it
+	if ok {
+		t.Fatalf("should not have been successful")
+	}
 }

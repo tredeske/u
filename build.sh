@@ -1,0 +1,6 @@
+#!/bin/sh -eux
+
+go build
+go test ./...
+go vet ./...
+exit 0
