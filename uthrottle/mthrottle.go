@@ -13,6 +13,7 @@ const INTERVAL_MIN time.Duration = 10 * time.Millisecond
 
 type Throttler interface {
 	Await(amount int64)
+	Account(amount int64)
 	SetRate(rate int64)
 	Start(rate int64, interval time.Duration)
 	Stop() // not to be used to stop user of Throttler
@@ -36,6 +37,13 @@ type MThrottle struct {
 	cond     *sync.Cond    // for waiting
 	rate     int64         // units per second, or 0 if inactive
 	interval time.Duration // time interval
+}
+
+//
+// tell throttle amount, but do NOT wait
+//
+func (this *MThrottle) Account(amount int64) {
+	atomic.AddInt64(&this.used, amount)
 }
 
 //

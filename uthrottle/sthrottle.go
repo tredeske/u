@@ -24,6 +24,13 @@ type SThrottle struct {
 }
 
 //
+// report units used, but do NOT wait
+//
+func (this *SThrottle) Account(amount int64) {
+	this.used += amount
+}
+
+//
 // report units used, and, if necessary, wait for next time to do something
 //
 func (this *SThrottle) Await(amount int64) {

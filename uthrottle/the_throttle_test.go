@@ -7,26 +7,6 @@ import (
 	"time"
 )
 
-/*
-func TestMThrottle(t *testing.T) {
-	const AMOUNT int64 = 100000
-	throttle := MThrottle{}
-	throttle.Start(AMOUNT, 0)
-	defer throttle.Stop()
-
-	startT := time.Now()
-	throttle.Await(AMOUNT / 4)
-	since := time.Since(startT)
-
-	atLeast := time.Second/4 - 50*time.Millisecond
-
-	if since < atLeast {
-		t.Fatalf("Took %s, but should have taken .25s", since)
-	}
-	fmt.Printf("took: %s\n", since)
-}
-*/
-
 func TestThrottles(t *testing.T) {
 	const AMOUNT int64 = 100000
 	for name, throttle := range map[string]Throttler{
