@@ -2,6 +2,7 @@ package ustrings
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"unsafe"
 )
@@ -21,6 +22,19 @@ import (
 //
 func UnsafeBytesToString(bs []byte) string {
 	return *(*string)(unsafe.Pointer(&bs))
+}
+
+//
+// for use when you just need the []byte temporarily and don't want to copy it
+//
+// see:
+//
+// https://stackoverflow.com/questions/59209493/how-to-use-unsafe-get-a-byte-slice-from-a-string-without-memory-copy
+//
+func UnsafeStringToBytes(s string) []byte {
+	const MaxInt32 = 1<<31 - 1
+	return (*[MaxInt32]byte)(unsafe.Pointer((*reflect.StringHeader)(
+		unsafe.Pointer(&s)).Data))[: len(s)&MaxInt32 : len(s)&MaxInt32]
 }
 
 //
