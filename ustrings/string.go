@@ -25,7 +25,12 @@ func UnsafeBytesToString(bs []byte) string {
 }
 
 //
+// functionally the same as buf := []byte(s)
+//
 // for use when you just need the []byte temporarily and don't want to copy it
+//
+// as measured in the usync.HashString benchmarks, this conversion takes only ~2ns,
+// while doing the cast takes ~10ns.
 //
 // see:
 //
