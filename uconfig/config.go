@@ -136,10 +136,11 @@ type Visitor func(*Section) error
 // you, so you don't have to create one in 99% of the cases.
 //
 type Section struct {
-	Context  string
-	expander expander_
-	section  map[string]interface{}
-	watch    *Watch
+	Context   string
+	expander  expander_
+	section   map[string]interface{}
+	trackKeys map[string]struct{} // keys accessed
+	watch     *Watch
 }
 
 //
@@ -433,8 +434,14 @@ func (this *Section) ExtraKeys(allowedKeys []string) (rv []string) {
 	return
 }
 
-// return error if any other keys are specfied
+//
+// return error if any other keys are specfied in the section than what have
+// already been accessed or (if provided) specified in allowedKeys
+//
 func (this *Section) OnlyKeys(allowedKeys ...string) (err error) {
+	for k := range this.trackKeys {
+		allowedKeys = append(allowedKeys, k)
+	}
 	extra := this.ExtraKeys(allowedKeys)
 	if 0 != len(extra) {
 		err = fmt.Errorf("section %s has extra keys: %v", this.Context, extra)
@@ -442,7 +449,14 @@ func (this *Section) OnlyKeys(allowedKeys ...string) (err error) {
 	return
 }
 
+//
+// issue a warning if any other keys are specified in the section than have
+// already been acessed or (if provided) specified in allowedKeys
+//
 func (this *Section) WarnExtraKeys(allowedKeys ...string) {
+	for k := range this.trackKeys {
+		allowedKeys = append(allowedKeys, k)
+	}
 	extra := this.ExtraKeys(allowedKeys)
 	if 0 != len(extra) {
 		ulog.Warnf("section %s has extra keys: %v", this.Context, extra)
@@ -523,6 +537,13 @@ func (this *Section) Expand(text string) string {
 	return this.expander.expand(text)
 }
 
+func (this *Section) track(key string) {
+	if nil == this.trackKeys {
+		this.trackKeys = make(map[string]struct{})
+	}
+	this.trackKeys[key] = struct{}{}
+}
+
 // Get (using JSON conversion) the specified section into dst (a &struct).
 // If key not found, dst is unmodified.
 // May not be super performant, but ok for config type stuff.
@@ -531,6 +552,7 @@ func (this *Section) GetStruct(key string, dst interface{}) (err error) {
 	if !ok {
 		return
 	}
+	this.track(key)
 	m, err := this.getMap(it)
 	if err != nil {
 		return uerr.Chainf(err, "GetStruct: value of '%s'", this.ctx(key))
@@ -579,6 +601,7 @@ func (this *Section) addProps() (err error) {
 
 // if key maps to a sub-section, set val to it
 func (this *Section) GetSectionIf(key string, val **Section) (err error) {
+	this.track(key)
 	it, ok := this.section[key]
 	if ok {
 		m, err := this.getMap(it)
@@ -601,6 +624,7 @@ func (this *Section) GetSectionIf(key string, val **Section) (err error) {
 
 // Get the section or error if it does not exist or is invalid
 func (this *Section) GetSection(key string, result **Section) (err error) {
+	this.track(key)
 	err = this.GetSectionIf(key, result)
 	if nil == err && nil == *result {
 		err = fmt.Errorf("parsing config: no such section: %s", this.ctx(key))
@@ -610,6 +634,7 @@ func (this *Section) GetSection(key string, result **Section) (err error) {
 
 // if key is a Array, set result to it
 func (this *Section) GetArrayIf(key string, result **Array) (err error) {
+	this.track(key)
 	it, ok := this.section[key]
 	if !ok {
 		return
@@ -723,6 +748,7 @@ func (this *Section) arrayEntryInclude(
 // Get the array or error if it does not exist or is invalid
 //
 func (this *Section) GetArray(key string, result **Array) (err error) {
+	this.track(key)
 	err = this.GetArrayIf(key, result)
 	if nil == err && nil == *result {
 		err = fmt.Errorf("parsing config: missing array for %s", this.ctx(key))
@@ -752,6 +778,7 @@ func (this *Section) GetBool(key string, result *bool) (err error) {
 // otherwise, if value is found but not a string or is blank, then error
 //
 func (this *Section) GetPath(key string, result *string) (err error) {
+	this.track(key)
 
 	it, ok := this.getIt(key, false)
 	if ok {
@@ -775,6 +802,7 @@ func (this *Section) GetPath(key string, result *string) (err error) {
 
 // same as GetPath, except also errors if unable to stat path
 func (this *Section) GetValidPath(key string, result *string) (err error) {
+	this.track(key)
 
 	err = this.GetPath(key, result)
 	if err != nil {
@@ -791,6 +819,7 @@ func (this *Section) GetValidPath(key string, result *string) (err error) {
 func (this *Section) GetCreateDir(key string, val *string, perm os.FileMode,
 ) (err error) {
 
+	this.track(key)
 	if 0 == perm {
 		perm = 02775
 	}
@@ -808,6 +837,7 @@ func (this *Section) GetCreateDir(key string, val *string, perm os.FileMode,
 // if found, parse to duration and update val
 func (this *Section) GetDuration(key string, val *time.Duration) (err error) {
 
+	this.track(key)
 	raw, found, err := this.getString(key)
 	if err != nil {
 		return
@@ -827,6 +857,7 @@ func (this *Section) GetFloat64(
 	validators ...FloatValidator,
 ) (err error) {
 
+	this.track(key)
 	it, ok := this.getIt(key, false)
 	if !ok {
 		err = this.validFloat(key, *val, validators)
@@ -904,6 +935,7 @@ func (this *Section) GetInt(
 	validators ...IntValidator,
 ) (err error) {
 
+	this.track(key)
 	it, ok := this.getIt(key, false)
 	if !ok {
 		switch p := result.(type) { // must validate default value
@@ -1052,6 +1084,7 @@ func (this *Section) GetUInt(
 	validators ...UIntValidator,
 ) (err error) {
 
+	this.track(key)
 	it, ok := this.getIt(key, false)
 	if !ok {
 		switch p := result.(type) { // must validate default value
@@ -1169,6 +1202,7 @@ func (this *Section) GetInts(
 	result *[]int,
 	validators ...IntValidator,
 ) (err error) {
+	this.track(key)
 	it, found := this.section[key]
 	if found {
 		*result, err = this.toInts(key, it, validators)
@@ -1215,6 +1249,7 @@ func (this *Section) GetStrings(
 	result *[]string,
 	validators ...StringValidator,
 ) (err error) {
+	this.track(key)
 	it, found := this.section[key]
 	if found {
 		*result, err = this.toStrings(key, it, validators)
@@ -1268,6 +1303,7 @@ func (this *Section) toStrings(
 
 // if found, parse into map[string]string and update val
 func (this *Section) GetStringMap(key string, val *map[string]string) (err error) {
+	this.track(key)
 	it, found := this.section[key]
 	if found {
 		var mit map[string]interface{}
@@ -1293,10 +1329,12 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 }
 
 func (this *Section) GetIt(key string, value *interface{}) {
+	this.track(key)
 	*value, _ = this.getIt(key, false)
 }
 
 func (this *Section) GetValidIt(key string, value *interface{}) (err error) {
+	this.track(key)
 	found := false
 	*value, found = this.getIt(key, false)
 	if !found {
@@ -1384,6 +1422,7 @@ func (this *Section) GetRawString(
 	validators ...StringValidator,
 ) (err error) {
 
+	this.track(key)
 	it, gotit := this.getIt(key, true)
 	if gotit {
 		val, _ := asRawString(it)
@@ -1402,6 +1441,7 @@ func (this *Section) GetString(
 	validators ...StringValidator,
 ) (err error) {
 
+	this.track(key)
 	var val string
 	var found bool
 	val, found, err = this.getString(key)
@@ -1424,6 +1464,7 @@ func (this *Section) GetString(
 // if found and not blank, parse to regexp and set result
 func (this *Section) GetRegexpIf(key string, result **regexp.Regexp) (err error) {
 
+	this.track(key)
 	raw, found, err := this.getString(key)
 	if err != nil {
 		return
@@ -1440,6 +1481,7 @@ func (this *Section) GetRegexpIf(key string, result **regexp.Regexp) (err error)
 // get value as regexp
 func (this *Section) GetRegexp(key string, result **regexp.Regexp) (err error) {
 
+	this.track(key)
 	err = this.GetRegexpIf(key, result)
 	if nil == err && nil == *result {
 		err = fmt.Errorf("No regexp value for '%s'", this.ctx(key))
@@ -1449,6 +1491,7 @@ func (this *Section) GetRegexp(key string, result **regexp.Regexp) (err error) {
 
 // if found and not blank, parse to url and set result
 func (this *Section) GetUrlIf(key string, result **nurl.URL) (err error) {
+	this.track(key)
 	raw, found, err := this.getString(key)
 	if err != nil {
 		return
@@ -1465,6 +1508,7 @@ func (this *Section) GetUrlIf(key string, result **nurl.URL) (err error) {
 // get and parse the url, setting result
 func (this *Section) GetUrl(key string, result **nurl.URL) (err error) {
 
+	this.track(key)
 	err = this.GetUrlIf(key, result)
 	if nil == err && nil == *result {
 		err = fmt.Errorf("No URL value for '%s'", this.ctx(key))
@@ -1488,6 +1532,7 @@ func (this *Section) Chain() *Chain {
 // get named subsection as a chain
 //
 func (this *Section) GetChain(key string) (rv *Chain) {
+	this.track(key)
 	rv = &Chain{}
 	rv.Error = this.GetSection(key, &rv.Section)
 	return

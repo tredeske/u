@@ -515,7 +515,7 @@ func TestGet(t *testing.T) {
 		GetUrl("url", &url).
 		GetUrlIf("url", &urlExists).
 		GetUrlIf("url-does-not-exist", &urlNotExists).
-		Error
+		Done()
 	if err != nil {
 		t.Fatal(err)
 	} else if stringV != "stringV" {
@@ -562,7 +562,7 @@ func TestGet(t *testing.T) {
 		GetBool("!!bool", &boolV).
 		GetFloat64("!!float64", &floatV).
 		GetDuration("!!duration", &durV).
-		Error
+		Done()
 	if err != nil {
 		t.Fatal(err)
 	} else if stringV != "default" {

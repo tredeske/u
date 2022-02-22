@@ -38,9 +38,9 @@ import (
 //             func(c *Chain) (err error) {
 //                 return c.
 //                     ...
-//                     Error
+//                     Done()
 //             }
-//         Error
+//         Done()
 //
 type Chain struct {
 	Section *Section
@@ -385,6 +385,16 @@ func (this *Chain) WarnExtraKeys(allowedKeys ...string) *Chain {
 		this.Section.WarnExtraKeys(allowedKeys...)
 	}
 	return this
+}
+
+//
+// end the accessor chain, returning any errors
+//
+func (this *Chain) Done() error {
+	if nil == this.Error {
+		this.Section.OnlyKeys()
+	}
+	return this.Error
 }
 
 // run the specified checking function as part of the chain
