@@ -548,11 +548,11 @@ func (this *Section) track(key string) {
 // If key not found, dst is unmodified.
 // May not be super performant, but ok for config type stuff.
 func (this *Section) GetStruct(key string, dst interface{}) (err error) {
+	this.track(key)
 	it, ok := this.section[key]
 	if !ok {
 		return
 	}
-	this.track(key)
 	m, err := this.getMap(it)
 	if err != nil {
 		return uerr.Chainf(err, "GetStruct: value of '%s'", this.ctx(key))
@@ -758,6 +758,7 @@ func (this *Section) GetArray(key string, result **Array) (err error) {
 
 // change result to boolean value if found and convertible to bool
 func (this *Section) GetBool(key string, result *bool) (err error) {
+	this.track(key)
 	it, found := this.getIt(key, false)
 	if found {
 		switch actual := it.(type) {
