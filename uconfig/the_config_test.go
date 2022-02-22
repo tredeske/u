@@ -472,6 +472,24 @@ func TestGetInt(t *testing.T) {
 
 }
 
+func TestDetectBadConfig(t *testing.T) {
+	m := map[string]interface{}{
+		"string":  "stringV", // valid item
+		"bad-int": 1,         // this item is not looked for, so is invalid
+	}
+	s, err := NewSection(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stringV := ""
+	err = s.Chain().
+		GetString("string", &stringV).
+		Done()
+	if nil == err {
+		t.Fatal("should have flagged bad-int as an invalid item")
+	}
+}
+
 func TestGet(t *testing.T) {
 	m := map[string]interface{}{
 		"string":   "stringV",

@@ -388,11 +388,11 @@ func (this *Chain) WarnExtraKeys(allowedKeys ...string) *Chain {
 }
 
 //
-// end the accessor chain, returning any errors
+// end the accessor chain, detecting invalid config, returning active error (if any)
 //
 func (this *Chain) Done() error {
 	if nil == this.Error {
-		this.Section.OnlyKeys()
+		this.Error = this.Section.OnlyKeys()
 	}
 	return this.Error
 }
