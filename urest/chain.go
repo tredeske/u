@@ -589,7 +589,16 @@ func (this *Chained) BodyCopy(dst io.Writer) *Chained {
 // get the body of the response
 //
 func (this *Chained) Body(body *[]byte) *Chained {
-	if nil != this.Response && nil != this.Response.Body {
+	return this.BodyIf(nil, body)
+}
+
+//
+// get the body of the response if cond met
+//
+func (this *Chained) BodyIf(cond CondF, body *[]byte) *Chained {
+	if nil != this.Response && nil != this.Response.Body &&
+		(nil == cond || cond(this)) {
+
 		var err error
 		*body, err = ioutil.ReadAll(this.Response.Body)
 		this.Response.Body.Close()
@@ -604,12 +613,40 @@ func (this *Chained) Body(body *[]byte) *Chained {
 // decode response body JSON into result
 //
 func (this *Chained) BodyJson(result interface{}) *Chained {
-	if nil != this.Response && nil != this.Response.Body {
+	return this.BodyJsonIf(nil, result)
+}
+
+//
+// decode response body JSON into result if condition met
+//
+func (this *Chained) BodyJsonIf(cond CondF, result interface{}) *Chained {
+	if nil != this.Response && nil != this.Response.Body &&
+		(nil == cond || cond(this)) {
+
 		err := json.NewDecoder(this.Response.Body).Decode(result)
 		this.Response.Body.Close()
 		if err != nil && nil == this.Error {
 			this.Error = err
 		}
+	}
+	return this
+}
+
+//
+// decode response body text into result if condition met
+//
+func (this *Chained) BodyText(result *string) *Chained {
+	return this.BodyTextIf(nil, result)
+}
+
+//
+// decode response body text into result if condition met
+//
+func (this *Chained) BodyTextIf(cond CondF, result *string) *Chained {
+	var body []byte
+	this.BodyIf(cond, &body)
+	if 0 != len(body) {
+		*result = string(body)
 	}
 	return this
 }
@@ -677,6 +714,45 @@ func (this *Chained) RetryOnError(times int, delay time.Duration, reset func(),
 	return this
 }
 */
+
+//
+// a function that computes a condition
+//
+type CondF func(*Chained) bool
+
+// produce a CondF to check status
+func StatusIs(status int) CondF {
+	return func(c *Chained) bool { return c.Response.StatusCode == status }
+}
+
+// produce a CondF to check !status
+func StatusNot(status int) CondF {
+	return func(c *Chained) bool { return c.Response.StatusCode != status }
+}
+
+// produce a CondF to check statusen
+func StatusIn(statusen ...int) CondF {
+	return func(c *Chained) bool {
+		for _, s := range statusen {
+			if s == c.Response.StatusCode {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// produce a CondF to check !statusen
+func StatusNotIn(statusen ...int) CondF {
+	return func(c *Chained) bool {
+		for _, s := range statusen {
+			if s == c.Response.StatusCode {
+				return false
+			}
+		}
+		return true
+	}
+}
 
 //
 // if return status is as specified, then invoke method
