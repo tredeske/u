@@ -8,10 +8,10 @@ import (
 //
 // make sure types are assignable, then assign
 //
-// var it interface{}
-// ...
-// var toMap map[string]bool
-// err := Assign( "context", &toMap, it )
+//    var it interface{}
+//    ...
+//    var toMap map[string]bool
+//    err := Assign( "context", &toMap, it )
 //
 func Assign(name string, dst, src interface{}) (err error) {
 	dstV := reflect.ValueOf(dst)

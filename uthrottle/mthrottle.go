@@ -106,7 +106,8 @@ func (this *MThrottle) SetRate(rate int64) {
 }
 
 func (this *MThrottle) run() {
-	var quanta [8]int64
+	const Q_LEN = 4
+	var quanta [Q_LEN]int64
 	timesPerSec := int64(time.Second / this.interval)
 	rate := this.rate
 	dole := rate / timesPerSec
@@ -133,7 +134,7 @@ func (this *MThrottle) run() {
 		// when work is done, used is increased by the worker
 		//
 		// we subtract used from the quanta, and shift the quanta right,
-		// exponentially decaying it as we do that
+		// exponentially decaying (divide by 4) it as we do that
 		//
 		// we end up with a sum for the next avail, and also with the
 		// deduction from used
@@ -142,7 +143,7 @@ func (this *MThrottle) run() {
 		remaining := used
 		prev := dole    // start with the dole for 1st quantum
 		var avail int64 // computes the new avail amount
-		for i := 0; i < len(quanta)-1; i++ {
+		for i := 0; i < Q_LEN-1; i++ {
 			curr := quanta[i]
 			if remaining > curr {
 				remaining -= curr
@@ -153,7 +154,7 @@ func (this *MThrottle) run() {
 			}
 			quanta[i] = prev
 			avail += prev
-			prev = curr / 2 // exponential decay
+			prev = curr >> 2 // exponential decay
 		}
 
 		// order matters

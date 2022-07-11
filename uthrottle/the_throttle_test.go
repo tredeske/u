@@ -8,7 +8,7 @@ import (
 )
 
 func TestThrottles(t *testing.T) {
-	const AMOUNT int64 = 100000
+	const AMOUNT int64 = 1000000
 	for name, throttle := range map[string]Throttler{
 		"S": &SThrottle{},
 		"M": &MThrottle{},
