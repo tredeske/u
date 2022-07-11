@@ -45,25 +45,27 @@ func Load(
 		tlsc.ClientCAs = tlsc.RootCAs
 	}
 
-	tlsc.CipherSuites = []uint16{
-		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+	/*
+		tlsc.CipherSuites = []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
 
-		// CBC not so good, but need for pre tls 1.2
-		//
-		tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-		tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-		tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-		tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-		tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-	}
+			// CBC not so good, but need for pre tls 1.2
+			//
+			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+		}
+	*/
 
 	//if 0 == tlsc.MinVersion {
 	tlsc.MinVersion = tls.VersionTLS12
@@ -117,22 +119,22 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	p.NewItem("tlsInsecure",
 		"bool",
 		"(client) If true, do not verify server credentials").
-		Set("default", false)
+		SetDefault(false)
 	p.NewItem("tlsDisableSessionTickets", "bool", "(server) Look it up").
-		Set("default", true)
+		SetDefault(true)
 	p.NewItem("tlsPreferServerCipherSuites", "bool", "(server) Look it up").
-		Set("default", true)
+		SetDefault(true)
 	p.NewItem("tlsClientAuth",
 		"string",
 		"(server) One of: noClientCert, requestClientCert, requireAnyClientCert, verifyClientCertIfGiven, requireAndVerifyClientCert").
-		Set("default", "noClientCert")
+		SetDefault("noClientCert")
 	p.NewItem("privateKey", "string", "Path to PEM").SetOptional()
 	p.NewItem("publicCert", "string", "Path to PEM").SetOptional()
 	p.NewItem("caCerts", "string", "Path to PEM").SetOptional()
 	p.NewItem("clientCaCerts", "string", "Path to PEM for validating client certs").
 		SetOptional()
-	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2").Set("default", "1.2")
-	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2").SetOptional()
+	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2, 1.3").SetDefault("1.2")
+	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2, 1.3").SetOptional()
 	p.NewItem("tlsServerName", "string", "(client)Name of server").SetOptional()
 }
 
@@ -212,6 +214,8 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			*dst = tls.VersionTLS11
 		case "1.2", "tls1.2":
 			*dst = tls.VersionTLS12
+		case "1.3", "tls1.3":
+			*dst = tls.VersionTLS13
 		default:
 			err = fmt.Errorf("Unknown TLS version: %s", version)
 		}
@@ -223,6 +227,11 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 	}
 	err = setTlsVersion(tlsMax, &tlsConfig.MaxVersion)
 	if err != nil {
+		return
+	}
+	if 0 != tlsConfig.MaxVersion && tlsConfig.MinVersion > tlsConfig.MaxVersion {
+		err = fmt.Errorf("TLS min version, %s, less than max version %s",
+			tlsMin, tlsMax)
 		return
 	}
 	rv = tlsConfig
