@@ -12,6 +12,37 @@ import (
 	"github.com/tredeske/u/uio"
 )
 
+func LoadKeyAndCert(privKeyPem, pubCertPem string, tlsc *tls.Config) (err error) {
+	if !uio.FileExists(pubCertPem) {
+		err = errors.New("Missing publicCert file " + pubCertPem)
+	} else if !uio.FileExists(privKeyPem) {
+		err = errors.New("Missing privateKey file " + privKeyPem)
+	} else {
+		tlsc.Certificates = make([]tls.Certificate, 1)
+		tlsc.Certificates[0], err = tls.LoadX509KeyPair(pubCertPem, privKeyPem)
+		if err != nil {
+			err = uerr.Chainf(err, "Unable to load pubCert (%s) or privKey (%s)",
+				pubCertPem, privKeyPem)
+		}
+	}
+	return
+}
+
+func LoadCaCerts(caCertsPem string, tlsc *tls.Config) (err error) {
+	if 0 == len(caCertsPem) {
+		err = errors.New("No CA Certs PEM file specified")
+		return
+	}
+	tlsc.RootCAs, err = LoadRoots(caCertsPem, nil)
+	if err != nil {
+		return
+	}
+	if nil == tlsc.ClientCAs {
+		tlsc.ClientCAs = tlsc.RootCAs
+	}
+	return
+}
+
 // Does not support password protected PEMs.
 func Load(
 	privKeyPem, pubCertPem, caCertsPem string,
@@ -19,18 +50,9 @@ func Load(
 ) (err error) {
 
 	if 0 != len(privKeyPem) { // if client, may not have a key
-		if !uio.FileExists(pubCertPem) {
-			err = errors.New("Missing publicCert file " + pubCertPem)
-			return
-		} else if !uio.FileExists(privKeyPem) {
-			err = errors.New("Missing privateKey file " + privKeyPem)
-			return
-		}
-		tlsc.Certificates = make([]tls.Certificate, 1)
-		tlsc.Certificates[0], err = tls.LoadX509KeyPair(pubCertPem, privKeyPem)
+		err = LoadKeyAndCert(privKeyPem, pubCertPem, tlsc)
 		if err != nil {
-			return uerr.Chainf(err, "Unable to load pubCert (%s) or privKey (%s)",
-				pubCertPem, privKeyPem)
+			return
 		}
 	}
 
@@ -45,33 +67,9 @@ func Load(
 		tlsc.ClientCAs = tlsc.RootCAs
 	}
 
-	/*
-		tlsc.CipherSuites = []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
-
-			// CBC not so good, but need for pre tls 1.2
-			//
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-		}
-	*/
-
-	//if 0 == tlsc.MinVersion {
 	tlsc.MinVersion = tls.VersionTLS12
 	tlsc.PreferServerCipherSuites = true
 	tlsc.SessionTicketsDisabled = true
-	//}
 	return
 }
 

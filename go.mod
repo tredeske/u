@@ -1,6 +1,6 @@
 module github.com/tredeske/u
 
-go 1.15
+go 1.18
 
 require (
 	github.com/cornelk/hashmap v1.0.1
