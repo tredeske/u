@@ -14,23 +14,24 @@ const (
 	sipHashKey2_ = 0xb5940c2623a5aabd
 )
 
-//
 // Least Recently Used (LRU) eviction map
 //
 // Lookup is by unique hash, which can be computed with HashString, HashBytes,
-// or by using one of he convenience accessors.
 //
+// or by using one of he convenience accessors.
 type LruMap struct {
-	m        *hashmap.HashMap
+	m        *hashmap.Map[uintptr, *lruv_]
 	capacity int
 	evicting AtomicBool
 }
 
-func NewLruMap(capacity int) *LruMap {
-	return &LruMap{
-		m:        hashmap.New(uintptr(capacity)),
+func NewLruMap(capacity int) (rv *LruMap) {
+	rv = &LruMap{
+		m:        hashmap.NewSized[uintptr, *lruv_](uintptr(capacity)),
 		capacity: capacity,
 	}
+	rv.m.SetHasher(func(k uintptr) uintptr { return k })
+	return
 }
 
 type lruv_ struct {
@@ -38,39 +39,30 @@ type lruv_ struct {
 	used  int64
 }
 
-//
 // get the value from the map, setting ok to true if value found
-//
 func (this *LruMap) Get(key string) (rv interface{}, ok bool) {
 	return this.GetByHash(HashString(key))
 }
 
-//
 // get the value from the map, setting ok to true if value found
-//
 func (this *LruMap) GetByBytes(key []byte) (rv interface{}, ok bool) {
 	return this.GetByHash(HashBytes(key))
 }
 
-//
 // Refer to HashString or HashBytes
-//
 func (this *LruMap) GetByHash(hash uintptr) (rv interface{}, ok bool) {
-	var it interface{}
-	it, ok = this.m.GetHashedKey(hash)
+	var lruv *lruv_
+	lruv, ok = this.m.Get(hash)
 	if ok {
-		lruv := it.(*lruv_)
 		rv = lruv.value
 		atomic.AddInt64(&lruv.used, 1)
 	}
 	return
 }
 
-//
 // Refer to HashString or HashBytes
-//
 func (this *LruMap) SetByHash(hash uintptr, v interface{}) {
-	this.m.SetHashedKey(hash, &lruv_{value: v})
+	this.m.Set(hash, &lruv_{value: v})
 	if this.capacity <= this.m.Len() && this.evicting.SetUnlessSet() {
 		go this.evict()
 	}
@@ -92,18 +84,14 @@ func (this *LruMap) GetOrAddAsString(key, value string) (rv string) {
 	return
 }
 
-//
 // get the value from the map, or add it if not found
-//
 func (this *LruMap) GetOrAdd(key string, value interface{}) (rv interface{}) {
 	return this.GetOrAddByHash(HashString(key),
 		func() (v interface{}) { return value })
 }
 
-//
 // get the value from the map, or add it from values produced by func
 // if not found.
-//
 func (this *LruMap) GetOrAddF(
 	key string,
 	add func() (value interface{}),
@@ -113,10 +101,8 @@ func (this *LruMap) GetOrAddF(
 	return this.GetOrAddByHash(HashString(key), add)
 }
 
-//
 // get the value from the map, or add it from values produced by func
 // if not found.
-//
 func (this *LruMap) GetOrAddByBytes(
 	key []byte,
 	add func() (value interface{}),
@@ -126,9 +112,7 @@ func (this *LruMap) GetOrAddByBytes(
 	return this.GetOrAddByHash(HashBytes(key), add)
 }
 
-//
 // Refer to HashString or HashBytes
-//
 func (this *LruMap) GetOrAddByHash(
 	hash uintptr,
 	add func() (value interface{}),
@@ -149,13 +133,13 @@ func (this *LruMap) evict() {
 		times := this.m.Len() - this.capacity
 		for i := 0; i < times; i++ {
 			var least int64 = math.MaxInt64
-			var evictIt interface{}
-			for kv := range this.m.Iter() {
-				lruv := kv.Value.(*lruv_)
+			var evictIt uintptr
+			this.m.Range(func(key uintptr, lruv *lruv_) bool {
 				if atomic.LoadInt64(&lruv.used) < least {
-					evictIt = kv.Key
+					evictIt = key
 				}
-			}
+				return true
+			})
 			this.m.Del(evictIt) // or, we could store hash in lruv_
 		}
 		if 0 >= times {
@@ -165,9 +149,7 @@ func (this *LruMap) evict() {
 	}
 }
 
-//
 // get the size of the map
-//
 func (this *LruMap) Len() (size int) {
 	return this.m.Len()
 }
