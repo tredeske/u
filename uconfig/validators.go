@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"net"
 	"regexp"
 )
 
@@ -170,6 +171,37 @@ func StringOneOf(choices ...string) StringValidator {
 			}
 		}
 		return fmt.Errorf("String (%s) not in %#v", v, choices)
+	}
+}
+
+// see RFC 952 and 1123 (section 2.1)
+// since caps are folded to lower case, we insist all lower case to avoid
+// confusion.
+var validHostname_ = regexp.MustCompile(
+	`^(?:[a-z0-9][a-z0-9\-]{0,61}[a-z0-9])(?:\.(?:[a-z0-9]|[a-z0-9][a-z0-9\-]{0,61}[a-z0-9]))*$`)
+
+// check with net.ParseIP first to rule out if it is an IP addr
+func ValidHostname(s string) bool {
+	return 256 > len(s) && 1 < len(s) && validHostname_.MatchString(s)
+}
+
+// create a StringValidator to verify value is an IP or hostname
+func StringHostOrIp() StringValidator {
+	return func(v string) (err error) {
+		if nil == net.ParseIP(v) && !ValidHostname(v) {
+			err = fmt.Errorf("String (%s) not a valid IP or hostname", v)
+		}
+		return
+	}
+}
+
+// create a StringValidator to verify value is an IP
+func StringIp() StringValidator {
+	return func(v string) (err error) {
+		if nil == net.ParseIP(v) {
+			err = fmt.Errorf("String (%s) not a valid IP", v)
+		}
+		return
 	}
 }
 

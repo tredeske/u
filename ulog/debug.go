@@ -12,9 +12,7 @@ var ( // see uinit/debug.go
 	debugDisabledFor_ = sync.Map{} // turn off selective debug
 )
 
-//
 // manage debug state for component
-//
 type Debug struct {
 	Enabled   bool
 	component string
@@ -44,13 +42,11 @@ func (this Debug) F(format string, args ...interface{}) {
 	}
 }
 
-//
 // output a hex dump as part of a message, preventing its creation if not enabled.
 //
-//     var d Debug
-//     var b []byte
-//     d.F("hex dump:\n%s", d.Dump(b))
-//
+//	var d Debug
+//	var b []byte
+//	d.F("hex dump:\n%s", d.Dump(b))
 func (this Debug) Dump(b []byte) string {
 	if this.Enabled {
 		return hex.Dump(b)
@@ -58,14 +54,12 @@ func (this Debug) Dump(b []byte) string {
 	return ""
 }
 
-//
 // output a hex dump as part of a message, preventing its creation if not enabled.
 //
-//     enableDump := true
-//     var d Debug
-//     var b []byte
-//     d.F("hex dump:\n%s", d.DumpIf(enableDump, b))
-//
+//	enableDump := true
+//	var d Debug
+//	var b []byte
+//	d.F("hex dump:\n%s", d.DumpIf(enableDump, b))
 func (this Debug) DumpIf(on bool, b []byte) string {
 	if on && this.Enabled {
 		return hex.Dump(b)
@@ -102,6 +96,13 @@ func Debugf(format string, args ...interface{}) {
 }
 
 // output a debug message if DebugEnabled
+func Debug1(s string) {
+	if DebugEnabled {
+		log.Printf("DEBUG: " + s)
+	}
+}
+
+// output a debug message if DebugEnabled
 func Debugln(args ...interface{}) {
 	if DebugEnabled {
 		arr := [8]interface{}{}
@@ -122,11 +123,9 @@ func DebugfFor(component string, format string, args ...interface{}) {
 	}
 }
 
-//
 // output a debug message if dbg
 //
 // hint: set dbg to IsDebugEnabledFor() to compute that once, then reuse
-//
 func DebugfIf(dbg bool, format string, args ...interface{}) {
 	if dbg || DebugEnabled {
 		if 0 == len(args) {
