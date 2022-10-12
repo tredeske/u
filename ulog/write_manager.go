@@ -21,7 +21,10 @@ type WriteManager struct {
 	keep        int
 	name        string
 	dir         string
+	base        string
 	ext         string
+	baseNoExt   string
+	nameNoExt   string
 	rotateMatch *regexp.Regexp
 }
 
@@ -35,26 +38,31 @@ func NewWriteManager(
 	err error,
 ) {
 	ext := filepath.Ext(file) // has the dot!
+	base := filepath.Base(file)
+	base = base[:len(base)-len(ext)]
 	if 1 > keep || 1024 < keep {
 		panic("log keep must be between 1 and 1024")
 	} else if 1000 > max {
-		panic("log mox must be at least 1000")
+		panic("log max must be at least 1000")
 	} else if 0 == len(ext) {
 		panic("log file name must have an extension: " + file)
+	} else if 0 == len(base) {
+		panic("log file name must have a base: " + file)
 	}
 	absFile, err := filepath.Abs(file)
 	if err != nil {
 		return
 	}
 	rv = &WriteManager{
-		name: absFile,
-		max:  max,
-		keep: int(keep),
-		dir:  filepath.Dir(absFile),
-		ext:  ext, // has the dot!
+		name:      absFile,
+		max:       max,
+		keep:      int(keep),
+		dir:       filepath.Dir(absFile),
+		ext:       ext, // has the dot!
+		baseNoExt: base,
+		nameNoExt: absFile[:len(absFile)-len(ext)],
 		// must match format in rotate()
-		rotateMatch: regexp.MustCompile(
-			`^` + filepath.Base(file) + `\.\d{6}\.\d{6}\` + ext + `$`),
+		rotateMatch: regexp.MustCompile(`^` + base + `\.\d{6}\.\d{6}\` + ext + `$`),
 	}
 	err = rv.next()
 	return
@@ -124,7 +132,7 @@ func (this *WriteManager) next() (err error) {
 
 func (this *WriteManager) rotate(when time.Time) {
 	// must match regexp in this.rotateMatch
-	dst := this.name + when.Format(".060102.150405") + this.ext
+	dst := this.nameNoExt + when.Format(".060102.150405") + this.ext
 	os.Remove(dst)
 	os.Rename(this.name, dst)
 
