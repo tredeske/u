@@ -21,12 +21,10 @@ var (
 	maxSz_ = int64(40 * 1024 * 1024)
 )
 
-//
 // Get name of log file to use, or 'stdout'
 //
 // This name is based on what was set in Init, so if stdout was configured
 // there, then the output will be to stdout.
-//
 func getLogName(base string) (rv string) {
 
 	if testing_ || stdout_ || 0 == len(base) || "stdout" == base {
@@ -44,10 +42,8 @@ func getLogName(base string) (rv string) {
 	return
 }
 
-//
 // Create a new logger based on provided info and on what was set in Init
-//
-func NewLogger(base string, maxSz int64) (rv *log.Logger, err error) {
+func NewLogger(base string, maxSz int64, keep int) (rv *log.Logger, err error) {
 
 	var w io.Writer
 	output := getLogName(base)
@@ -57,7 +53,7 @@ func NewLogger(base string, maxSz int64) (rv *log.Logger, err error) {
 		if 0 >= maxSz {
 			maxSz = maxSz_
 		}
-		w, err = NewWriteManager(output, maxSz)
+		w, err = NewWriteManager(output, maxSz, keep)
 	}
 	if nil == err {
 		rv = log.New(w, "", log.LstdFlags)
@@ -65,7 +61,6 @@ func NewLogger(base string, maxSz int64) (rv *log.Logger, err error) {
 	return
 }
 
-//
 // Initialize log output (ulog and golang standard log) to go to logF.
 //
 // If logF is empty or set to 'stdout', then use stdout
@@ -76,8 +71,7 @@ func NewLogger(base string, maxSz int64) (rv *log.Logger, err error) {
 // maxSz is the maximum output file size.  if unset, we use default of 40M.
 //
 // used by uboot
-//
-func Init(logF string, maxSz int64) (err error) {
+func Init(logF string, maxSz int64, keep int) (err error) {
 
 	var w io.Writer
 
@@ -90,8 +84,11 @@ func Init(logF string, maxSz int64) (err error) {
 		if 0 < maxSz {
 			maxSz_ = maxSz
 		}
+		if 2 > keep {
+			keep = 2
+		}
 		var wMgr *WriteManager
-		wMgr, err = NewWriteManager(logF, maxSz_)
+		wMgr, err = NewWriteManager(logF, maxSz_, keep)
 		if nil != wMgr {
 			dir_ = wMgr.Dir()
 			w = wMgr

@@ -1,30 +1,28 @@
-//
 // Package uboot manages process startup, setting up logging, signal handling,
 // and loading of components through golum and uconfig.
 //
 // This works well for processes with minimal command line flags, and
 // behavior defined by YAML config (see uconfig) (see golum).
 //
-//     func main() {
-//         _, err := uboot.SimpleBoot()
-//         if err != nil {
-//             ulog.Fatalf(..., err)
-//         }
+//	func main() {
+//	    _, err := uboot.SimpleBoot()
+//	    if err != nil {
+//	        ulog.Fatalf(..., err)
+//	    }
 //
-//         ...
+//	    ...
 //
-//         uexit.SimpleSignalHandling()
-//     }
+//	    uexit.SimpleSignalHandling()
+//	}
 //
 // From the command line, it is possible to see what components are supported:
 //
-//     program -show all
-//     program -show [component]
+//	program -show all
+//	program -show [component]
 //
 // To run program:
 //
-//     program -config config.yml -log [stdout|logfile]
-//
+//	program -config config.yml -log [stdout|logfile]
 package uboot
 
 import (
@@ -54,25 +52,22 @@ var (
 	}()
 )
 
-//
 // simple boot using default values
-//
 func SimpleBoot() (rv Boot, err error) {
 	rv = Boot{}
 	err = rv.Simple()
 	return
 }
 
-//
 // Control process boot
-//
 type Boot struct {
-	Name     string // what program calls itself
-	InstallD string // where program is installed
-	ConfigF  string // abs path to config file
-	LogF     string // path to log file, or empty/"stdout"
-	//StdoutF  string           // path to stdout file, or empty/"stdout" for stdout
-	Config *uconfig.Section // the loaded config
+	Name     string           // what program calls itself
+	InstallD string           // where program is installed
+	ConfigF  string           // abs path to config file
+	LogF     string           // path to log file, or empty/"stdout"
+	LogSize  int64            // size of log file before rotate
+	LogKeep  int              // logs to keep around
+	Config   *uconfig.Section // the loaded config
 
 	//
 	// set by build system.  examples:
@@ -82,9 +77,7 @@ type Boot struct {
 	Version string
 }
 
-//
 // simple boot using supplied Boot
-//
 func (this *Boot) Simple() (err error) {
 
 	err = this.Boot()
@@ -92,7 +85,7 @@ func (this *Boot) Simple() (err error) {
 		return
 	}
 
-	err = this.Redirect(0)
+	err = this.Redirect()
 	if err != nil {
 		return
 	}
@@ -105,9 +98,7 @@ func (this *Boot) Simple() (err error) {
 	return
 }
 
-//
 // bootstrap process to initial state.  order matters.
-//
 func (this *Boot) Boot() (err error) {
 
 	if 0 == len(this.Name) {
@@ -119,22 +110,29 @@ func (this *Boot) Boot() (err error) {
 
 	version := false
 	show := ""
+	logSzStr := "40Mi"
+	logKeep := 4
 
 	flag.StringVar(&this.ConfigF, "config", this.ConfigF,
-		"config file (config/[NAME].yml)")
+		"Config file (config/[NAME].yml)")
 
 	flag.BoolVar(&ulog.DebugEnabled, "debug", ulog.DebugEnabled,
-		"turn on debugging")
+		"Turn on debugging")
 
 	flag.StringVar(&this.LogF, "log", "",
-		"set to 'stdout' or to path of log file (default: log/[NAME].log)")
+		"Set to 'stdout' or to path of log file (default: log/[NAME].log)")
 
-	flag.StringVar(&this.Name, "name", this.Name, "name of program")
+	flag.StringVar(&logSzStr, "log-size", logSzStr,
+		"Size of log file before rotation.  K,M,G,Ki,Mi,Gi suffixes supported.")
 
-	flag.BoolVar(&version, "version", version, "print version and exit")
+	flag.IntVar(&logKeep, "log-keep", logKeep, "Number of log files to keep around")
+
+	flag.StringVar(&this.Name, "name", this.Name, "Name of program")
+
+	flag.BoolVar(&version, "version", version, "Print version and exit")
 
 	flag.StringVar(&show, "show", show,
-		"show settings for named component, or 'all'")
+		"Show settings for named component, or 'all'")
 
 	flag.Parse()
 
@@ -181,8 +179,20 @@ func (this *Boot) Boot() (err error) {
 	//
 	if "stdout" == this.LogF || Testing {
 		this.LogF = "stdout"
-	} else if 0 == len(this.LogF) {
-		this.LogF = path.Join(this.InstallD, "log", this.Name+".log")
+	} else {
+		if 0 == len(this.LogF) {
+			this.LogF = path.Join(this.InstallD, "log", this.Name+".log")
+		}
+		if 0 != len(logSzStr) {
+			this.LogSize, err = uconfig.Int64FromSiString(logSzStr)
+			if err != nil {
+				return
+			}
+		}
+		if 2 > logKeep {
+			logKeep = 2
+		}
+		this.LogKeep = logKeep
 	}
 
 	/*
@@ -210,21 +220,27 @@ func (this *Boot) Boot() (err error) {
 	return uconfig.InitEnv()
 }
 
-//
 // Continue boot process: redirect stdin, stdout, stderr and setup logging
 //
 // if logF is empty, then use configured setting, which may be "stdout"
 //
 // invoke after Boot() or program initialized
-//
-func (this *Boot) Redirect(maxSz int64) (err error) {
+func (this *Boot) Redirect() (err error) {
 
 	syscall.Close(0) // don't need stdin
 
 	//
 	// ulog
 	//
-	err = ulog.Init(this.LogF, maxSz)
+	if "stdout" != this.LogF {
+		if 10_000_000 > this.LogSize {
+			this.LogSize = 10_000_000
+		}
+		if 2 > this.LogKeep {
+			this.LogKeep = 2
+		}
+	}
+	err = ulog.Init(this.LogF, this.LogSize, this.LogKeep)
 	if err != nil {
 		return
 	}
@@ -235,9 +251,6 @@ func (this *Boot) Redirect(maxSz int64) (err error) {
 
 	if "stdout" != this.LogF {
 
-		if maxSz <= 0 {
-			maxSz = 40 * 1024 * 1024
-		}
 		var absLogF string
 		absLogF, err = filepath.Abs(this.LogF)
 		if err != nil {
@@ -247,7 +260,7 @@ func (this *Boot) Redirect(maxSz int64) (err error) {
 		stdoutF := path.Join(dir, this.Name+".stdout")
 
 		var w *ulog.WriteManager
-		w, err = ulog.NewWriteManager(stdoutF, maxSz)
+		w, err = ulog.NewWriteManager(stdoutF, this.LogSize, this.LogKeep)
 		if err != nil {
 			return
 		}
@@ -289,9 +302,7 @@ Starting
 	return nil
 }
 
-//
 // output stdout / stderr to a managed file
-//
 func stdouter(fd int, w *ulog.WriteManager) {
 	buff := make([]byte, 4096)
 	_ = buff[4095] // bounds check elimination
@@ -317,7 +328,6 @@ func stdouter(fd int, w *ulog.WriteManager) {
 	}
 }
 
-//
 // Continue boot process: configure from ConfigF (if avail)
 //
 // if cspec set, use golum to load the components listed in that section.
@@ -331,7 +341,6 @@ func stdouter(fd int, w *ulog.WriteManager) {
 // - logDir
 //
 // invoke after Redirect() or logging initialized
-//
 func (this *Boot) Configure(
 	cspec string,
 	beforeStart func(c *uconfig.Section) (err error),
@@ -402,9 +411,6 @@ func (this *Boot) Configure(
 	return
 }
 
-//
-//
-//
 func (this *Boot) loadComponents(
 	config *uconfig.Section,
 	cspec string,

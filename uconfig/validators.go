@@ -133,8 +133,10 @@ func StringNotBlank() StringValidator {
 // a StringValidator to verify string matches regular expression
 func StringMatch(re *regexp.Regexp) StringValidator {
 	return func(v string) (err error) {
-		if !re.MatchString(v) {
-			err = fmt.Errorf("%s does not match %s", v, re.String())
+		if 0 == len(v) {
+			err = errors.New("value is blank")
+		} else if !re.MatchString(v) {
+			err = fmt.Errorf("'%s' does not match %s", v, re.String())
 		}
 		return
 	}

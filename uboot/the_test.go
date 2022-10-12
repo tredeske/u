@@ -18,9 +18,8 @@ func TestBoot(t *testing.T) {
 		t.Fatalf("Unable to run Boot: %s", err)
 	}
 
-	err = b.Redirect(0)
+	err = b.Redirect()
 	if err != nil {
 		t.Fatalf("Unable to run Boot: %s", err)
 	}
-
 }
