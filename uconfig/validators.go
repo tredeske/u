@@ -130,6 +130,21 @@ func StringNotBlank() StringValidator {
 	}
 }
 
+// a StringValidator to verify string length
+func StringLen(min, max int) StringValidator {
+	if min > max {
+		panic("max must be greater than or equalt to min")
+	}
+	return func(v string) (err error) {
+		if min > len(v) {
+			err = fmt.Errorf("'%s' is too short.  Must be >= %d", v, min)
+		} else if max < len(v) {
+			err = fmt.Errorf("'%s' is too long.  Must be <= %d", v, max)
+		}
+		return
+	}
+}
+
 // a StringValidator to verify string matches regular expression
 func StringMatch(re *regexp.Regexp) StringValidator {
 	return func(v string) (err error) {
