@@ -40,7 +40,6 @@ import (
 
 	"github.com/tredeske/u/golum"
 	"github.com/tredeske/u/uconfig"
-	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uinit"
 	"github.com/tredeske/u/ulog"
 )
@@ -227,7 +226,7 @@ func (this *Boot) Boot() (err error) {
 // invoke after Boot() or program initialized
 func (this *Boot) Redirect() (err error) {
 
-	syscall.Close(0) // don't need stdin
+	//syscall.Close(0) // don't need stdin
 
 	//
 	// ulog
@@ -249,43 +248,45 @@ func (this *Boot) Redirect() (err error) {
 	// redirect stdout, stderr to file, if necessary
 	//
 
-	if "stdout" != this.LogF {
+	/*
+		if "stdout" != this.LogF {
 
-		var absLogF string
-		absLogF, err = filepath.Abs(this.LogF)
-		if err != nil {
-			return
-		}
-		dir := filepath.Dir(absLogF)
-		stdoutF := path.Join(dir, this.Name+".stdout")
+			var absLogF string
+			absLogF, err = filepath.Abs(this.LogF)
+			if err != nil {
+				return
+			}
+			dir := filepath.Dir(absLogF)
+			stdoutF := path.Join(dir, this.Name+".stdout")
 
-		var w *ulog.WriteManager
-		w, err = ulog.NewWriteManager(stdoutF, this.LogSize, this.LogKeep)
-		if err != nil {
-			return
-		}
+			var w *ulog.WriteManager
+			w, err = ulog.NewWriteManager(stdoutF, this.LogSize, this.LogKeep)
+			if err != nil {
+				return
+			}
 
-		pipes := [2]int{}
-		err = syscall.Pipe(pipes[:])
-		if err != nil {
-			return uerr.Chainf(err, "problem creating stdout pipe")
-		}
+			pipes := [2]int{}
+			err = syscall.Pipe(pipes[:])
+			if err != nil {
+				return uerr.Chainf(err, "problem creating stdout pipe")
+			}
 
-		go stdouter(pipes[0], w)
+			go stdouter(pipes[0], w)
 
-		err = syscall.Dup2(pipes[1], 1)
-		if err != nil {
-			return
+			err = syscall.Dup2(pipes[1], 1)
+			if err != nil {
+				return
+			}
+			err = syscall.Dup2(pipes[1], 2)
+			if err != nil {
+				return err
+			}
+			// add a marker to the stdout so we can triage panics
+			fmt.Printf("\n\n%s: Process started.  Name=%s, Version=%s\n\n",
+				time.Now().UTC().Format("2006/01/02 15:04:05Z"), this.Name,
+				this.Version)
 		}
-		err = syscall.Dup2(pipes[1], 2)
-		if err != nil {
-			return err
-		}
-		// add a marker to the stdout so we can triage panics
-		fmt.Printf("\n\n%s: Process started.  Name=%s, Version=%s\n\n",
-			time.Now().UTC().Format("2006/01/02 15:04:05Z"), this.Name,
-			this.Version)
-	}
+	*/
 
 	log.Printf(`
 
