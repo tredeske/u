@@ -10,7 +10,6 @@ import (
 	"github.com/tredeske/u/uerr"
 )
 
-//
 // Chain provides a nicer means of accessing a config Section.
 //
 // Chain allows chaining of accessor functions to avoid error checking
@@ -27,41 +26,34 @@ import (
 // A Section is usually provided to you in the golum lifecycle methods for
 // creating or reloading your component.  It is simple to convert it to a Chain.
 //
-//     var s *uconfig.Section
-//     var foo, bar, baz int
+//	var s *uconfig.Section
+//	var foo, bar, baz int
 //
-//     err = s.Chain().
-//         GetInt("foo", &foo).
-//         GetInt("bar", &bar, uconfig.MustBePos).
-//         GetInt("baz", &baz, uconfig.ValidRange(5, 20)).
-//         Each("array",
-//             func(c *Chain) (err error) {
-//                 return c.
-//                     ...
-//                     Done()
-//             }
-//         Done()
-//
+//	err = s.Chain().
+//	    GetInt("foo", &foo).
+//	    GetInt("bar", &bar, uconfig.MustBePos).
+//	    GetInt("baz", &baz, uconfig.ValidRange(5, 20)).
+//	    Each("array",
+//	        func(c *Chain) (err error) {
+//	            return c.
+//	                ...
+//	                Done()
+//	        }
+//	    Done()
 type Chain struct {
 	Section *Section
 	Error   error
 }
 
-//
 // Builder works with Chain.Build, Chain.BuildIf, Chain.BuildFrom to
 // build rv from config.
-//
 type Builder func(config *Chain) (rv interface{}, err error)
 
-//
 // ChainVisitor works with Chain.If, Chain.Must, Chain.Each.
-//
 type ChainVisitor func(config *Chain) (err error)
 
-//
 // Constructable works with Chain.Construct, Chain.ConstructFrom,
 // Chain.ConstructIf for things that construct themselves from config.
-//
 type Constructable interface {
 	FromConfig(config *Chain) (err error)
 }
@@ -90,11 +82,9 @@ func (this *Chain) GetArrayIf(key string, value **Array) *Chain {
 	return this
 }
 
-//
 // deprecated - use Each().
 //
 // get the array specified by key and iterate through the contained sections
-//
 func (this *Chain) EachSection(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var arr *Array
@@ -106,11 +96,9 @@ func (this *Chain) EachSection(key string, visitor Visitor) *Chain {
 	return this
 }
 
-//
 // deprecated - use EachIf().
 //
 // get the array specified by key if it exists and iterate through the sections.
-//
 func (this *Chain) EachSectionIf(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var arr *Array
@@ -122,11 +110,9 @@ func (this *Chain) EachSectionIf(key string, visitor Visitor) *Chain {
 	return this
 }
 
-//
 // deprecated - use Must().
 //
 // get the sub-section specified by key and process it
-//
 func (this *Chain) ASection(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var s *Section
@@ -138,11 +124,9 @@ func (this *Chain) ASection(key string, visitor Visitor) *Chain {
 	return this
 }
 
-//
 // deprecated - use If().
 //
 // if the sub-section exists, process it
-//
 func (this *Chain) IfSection(key string, visitor Visitor) *Chain {
 	if nil == this.Error {
 		var s *Section
@@ -192,6 +176,15 @@ func (this *Chain) GetDuration(key string, value *time.Duration) *Chain {
 
 	if nil == this.Error {
 		this.Error = this.Section.GetDuration(key, value)
+	}
+	return this
+}
+
+func (this *Chain) GetMillis(key string, value *int64, validators ...IntValidator,
+) *Chain {
+
+	if nil == this.Error {
+		this.Error = this.Section.GetMillis(key, value, validators...)
 	}
 	return this
 }
@@ -387,9 +380,7 @@ func (this *Chain) WarnExtraKeys(allowedKeys ...string) *Chain {
 	return this
 }
 
-//
 // end the accessor chain, detecting invalid config, returning active error (if any)
-//
 func (this *Chain) Done() error {
 	if nil == this.Error {
 		this.Error = this.Section.OnlyKeys()
@@ -413,9 +404,7 @@ func (this *Chain) Then(fn func()) *Chain {
 	return this
 }
 
-//
 // run builder with specified sub-section if section exists
-//
 func (this *Chain) If(key string, builder ChainVisitor) *Chain {
 
 	if nil == this.Error {
@@ -431,9 +420,7 @@ func (this *Chain) If(key string, builder ChainVisitor) *Chain {
 	return this
 }
 
-//
 // run builder with specified sub-section if section exists, fail otherwise
-//
 func (this *Chain) Must(key string, builder ChainVisitor) *Chain {
 
 	if nil == this.Error {
@@ -449,9 +436,7 @@ func (this *Chain) Must(key string, builder ChainVisitor) *Chain {
 	return this
 }
 
-//
 // run builder against each sub section in named array
-//
 func (this *Chain) Each(key string, builder ChainVisitor) *Chain {
 
 	if nil == this.Error {
@@ -467,9 +452,7 @@ func (this *Chain) Each(key string, builder ChainVisitor) *Chain {
 	return this
 }
 
-//
 // run builder against each sub section in named array, if array exists
-//
 func (this *Chain) EachIf(key string, builder ChainVisitor) *Chain {
 
 	if nil == this.Error {
@@ -485,14 +468,12 @@ func (this *Chain) EachIf(key string, builder ChainVisitor) *Chain {
 	return this
 }
 
-//
 // build value from named config section if it exists
 //
 // if builder returns nil, then no assignment is made to value
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
-//
 func (this *Chain) BuildIf(key string, value interface{}, builder Builder) *Chain {
 
 	if nil == this.Error {
@@ -507,14 +488,12 @@ func (this *Chain) BuildIf(key string, value interface{}, builder Builder) *Chai
 	return this
 }
 
-//
 // build value from named config section
 //
 // if builder returns nil, then no assignment is made to value
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
-//
 func (this *Chain) BuildFrom(
 	key string,
 	value interface{},
@@ -530,14 +509,12 @@ func (this *Chain) BuildFrom(
 	return this
 }
 
-//
 // build value from current config section using builder
 //
 // if builder returns nil, then no assignment is made to value
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
-//
 func (this *Chain) Build(value interface{}, builder Builder) *Chain {
 
 	if nil == this.Error {
@@ -550,9 +527,7 @@ func (this *Chain) Build(value interface{}, builder Builder) *Chain {
 	return this
 }
 
-//
 // Construct target from current config section.
-//
 func (this *Chain) Construct(target Constructable) *Chain {
 
 	if nil == this.Error {
@@ -561,9 +536,7 @@ func (this *Chain) Construct(target Constructable) *Chain {
 	return this
 }
 
-//
 // Construct target from named config sub-section.
-//
 func (this *Chain) ConstructFrom(key string, target Constructable) *Chain {
 
 	if nil == this.Error {
@@ -575,9 +548,7 @@ func (this *Chain) ConstructFrom(key string, target Constructable) *Chain {
 	return this
 }
 
-//
 // Construct target from named config sub-section if sub-section exists.
-//
 func (this *Chain) ConstructIf(key string, target Constructable) *Chain {
 
 	if nil == this.Error {

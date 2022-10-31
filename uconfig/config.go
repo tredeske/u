@@ -1,41 +1,40 @@
-//
 // Package uconfig enables access to the configuration loaded by
 // uboot / golum.
 //
 // This is typically YAML that looks like this:
 //
-//     properties:
-//       key:        value
-//       anInt:      10
+//	properties:
+//	  key:        value
+//	  anInt:      10
 //
-//     autoreload:   true
+//	autoreload:   true
 //
-//     debug:
+//	debug:
 //
-//     components:
-//       - name:     instanceName
-//         type:     serviceType
-//         note:     a note about this
-//         disabled: false
-//         hosts:    ["optional", "hosts", "enabled", "on"]
-//         config:
-//           foo:    1
-//           bar:    hello there
-//           sub:
-//             foo:  2
-//             bar:  "{{.key}}"
-//           array:
-//             - foo: "{{.anInt}}"
-//               bar: array element 0
-//             - foo: 5
-//               bar: array element 1
-//           ...
-//       - name:     instance2Name
-//         type:     service2Type
-//         config:
-//           ...
+//	components:
+//	  - name:     instanceName
+//	    type:     serviceType
+//	    note:     a note about this
+//	    disabled: false
+//	    hosts:    ["optional", "hosts", "enabled", "on"]
+//	    config:
+//	      foo:    1
+//	      bar:    hello there
+//	      sub:
+//	        foo:  2
+//	        bar:  "{{.key}}"
+//	      array:
+//	        - foo: "{{.anInt}}"
+//	          bar: array element 0
+//	        - foo: 5
+//	          bar: array element 1
+//	      ...
+//	  - name:     instance2Name
+//	    type:     service2Type
+//	    config:
+//	      ...
 //
-// Properties
+// # Properties
 //
 // The properties section provides substitutable values that can be used
 // in later sections.  Properties can use substitutions from other properties.
@@ -50,35 +49,32 @@
 // The {{.KEY}} will be filled in with properties as per the
 // go text/template package.
 //
-//     properties:
-//       key:        value
-//       fromEnv:    ${ENV_VAR}
-//       basedOnKey: {{.key}}    # NOTE: the '.' is critical
+//	properties:
+//	  key:        value
+//	  fromEnv:    ${ENV_VAR}
+//	  basedOnKey: {{.key}}    # NOTE: the '.' is critical
 //
 // All golang text template rules apply.
 //
 // The following properties are automatically added:
-//     - homeDir        - the home dir of the user
-//     - thisUser       - the username of the user
-//     - thisHost       - the hostname (nodename) of the host
-//     - thisIp         - the first listed (non loopback) IP
-//     - thisProcess    - the process name of the process
-//     - thisDir        - where the process is installed
-//     - initDir        - where the process is started from
+//   - homeDir        - the home dir of the user
+//   - thisUser       - the username of the user
+//   - thisHost       - the hostname (nodename) of the host
+//   - thisIp         - the first listed (non loopback) IP
+//   - thisProcess    - the process name of the process
+//   - thisDir        - where the process is installed
+//   - initDir        - where the process is started from
 //
-//
-// Includes
+// # Includes
 //
 // Other files can be included with the 'include_' directive, as in:
 //
 // include_:        /path/to/file.yml
 //
-//
-// Sections
+// # Sections
 //
 // Each component has a config section.  A config section may contain
 // sub-sections and arrays of sub-sections.
-//
 package uconfig
 
 import (
@@ -111,13 +107,10 @@ const (
 	MinInt  = -MaxInt - 1
 )
 
-//
 // Use with Chain.EachSection, Chain.EachSectionIf, Chain.ASection,
 // Chain.IfSection, Array.Each
-//
 type Visitor func(*Section) error
 
-//
 // Section represents a config section, and allows access to the settings
 // in the config.
 //
@@ -129,12 +122,11 @@ type Visitor func(*Section) error
 // The newer Chain API is preferred over this one.  To convert a Section to
 // a Chain:
 //
-//     var s *uconfig.Section
-//     chain := s.Chain()...
+//	var s *uconfig.Section
+//	chain := s.Chain()...
 //
 // A Section will typically be provided by the golum lifecycle methods to
 // you, so you don't have to create one in 99% of the cases.
-//
 type Section struct {
 	Context   string
 	expander  expander_
@@ -143,10 +135,8 @@ type Section struct {
 	watch     *Watch
 }
 
-//
 // create a new Section from nil, /path/to/yaml/file, YAML string,
 // YAML []byte, map[string]interface{}, or map[string]string
-//
 func NewSection(it interface{}) (rv *Section, err error) {
 	watch := &Watch{}
 	tmp := Section{
@@ -156,10 +146,8 @@ func NewSection(it interface{}) (rv *Section, err error) {
 	return tmp.NewChild(it)
 }
 
-//
 // create a new Section as a child of this one from nil, /path/to/yaml/file,
 // YAML string, YAML []byte, map[string]interface{}, or map[string]string
-//
 func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 	rv = &Section{
 		expander: this.expander.clone(),
@@ -173,10 +161,8 @@ func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
 	return
 }
 
-//
 // watch files.  if there is a change, then call onChange.
 // if there is an error and onError is set, then call it.
-//
 func (this *Section) Watch(
 	period time.Duration,
 	onChange func(changedFile string) (done bool),
@@ -185,9 +171,7 @@ func (this *Section) Watch(
 	this.watch.Start(period, onChange, onError)
 }
 
-//
 // dump out the config section as a map, resolving all properties
-//
 func (this *Section) AsResolvedMap() (rv map[string]interface{}) {
 
 	rv = make(map[string]interface{})
@@ -234,9 +218,7 @@ func (this *Section) resolveArray(a []interface{}) {
 	}
 }
 
-//
 // allow a map to be enriched by including another from file
-//
 func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 
 	include, found := in[include_]
@@ -270,7 +252,6 @@ func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 	return
 }
 
-//
 // coerce nil, string, []byte, or map into correct section map type
 //
 // if it is a nil or empty string, then this resolves to an empty map.
@@ -281,7 +262,6 @@ func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 //
 // if it is a string, it it looked up as a filename.  if no such file, then
 // it is parsed as YAML.  otherwise, the file contents are parsed as YAML.
-//
 func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err error) {
 
 	rv, err = this.toMap(it)
@@ -360,9 +340,7 @@ func (this *Section) ctx(key string) string {
 	}
 }
 
-//
 // load the YAML file into target, which may be a ptr to map or ptr to struct
-//
 func YamlLoad(file string, target interface{}) (err error) {
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -371,10 +349,8 @@ func YamlLoad(file string, target interface{}) (err error) {
 	return yaml.Unmarshal(content, target)
 }
 
-//
 // read in the specified yaml file, performing properties on the text, then
 // unmarshal it into target (a ptr to struct)
-//
 func (this *Section) StructFromYaml(file string, target interface{}) error {
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -434,10 +410,8 @@ func (this *Section) ExtraKeys(allowedKeys []string) (rv []string) {
 	return
 }
 
-//
 // return error if any other keys are specfied in the section than what have
 // already been accessed or (if provided) specified in allowedKeys
-//
 func (this *Section) OnlyKeys(allowedKeys ...string) (err error) {
 	for k := range this.trackKeys {
 		allowedKeys = append(allowedKeys, k)
@@ -449,10 +423,8 @@ func (this *Section) OnlyKeys(allowedKeys ...string) (err error) {
 	return
 }
 
-//
 // issue a warning if any other keys are specified in the section than have
 // already been acessed or (if provided) specified in allowedKeys
-//
 func (this *Section) WarnExtraKeys(allowedKeys ...string) {
 	for k := range this.trackKeys {
 		allowedKeys = append(allowedKeys, k)
@@ -564,10 +536,8 @@ func (this *Section) GetStruct(key string, dst interface{}) (err error) {
 	return json.Unmarshal(bytes, dst)
 }
 
-//
 // add any properties for this section in
 // - need to get this map specially as expansion rules are different
-//
 func (this *Section) addProps() (err error) {
 	it, found := this.section[PROPS]
 	if !found {
@@ -690,7 +660,6 @@ func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 	return
 }
 
-//
 // expand includes
 //
 // if a child only has { "include_": "path/to/file" }, then we need to
@@ -698,7 +667,6 @@ func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 //
 // if a child has more than one key/value mapping, and one of them is
 // "include_", then that is included in the child.  This is done elsewhere.
-//
 func (this *Section) arrayEntryInclude(
 	entry map[string]interface{},
 	addTo *[]map[string]interface{},
@@ -744,9 +712,7 @@ func (this *Section) arrayEntryInclude(
 	return
 }
 
-//
 // Get the array or error if it does not exist or is invalid
-//
 func (this *Section) GetArray(key string, result **Array) (err error) {
 	this.track(key)
 	err = this.GetArrayIf(key, result)
@@ -777,7 +743,6 @@ func (this *Section) GetBool(key string, result *bool) (err error) {
 // if value is found and a string, then set result to absolute path of value.
 //
 // otherwise, if value is found but not a string or is blank, then error
-//
 func (this *Section) GetPath(key string, result *string) (err error) {
 	this.track(key)
 
@@ -851,6 +816,48 @@ func (this *Section) GetDuration(key string, val *time.Duration) (err error) {
 	return
 }
 
+// if found, parse to duration as millis and update val
+func (this *Section) GetMillis(
+	key string,
+	val *int64,
+	validators ...IntValidator,
+) (
+	err error,
+) {
+	this.track(key)
+	it, ok := this.getIt(key, false)
+	if !ok {
+		err = this.validInt(key, *val, validators)
+		return // leave val unset (default val)
+	}
+
+	var parsed int64
+	switch raw := it.(type) {
+	case string:
+		var dur time.Duration
+		dur, err = time.ParseDuration(raw)
+		if err != nil {
+			err = uerr.Chainf(err, "parsing config: %s=%s", this.ctx(key), raw)
+			return
+		}
+		parsed = int64(dur) / 1_000_000
+	case int:
+		parsed = int64(raw)
+	case int64:
+		parsed = raw
+	default:
+		err = errors.New("Millis must be a duration string or an int")
+		return
+	}
+
+	err = this.validInt(key, parsed, validators)
+	if err != nil {
+		return
+	}
+	*val = parsed
+	return
+}
+
 // if found, parse to float64 and update val
 func (this *Section) GetFloat64(
 	key string,
@@ -864,23 +871,28 @@ func (this *Section) GetFloat64(
 		err = this.validFloat(key, *val, validators)
 		return // leave val unset (default val)
 	}
-	*val, ok = it.(float64)
-	if ok {
-		// then done
-	} else if raw, ok := it.(int); ok {
-		*val = float64(raw)
-	} else if raw, ok := it.(int64); ok {
-		*val = float64(raw)
-	} else if raw, ok := it.(string); ok {
-		*val, err = Float64FromSiString(this.expander.expand(raw))
-	} else {
+	var parsed float64
+	switch raw := it.(type) {
+	case float64:
+		parsed = raw
+	case int64:
+		parsed = float64(raw)
+	case int:
+		parsed = float64(raw)
+	case string:
+		parsed, err = Float64FromSiString(this.expander.expand(raw))
+	default:
 		err = fmt.Errorf("parsing config: value of %s not convertable "+
-			" to int64.  Is %s", this.ctx(key), reflect.TypeOf(it))
+			" to float64.  Is %s", this.ctx(key), reflect.TypeOf(it))
 	}
 	if err != nil {
 		return
 	}
-	err = this.validFloat(key, *val, validators)
+	err = this.validFloat(key, parsed, validators)
+	if err != nil {
+		return
+	}
+	*val = parsed
 	return
 }
 
@@ -918,7 +930,6 @@ func (this *Section) validInt(
 	return
 }
 
-//
 // if found, update result with integral value
 //
 // result must be the address of some sort of signed int
@@ -929,7 +940,6 @@ func (this *Section) validInt(
 //
 // handles strings with 0x (hex) or 0 (octal) prefixes
 // handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
-//
 func (this *Section) GetInt(
 	key string,
 	result interface{},
@@ -1067,7 +1077,6 @@ func (this *Section) validUInt(
 	return
 }
 
-//
 // if found, update result with unsigned integral value
 //
 // result must be the address of some sort of unsigned int
@@ -1078,7 +1087,6 @@ func (this *Section) validUInt(
 //
 // handles strings with 0x (hex) or 0 (octal) prefixes
 // handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
-//
 func (this *Section) GetUInt(
 	key string,
 	result interface{},
@@ -1345,11 +1353,9 @@ func (this *Section) GetValidIt(key string, value *interface{}) (err error) {
 	return
 }
 
-//
 // get the thing by key
 // - if raw, then perform no expansion
 // - otherwise, if the thing is a string, perform all expansions
-//
 func (this *Section) getIt(key string, raw bool) (rv interface{}, found bool) {
 	rv, found = this.section[key]
 	if found {
@@ -1519,9 +1525,7 @@ func (this *Section) GetUrl(key string, result **nurl.URL) (err error) {
 
 ///////////////////////////////////////////////////////
 
-//
 // Enable chaining of config calls
-//
 func (this *Section) Chain() *Chain {
 	if nil == this {
 		panic("chaining off of nil section")
@@ -1529,9 +1533,7 @@ func (this *Section) Chain() *Chain {
 	return &Chain{Section: this}
 }
 
-//
 // get named subsection as a chain
-//
 func (this *Section) GetChain(key string) (rv *Chain) {
 	this.track(key)
 	rv = &Chain{}

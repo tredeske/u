@@ -6,7 +6,65 @@ import (
 	"math/bits"
 	"net"
 	"regexp"
+
+	"github.com/tredeske/u/uerr"
 )
+
+/*
+
+Not sure how useful this would be since Go does not allow parameterized methods
+so we cannot have a Section.GetNumber[N Number](...) method.  Yuck.
+
+type Number interface {
+	constraints.Integer | constraints.Float
+}
+type NumberValidator[N Number] func(N) error
+
+// return a range validator for numbers
+func IsIn[N Number](min, max N) NumberValidator[N] {
+	if max < min {
+		panic("max cannot be less than min")
+	}
+	return func(v N) (err error) {
+		if v < min {
+			err = fmt.Errorf("value (%v) less than min (%v)", v, min)
+		} else if v > max {
+			err = fmt.Errorf("value (%v) greater than max (%v)", v, max)
+		}
+		return
+	}
+}
+
+// return a validator to error if v is not positive
+func IsPos[N Number]() NumberValidator[N] {
+	return func(v N) (err error) {
+		if v <= 0 {
+			err = fmt.Errorf("number is not positive (is %v)", v)
+		}
+		return
+	}
+}
+
+// return a validator to error if v is negative
+func IsNonNeg[N Number]() NumberValidator[N] {
+	return func(v N) (err error) {
+		if v < 0 {
+			err = fmt.Errorf("Number is negative (is %v)", v)
+		}
+		return
+	}
+}
+
+// return a validator to error if v not at least min
+func IsAtLeast[N Number](min N) NumberValidator[N] {
+	return func(v N) (err error) {
+		if v < min {
+			err = fmt.Errorf("Number is not at least %v (is %v)", min, v)
+		}
+		return
+	}
+}
+*/
 
 // use with Section.GetFloat64, Chain.GetFloat64 to validate float
 type FloatValidator func(float64) error
@@ -20,9 +78,9 @@ type UIntValidator func(uint64) error
 // use with Section.GetString, Chain.GetString to validate string
 type StringValidator func(string) error
 
-var (
-	ErrStringBlank    = errors.New("String value empty")
-	ErrStringNotBlank = errors.New("String value not empty")
+const (
+	ErrStringBlank    = uerr.Const("String value empty")
+	ErrStringNotBlank = uerr.Const("String value not empty")
 )
 
 // return a range validator for GetInt
