@@ -130,14 +130,14 @@ type Visitor func(*Section) error
 type Section struct {
 	Context   string
 	expander  expander_
-	section   map[string]interface{}
+	section   map[string]any
 	trackKeys map[string]struct{} // keys accessed
 	watch     *Watch
 }
 
 // create a new Section from nil, /path/to/yaml/file, YAML string,
-// YAML []byte, map[string]interface{}, or map[string]string
-func NewSection(it interface{}) (rv *Section, err error) {
+// YAML []byte, map[string]any, or map[string]string
+func NewSection(it any) (rv *Section, err error) {
 	watch := &Watch{}
 	tmp := Section{
 		expander: newExpander(watch),
@@ -147,8 +147,8 @@ func NewSection(it interface{}) (rv *Section, err error) {
 }
 
 // create a new Section as a child of this one from nil, /path/to/yaml/file,
-// YAML string, YAML []byte, map[string]interface{}, or map[string]string
-func (this *Section) NewChild(it interface{}) (rv *Section, err error) {
+// YAML string, YAML []byte, map[string]any, or map[string]string
+func (this *Section) NewChild(it any) (rv *Section, err error) {
 	rv = &Section{
 		expander: this.expander.clone(),
 		watch:    this.watch,
@@ -172,15 +172,15 @@ func (this *Section) Watch(
 }
 
 // dump out the config section as a map, resolving all properties
-func (this *Section) AsResolvedMap() (rv map[string]interface{}) {
+func (this *Section) AsResolvedMap() (rv map[string]any) {
 
-	rv = make(map[string]interface{})
+	rv = make(map[string]any)
 	for k, it := range this.section {
 		switch v := it.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			this.resolveMap(v)
 			rv[k] = v
-		case []interface{}:
+		case []any:
 			this.resolveArray(v)
 			rv[k] = v
 		case string:
@@ -192,12 +192,12 @@ func (this *Section) AsResolvedMap() (rv map[string]interface{}) {
 	return
 }
 
-func (this *Section) resolveMap(m map[string]interface{}) {
+func (this *Section) resolveMap(m map[string]any) {
 	for k, it := range m {
 		switch v := it.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			this.resolveMap(v)
-		case []interface{}:
+		case []any:
 			this.resolveArray(v)
 		case string:
 			m[k] = this.expander.expand(v)
@@ -205,12 +205,12 @@ func (this *Section) resolveMap(m map[string]interface{}) {
 	}
 }
 
-func (this *Section) resolveArray(a []interface{}) {
+func (this *Section) resolveArray(a []any) {
 	for i, it := range a {
 		switch v := it.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			this.resolveMap(v)
-		case []interface{}:
+		case []any:
 			this.resolveArray(v)
 		case string:
 			a[i] = this.expander.expand(v)
@@ -219,7 +219,7 @@ func (this *Section) resolveArray(a []interface{}) {
 }
 
 // allow a map to be enriched by including another from file
-func (this *Section) mapInclude(in map[string]interface{}) (err error) {
+func (this *Section) mapInclude(in map[string]any) (err error) {
 
 	include, found := in[include_]
 	if !found {
@@ -229,7 +229,7 @@ func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 	if !isString {
 		return
 	}
-	var included map[string]interface{}
+	var included map[string]any
 	err = YamlLoad(includeF, &included)
 	if err != nil {
 		return
@@ -262,7 +262,7 @@ func (this *Section) mapInclude(in map[string]interface{}) (err error) {
 //
 // if it is a string, it it looked up as a filename.  if no such file, then
 // it is parsed as YAML.  otherwise, the file contents are parsed as YAML.
-func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err error) {
+func (this *Section) getMap(it any) (rv map[string]any, err error) {
 
 	rv, err = this.toMap(it)
 	if err != nil {
@@ -274,20 +274,20 @@ func (this *Section) getMap(it interface{}) (rv map[string]interface{}, err erro
 	return
 }
 
-func (this *Section) toMap(it interface{}) (rv map[string]interface{}, err error) {
+func (this *Section) toMap(it any) (rv map[string]any, err error) {
 
 	if nil == it {
-		rv = make(map[string]interface{})
+		rv = make(map[string]any)
 		return
 	}
 	switch val := it.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		rv = val
 	case []byte:
 		err = yaml.Unmarshal(val, &rv)
 	case string:
 		if 0 == len(val) { // empty string: treat same as nil
-			rv = make(map[string]interface{})
+			rv = make(map[string]any)
 		} else {
 			_, err = os.Stat(val)
 			if nil == err {
@@ -299,8 +299,8 @@ func (this *Section) toMap(it interface{}) (rv map[string]interface{}, err error
 				err = yaml.Unmarshal([]byte(val), &rv)
 			}
 		}
-	case map[interface{}]interface{}:
-		rv = make(map[string]interface{}, len(val))
+	case map[any]any:
+		rv = make(map[string]any, len(val))
 		for k, v := range val {
 			if ks, ok := k.(string); !ok {
 				err = errors.New("Non string key in map")
@@ -310,7 +310,7 @@ func (this *Section) toMap(it interface{}) (rv map[string]interface{}, err error
 			}
 		}
 	case map[string]string:
-		rv = make(map[string]interface{}, len(val))
+		rv = make(map[string]any, len(val))
 		for k, v := range val {
 			rv[k] = v
 		}
@@ -341,7 +341,7 @@ func (this *Section) ctx(key string) string {
 }
 
 // load the YAML file into target, which may be a ptr to map or ptr to struct
-func YamlLoad(file string, target interface{}) (err error) {
+func YamlLoad(file string, target any) (err error) {
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
@@ -351,7 +351,7 @@ func YamlLoad(file string, target interface{}) (err error) {
 
 // read in the specified yaml file, performing properties on the text, then
 // unmarshal it into target (a ptr to struct)
-func (this *Section) StructFromYaml(file string, target interface{}) error {
+func (this *Section) StructFromYaml(file string, target any) error {
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
@@ -436,7 +436,7 @@ func (this *Section) WarnExtraKeys(allowedKeys ...string) {
 }
 
 // iterate through config items in section, aborting if visitor returns error
-func (this *Section) Each(fn func(key string, val interface{}) error) error {
+func (this *Section) Each(fn func(key string, val any) error) error {
 	for k, v := range this.section {
 		err := fn(k, v)
 		if err != nil {
@@ -472,7 +472,7 @@ func (this *Section) DiffersFrom(that *Section) (differs bool) {
 }
 
 // add a key/value pair to the section
-func (this *Section) Add(key string, value interface{}) {
+func (this *Section) Add(key string, value any) {
 	this.section[key] = value
 }
 
@@ -519,7 +519,7 @@ func (this *Section) track(key string) {
 // Get (using JSON conversion) the specified section into dst (a &struct).
 // If key not found, dst is unmodified.
 // May not be super performant, but ok for config type stuff.
-func (this *Section) GetStruct(key string, dst interface{}) (err error) {
+func (this *Section) GetStruct(key string, dst any) (err error) {
 	this.track(key)
 	it, ok := this.section[key]
 	if !ok {
@@ -543,7 +543,7 @@ func (this *Section) addProps() (err error) {
 	if !found {
 		return
 	}
-	var mit map[string]interface{}
+	var mit map[string]any
 	mit, err = this.toMap(it)
 	if err != nil {
 		return uerr.Chainf(err, "Unable to get '%s", PROPS)
@@ -609,7 +609,7 @@ func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 	if !ok {
 		return
 	}
-	raw, ok := it.([]interface{})
+	raw, ok := it.([]any)
 	if !ok {
 		return fmt.Errorf("parsing config: value of %s not an array",
 			this.ctx(key))
@@ -617,16 +617,16 @@ func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 	rv := &Array{
 		Context:  this.ctx(key),
 		expander: this.expander.clone(),
-		sections: make([]map[string]interface{}, 0, len(raw)),
+		sections: make([]map[string]any, 0, len(raw)),
 	}
 
 	//
 	// convert to maps and expand includes
 	//
 	isInclude := false
-	var children []map[string]interface{}
+	var children []map[string]any
 	for i, v := range raw {
-		var child map[string]interface{}
+		var child map[string]any
 		child, err = this.toMap(v)
 		if err != nil {
 			return uerr.Chainf(err, "parsing config: value %d in %s array",
@@ -648,7 +648,7 @@ func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 	// convert to section maps
 	//
 	for _, v := range children {
-		var section map[string]interface{}
+		var section map[string]any
 		section, err = this.getMap(v)
 		if err != nil {
 			return uerr.Chainf(err, "parsing config: value in %s array",
@@ -668,8 +668,8 @@ func (this *Section) GetArrayIf(key string, result **Array) (err error) {
 // if a child has more than one key/value mapping, and one of them is
 // "include_", then that is included in the child.  This is done elsewhere.
 func (this *Section) arrayEntryInclude(
-	entry map[string]interface{},
-	addTo *[]map[string]interface{},
+	entry map[string]any,
+	addTo *[]map[string]any,
 ) (isInclude bool, err error) {
 
 	if 1 != len(entry) {
@@ -688,7 +688,7 @@ func (this *Section) arrayEntryInclude(
 
 	includeF = this.Expand(includeF)
 
-	var included []map[string]interface{}
+	var included []map[string]any
 	err = YamlLoad(includeF, &included)
 	if err != nil {
 		return
@@ -942,7 +942,7 @@ func (this *Section) validInt(
 // handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
 func (this *Section) GetInt(
 	key string,
-	result interface{},
+	result any,
 	validators ...IntValidator,
 ) (err error) {
 
@@ -971,8 +971,8 @@ func (this *Section) GetInt(
 
 func (this *Section) asInt(
 	key string,
-	it interface{},
-	result interface{},
+	it any,
+	result any,
 	validators []IntValidator,
 ) (err error) {
 
@@ -1089,7 +1089,7 @@ func (this *Section) validUInt(
 // handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
 func (this *Section) GetUInt(
 	key string,
-	result interface{},
+	result any,
 	validators ...UIntValidator,
 ) (err error) {
 
@@ -1221,14 +1221,14 @@ func (this *Section) GetInts(
 
 func (this *Section) toInts(
 	key string,
-	it interface{},
+	it any,
 	validators []IntValidator,
 ) (rv []int, err error) {
 
 	ok := false
 	rv, ok = it.([]int)
 	if !ok {
-		raw, isArray := it.([]interface{})
+		raw, isArray := it.([]any)
 		if isArray {
 			rv = make([]int, len(raw))
 			for i, v := range raw {
@@ -1268,14 +1268,14 @@ func (this *Section) GetStrings(
 
 func (this *Section) toStrings(
 	key string,
-	it interface{},
+	it any,
 	validators []StringValidator,
 ) (rv []string, err error) {
 
 	ok := false
 	rv, ok = it.([]string)
 	if !ok {
-		raw, isArray := it.([]interface{})
+		raw, isArray := it.([]any)
 		if isArray {
 			rv = make([]string, len(raw))
 			for i, v := range raw {
@@ -1315,7 +1315,7 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 	this.track(key)
 	it, found := this.section[key]
 	if found {
-		var mit map[string]interface{}
+		var mit map[string]any
 		mit, err = this.getMap(it)
 		if err != nil {
 			return uerr.Chainf(err, "GetStringMap: value of '%s'", this.ctx(key))
@@ -1337,12 +1337,12 @@ func (this *Section) GetStringMap(key string, val *map[string]string) (err error
 	return
 }
 
-func (this *Section) GetIt(key string, value *interface{}) {
+func (this *Section) GetIt(key string, value *any) {
 	this.track(key)
 	*value, _ = this.getIt(key, false)
 }
 
-func (this *Section) GetValidIt(key string, value *interface{}) (err error) {
+func (this *Section) GetValidIt(key string, value *any) (err error) {
 	this.track(key)
 	found := false
 	*value, found = this.getIt(key, false)
@@ -1356,7 +1356,7 @@ func (this *Section) GetValidIt(key string, value *interface{}) (err error) {
 // get the thing by key
 // - if raw, then perform no expansion
 // - otherwise, if the thing is a string, perform all expansions
-func (this *Section) getIt(key string, raw bool) (rv interface{}, found bool) {
+func (this *Section) getIt(key string, raw bool) (rv any, found bool) {
 	rv, found = this.section[key]
 	if found {
 		if !raw {
@@ -1370,7 +1370,7 @@ func (this *Section) getIt(key string, raw bool) (rv interface{}, found bool) {
 }
 
 // convert it to string
-func (this *Section) asString(key string, it interface{}) (rv string, err error) {
+func (this *Section) asString(key string, it any) (rv string, err error) {
 
 	switch typ := it.(type) {
 	case string:
@@ -1387,7 +1387,7 @@ func (this *Section) asString(key string, it interface{}) (rv string, err error)
 
 // convert it to string
 // do NOT convert numeric, boolean, or other types to string
-func asRawString(it interface{}) (rv string, ok bool) {
+func asRawString(it any) (rv string, ok bool) {
 
 	switch typ := it.(type) {
 	case string:
@@ -1398,7 +1398,7 @@ func asRawString(it interface{}) (rv string, ok bool) {
 }
 
 func (this *Section) getString(key string) (rv string, found bool, err error) {
-	var it interface{}
+	var it any
 	it, found = this.getIt(key, false)
 	if found {
 		rv, err = this.asString(key, it)

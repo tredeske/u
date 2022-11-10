@@ -6,14 +6,10 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-//
 // accumulates ordered help info - see golum.Show
-//
 type Help yaml.MapSlice
 
-//
 // Initialize the help info, returning a Help to use for parameters
-//
 func (this *Help) Init(name, note string) (rv *Help) {
 	params := &Help{}
 	*this = append(*this,
@@ -22,9 +18,7 @@ func (this *Help) Init(name, note string) (rv *Help) {
 	return params
 }
 
-//
 // Add an item to the help info
-//
 func (this *Help) NewItem(name, theType, note string) (rv *Help) {
 	rv = &Help{
 		{Key: "type", Value: theType},
@@ -34,33 +28,31 @@ func (this *Help) NewItem(name, theType, note string) (rv *Help) {
 	return
 }
 
-//
-// Mark the current help item as optional
-//
-func (this *Help) SetOptional() (rv *Help) {
+// Mark this as optional
+func (this *Help) SetOptional() (rv *Help) { return this.Optional() }
+
+// Mark this item as optional
+func (this *Help) Optional() (rv *Help) {
 	*this = append(*this, yaml.MapItem{Key: "optional", Value: true})
 	return this
 }
 
-//
-// Set default on the current help
-//
-func (this *Help) SetDefault(value interface{}) (rv *Help) {
+// Set default value for this
+func (this *Help) SetDefault(value any) (rv *Help) { return this.Default(value) }
+
+// Set default value for this
+func (this *Help) Default(value any) (rv *Help) {
 	*this = append(*this, yaml.MapItem{Key: "default", Value: value})
 	return this
 }
 
-//
 // Set something on the current help
-//
-func (this *Help) Set(key string, value interface{}) (rv *Help) {
+func (this *Help) Set(key string, value any) (rv *Help) {
 	*this = append(*this, yaml.MapItem{Key: key, Value: value})
 	return this
 }
 
-//
-// Add a sub section to the current help
-//
+// Start a sub section for this
 func (this *Help) AddSub(title string) (sub *Help) {
 	if 0 == len(title) {
 		title = "sub"
@@ -79,7 +71,7 @@ func (this *Help) Contains(key string) bool {
 	return false
 }
 
-func (this *Help) Get(key string) (rv interface{}) {
+func (this *Help) Get(key string) (rv any) {
 	for _, item := range *this {
 		if item.Key == key {
 			return item.Value
@@ -96,9 +88,7 @@ func (this *Help) GetHelp(key string) (rv *Help) {
 	return
 }
 
-//
 // issue warnings for any undocumented parameters
-//
 func (this *Section) WarnUnknown(h *Help) {
 	params := h.GetHelp("params")
 	if nil == params {

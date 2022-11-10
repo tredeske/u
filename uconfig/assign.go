@@ -5,15 +5,13 @@ import (
 	"reflect"
 )
 
-//
 // make sure types are assignable, then assign
 //
-//    var it interface{}
-//    ...
-//    var toMap map[string]bool
-//    err := Assign( "context", &toMap, it )
-//
-func Assign(name string, dst, src interface{}) (err error) {
+//	var it any
+//	...
+//	var toMap map[string]bool
+//	err := Assign( "context", &toMap, it )
+func Assign(name string, dst, src any) (err error) {
 	dstV := reflect.ValueOf(dst)
 	dstT := dstV.Type()
 	if dstT.Kind() != reflect.Ptr {

@@ -6,20 +6,18 @@ import (
 	"github.com/tredeske/u/uerr"
 )
 
-//
 // an array of config sections
-//
 type Array struct {
 	Context  string
 	expander expander_
-	sections []map[string]interface{}
+	sections []map[string]any
 }
 
 func ArrayFromSection(s *Section) (rv *Array) {
 	return &Array{
 		Context:  s.Context,
 		expander: s.expander,
-		sections: []map[string]interface{}{s.section},
+		sections: []map[string]any{s.section},
 	}
 }
 

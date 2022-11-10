@@ -47,7 +47,7 @@ type Chain struct {
 
 // Builder works with Chain.Build, Chain.BuildIf, Chain.BuildFrom to
 // build rv from config.
-type Builder func(config *Chain) (rv interface{}, err error)
+type Builder func(config *Chain) (rv any, err error)
 
 // ChainVisitor works with Chain.If, Chain.Must, Chain.Each.
 type ChainVisitor func(config *Chain) (err error)
@@ -202,7 +202,7 @@ func (this *Chain) GetFloat64(
 
 func (this *Chain) GetInt(
 	key string,
-	result interface{},
+	result any,
 	validators ...IntValidator,
 ) *Chain {
 
@@ -226,7 +226,7 @@ func (this *Chain) GetInts(
 
 func (this *Chain) GetUInt(
 	key string,
-	result interface{},
+	result any,
 	validators ...UIntValidator,
 ) *Chain {
 
@@ -307,7 +307,7 @@ func (this *Chain) GetValidPath(key string, value *string) *Chain {
 }
 
 // if key resolves to some value, then set value
-func (this *Chain) GetIt(key string, value *interface{}) *Chain {
+func (this *Chain) GetIt(key string, value *any) *Chain {
 	if nil == this.Error {
 		this.Section.GetIt(key, value)
 	}
@@ -315,7 +315,7 @@ func (this *Chain) GetIt(key string, value *interface{}) *Chain {
 }
 
 // if key resolves to some value, then set value, otherwise error
-func (this *Chain) GetValidIt(key string, value *interface{}) *Chain {
+func (this *Chain) GetValidIt(key string, value *any) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetValidIt(key, value)
 	}
@@ -474,7 +474,7 @@ func (this *Chain) EachIf(key string, builder ChainVisitor) *Chain {
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
-func (this *Chain) BuildIf(key string, value interface{}, builder Builder) *Chain {
+func (this *Chain) BuildIf(key string, value any, builder Builder) *Chain {
 
 	if nil == this.Error {
 		var s *Section
@@ -496,7 +496,7 @@ func (this *Chain) BuildIf(key string, value interface{}, builder Builder) *Chai
 // thing to be built is a pointer, then it must be the addres of the pointer.
 func (this *Chain) BuildFrom(
 	key string,
-	value interface{},
+	value any,
 	builder Builder,
 ) *Chain {
 
@@ -515,10 +515,10 @@ func (this *Chain) BuildFrom(
 //
 // value is typically a pointer to the thing that will be built.  If the
 // thing to be built is a pointer, then it must be the addres of the pointer.
-func (this *Chain) Build(value interface{}, builder Builder) *Chain {
+func (this *Chain) Build(value any, builder Builder) *Chain {
 
 	if nil == this.Error {
-		var it interface{}
+		var it any
 		it, this.Error = builder(this)
 		if nil == this.Error && nil != it {
 			this.Error = Assign(this.Section.Context, value, it)

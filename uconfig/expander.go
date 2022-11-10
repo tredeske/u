@@ -10,9 +10,7 @@ import (
 	"time"
 )
 
-//
 // expander expands ${...} with ENV vars and {{...}} with properties
-//
 type expander_ struct {
 	watch   *Watch
 	mapping map[string]string
@@ -49,10 +47,8 @@ func (this *expander_) expand(value string) (rv string) {
 	return strings.TrimSpace(value)
 }
 
-//
 // carefully expand each individual {{...}} group.  if one doesn't expand,
 // then put it in unexpanded.
-//
 func (this *expander_) carefully(buff *bytes.Buffer, value string) {
 
 	pos := 0
@@ -169,7 +165,7 @@ func (this *expander_) expandAll() {
 
 func (this *expander_) loadInclude(includeF string) (err error) {
 	this.watch.Add(includeF)
-	var included map[string]interface{}
+	var included map[string]any
 	err = YamlLoad(includeF, &included)
 	if err != nil {
 		return

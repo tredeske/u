@@ -239,13 +239,13 @@ int:            1
 }
 
 func TestDiff(t *testing.T) {
-	one, err := NewSection(map[string]interface{}{
+	one, err := NewSection(map[string]any{
 		"hello": "world",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, err := NewSection(map[string]interface{}{
+	two, err := NewSection(map[string]any{
 		"hello": "world",
 	})
 	if err != nil {
@@ -263,7 +263,7 @@ func TestDiff(t *testing.T) {
 }
 
 func TestGetString(t *testing.T) {
-	success := map[string]interface{}{
+	success := map[string]any{
 		"string":     "stringV",
 		"bool":       true,
 		"int":        1,
@@ -316,7 +316,7 @@ func TestGetString(t *testing.T) {
 
 func TestGetStringFails(t *testing.T) {
 
-	m := map[string]interface{}{
+	m := map[string]any{
 		"nil":   nil,
 		"array": []string{"foo", "bar"},
 		"map":   map[string]string{"foo": "bar"},
@@ -337,7 +337,7 @@ func TestGetStringFails(t *testing.T) {
 		}
 	}
 
-	m = map[string]interface{}{
+	m = map[string]any{
 		"blank":  "",
 		"choice": "choice_5",
 	}
@@ -376,7 +376,7 @@ func TestGetInt(t *testing.T) {
 		return
 	}
 
-	m := map[string]interface{}{
+	m := map[string]any{
 		"string":     "stringV",
 		"bool":       true,
 		"duration":   "2s",
@@ -389,7 +389,7 @@ func TestGetInt(t *testing.T) {
 	failKeys := []string{"string", "bool", "duration"}
 	type Checker struct {
 		key   string
-		value interface{}
+		value any
 	}
 	anInt := 0
 	var anInt64 int64
@@ -473,7 +473,7 @@ func TestGetInt(t *testing.T) {
 }
 
 func TestDetectBadConfig(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"string":  "stringV", // valid item
 		"bad-int": 1,         // this item is not looked for, so is invalid
 	}
@@ -491,7 +491,7 @@ func TestDetectBadConfig(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"string":   "stringV",
 		"int":      1,
 		"float64":  2.0,
@@ -512,7 +512,7 @@ func TestGet(t *testing.T) {
 	floatV := float64(0)
 	boolV := false
 	durV := time.Second
-	var itV interface{}
+	var itV any
 	var re *regexp.Regexp
 	var reExists *regexp.Regexp
 	var reNotSet *regexp.Regexp
@@ -560,9 +560,9 @@ func TestGet(t *testing.T) {
 		t.Fatalf("url !Exists did not get set")
 	}
 	if val, ok := itV.(bool); !ok {
-		t.Fatal("unable to get bool val as interface{}")
+		t.Fatal("unable to get bool val as any")
 	} else if val != boolV {
-		t.Fatal("incorrect bool val when got as interface{}")
+		t.Fatal("incorrect bool val when got as any")
 	}
 
 	// look for things that should not be there
@@ -743,7 +743,7 @@ func TestStringValidators(t *testing.T) {
 func TestPath(t *testing.T) {
 	thePath := "/tmp/configTestDir"
 	os.RemoveAll(thePath)
-	m := map[string]interface{}{
+	m := map[string]any{
 		"create":    thePath,
 		"mustExist": thePath,
 	}
