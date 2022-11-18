@@ -45,6 +45,15 @@ type Chain struct {
 	Error   error
 }
 
+// open file and read config from it
+func FromFile(f string) *Chain {
+	s, err := NewSection(f)
+	if err != nil {
+		return &Chain{Error: err}
+	}
+	return s.Chain()
+}
+
 // Builder works with Chain.Build, Chain.BuildIf, Chain.BuildFrom to
 // build rv from config.
 type Builder func(config *Chain) (rv any, err error)
