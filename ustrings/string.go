@@ -1,13 +1,13 @@
 package ustrings
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"strings"
 	"unsafe"
 )
 
-//
 // If using this, if the initial []byte is mutated, so will the string!  So,
 // use only with care.
 //
@@ -19,12 +19,10 @@ import (
 //
 // This is copied from runtime. It relies on the string
 // header being a prefix of the slice header!
-//
 func UnsafeBytesToString(bs []byte) string {
 	return *(*string)(unsafe.Pointer(&bs))
 }
 
-//
 // functionally the same as buf := []byte(s)
 //
 // for use when you just need the []byte temporarily and don't want to copy it
@@ -35,18 +33,16 @@ func UnsafeBytesToString(bs []byte) string {
 // see:
 //
 // https://stackoverflow.com/questions/59209493/how-to-use-unsafe-get-a-byte-slice-from-a-string-without-memory-copy
-//
 func UnsafeStringToBytes(s string) []byte {
 	const MaxInt32 = 1<<31 - 1
-	return (*[MaxInt32]byte)(unsafe.Pointer((*reflect.StringHeader)(
-		unsafe.Pointer(&s)).Data))[: len(s)&MaxInt32 : len(s)&MaxInt32]
+	return (*[MaxInt32]byte)(unsafe.Pointer(
+		(*reflect.StringHeader)(
+			unsafe.Pointer(&s)).Data))[: len(s)&MaxInt32 : len(s)&MaxInt32]
 }
 
-//
 // Split the provided string, creating new strings in an array.
 //
 // None of the created strings will be empty
-//
 func SplitNonEmpty(s, sep string) (rv []string) {
 	rv = make([]string, strings.Count(s, sep)+1) // guess at size
 	n := 0
@@ -59,9 +55,7 @@ func SplitNonEmpty(s, sep string) (rv []string) {
 	return rv[:n]
 }
 
-//
 // Invoke the func for each string in s found between sep.
-//
 func StringEach(s, sep string, f func(string)) {
 	c := sep[0]
 	start := 0
@@ -77,9 +71,7 @@ func StringEach(s, sep string, f func(string)) {
 	}
 }
 
-//
 // Get the part of the string before the specified rune
-//
 func BeforeRune(s string, r rune) (rv string) {
 	idx := strings.IndexRune(s, r)
 	if -1 != idx {
@@ -88,13 +80,18 @@ func BeforeRune(s string, r rune) (rv string) {
 	return
 }
 
+// Like strings.Compare, but as fast as bytes.Compare.
+// May not be lexicographically correct for all strings.
+// returns -1 if a<b, 0 if a==b, 1 if a>b
+func Compare(a, b string) int {
+	return bytes.Compare(UnsafeStringToBytes(a), UnsafeStringToBytes(b))
+}
+
 //
 //----------------------------------------------------------------------------
 //
 
-//
 // do these two differ?  especially useful for *regexp.Regexp and a few others
-//
 func StringersDiffer(lhs, rhs fmt.Stringer) (rv bool) {
 	lNil, rNil := ItIsNil(lhs), ItIsNil(rhs)
 	return lNil && !rNil || !lNil && (rNil || lhs.String() != rhs.String())
