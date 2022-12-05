@@ -116,7 +116,7 @@ func (this *reloadableMgr_) ReloadGolum(
 	}
 
 	uregistry.Put(name, newG)
-	g.Stop()
+	//g.Stop()
 	err = newG.Start()
 	return
 }
