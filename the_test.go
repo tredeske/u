@@ -33,7 +33,7 @@ func (this *thing_) Help(name string, help *uconfig.Help) {
 
 func (this *thing_) Reload(
 	name string,
-	config *uconfig.Section,
+	config *uconfig.Chain,
 ) (
 	rv golum.Reloadable,
 	err error,
@@ -46,7 +46,7 @@ func (this *thing_) Reload(
 	}
 	rv = g
 
-	err = config.Chain().
+	err = config.
 		GetString("a", &g.a, uconfig.StringNotBlank()).
 		GetString("b", &g.b).
 		GetInt("i", &g.i).
@@ -73,9 +73,7 @@ func (this *thing_) Start() (err error) { return }
 
 func (this *thing_) Stop() {}
 
-//
 // put together a YAML config
-//
 var config_ = `
 debug:
   enable:                 ["all"]
@@ -108,9 +106,7 @@ properties:
   subValue:               a value to sub in
 `
 
-//
 // A way to use golum in a test
-//
 func TestTesting(t *testing.T) {
 
 	//

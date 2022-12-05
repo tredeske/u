@@ -32,7 +32,8 @@ func Show(name string, out io.Writer) {
 			fmt.Fprintf(out, "Unknown component: %s\n", name)
 			return
 		}
-		mgr := it.(Manager)
+		//mgr := it.(Manager)
+		mgr := it.(reloadableMgr_)
 
 		help := &uconfig.Help{}
 		mgr.HelpGolum(name, help)

@@ -24,15 +24,23 @@ type (
 
 		//
 		// The reload sequence is:
-		// * golum call Reload on all changed components and new components
+		// * golum calls Reload on all changed components and new components
 		// * golum calls Start on all of the above
+		//
+		// Stop is only called if the component is no longer needed.
+		//
+		// Your Reload method should only be about loading the config, and should
+		// not be changing any other state.
+		//
+		// Your Start method will need to know if this is an initial start or
+		// if this is a later start due to a config change.
 		//
 		// It is strongly recommended that implementers load a config struct
 		// with the new values, and then apply that when Start is invoked.  This
 		// will prevent problems when a config change is made, and some other
 		// component has a bad config.
 		//
-		Reload(name string, config *uconfig.Section) (rv Reloadable, err error)
+		Reload(name string, config *uconfig.Chain) (rv Reloadable, err error)
 
 		//
 		// provide command line help (via -show)
@@ -91,7 +99,7 @@ func (this *reloadableMgr_) HelpGolum(name string, help *uconfig.Help) {
 
 // implement Manager
 func (this *reloadableMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
-	g, err := this.Prototype.Reload(name, c)
+	g, err := this.Prototype.Reload(name, c.Chain())
 	if err != nil {
 		return
 	}
@@ -110,14 +118,14 @@ func (this *reloadableMgr_) ReloadGolum(
 	if err != nil {
 		return
 	}
-	newG, err := g.Reload(name, c)
+	newG, err := g.Reload(name, c.Chain())
 	if err != nil { //|| newG == g {
 		return
 	}
 
 	uregistry.Put(name, newG)
 	//g.Stop()
-	err = newG.Start()
+	//err = newG.Start()
 	return
 }
 

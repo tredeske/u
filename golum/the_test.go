@@ -8,7 +8,6 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
-	"github.com/tredeske/u/uregistry"
 )
 
 var (
@@ -17,7 +16,7 @@ var (
 
 func TestAuto(t *testing.T) {
 	if !testAdded_ {
-		AddManager("auto", &autoMgr_{})
+		AddReloadable("auto", &auto_{})
 		testAdded_ = true
 	}
 
@@ -36,7 +35,7 @@ components:
 
 func TestDelayedStart(t *testing.T) {
 	if !testAdded_ {
-		AddManager("auto", &autoMgr_{})
+		AddReloadable("auto", &auto_{})
 		testAdded_ = true
 	}
 
@@ -60,32 +59,31 @@ components:
 	}
 }
 
-type autoMgr_ struct {
-	AutoStartable
-	AutoStoppable
-	IgnoreReload
-	Unhelpful
-}
-
 type auto_ struct {
 	Name  string
 	delay time.Duration
+	UnhelpfulReloadable
 }
 
-// implement Manager
-func (this *autoMgr_) NewGolum(name string, c *uconfig.Section) (err error) {
+// implement Reloadable
+func (this *auto_) Reload(
+	name string, c *uconfig.Chain,
+) (
+	rv Reloadable, err error,
+) {
+
 	g := &auto_{Name: name}
-	err = c.Chain().
+	err = c.
 		GetDuration("delay", &g.delay).
 		Error
 	if err != nil {
 		return
 	}
-	uregistry.Put(name, g)
+	rv = g
 	return
 }
 
-// implement Startable
+// implement Reloadable
 func (this *auto_) Start() (err error) {
 	if 0 != this.delay {
 		fmt.Printf("Delaying for %s", this.delay)
@@ -95,7 +93,7 @@ func (this *auto_) Start() (err error) {
 	return
 }
 
-// implement Stopable
+// implement Reloadable
 func (this *auto_) Stop() {
 	ulog.Printf("%s: stopped", this.Name)
 }

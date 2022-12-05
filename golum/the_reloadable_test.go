@@ -67,13 +67,13 @@ type reloadable_ struct {
 }
 
 // implement Reloadable
-func (this *reloadable_) Reload(name string, c *uconfig.Section,
+func (this *reloadable_) Reload(name string, c *uconfig.Chain,
 ) (rv Reloadable, err error) {
 	g := &reloadable_{Name: name}
 	rv = g
-	err = c.Chain().
+	err = c.
 		GetDuration("delay", &g.delay).
-		Error
+		Done()
 	return
 }
 

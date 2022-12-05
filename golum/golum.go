@@ -5,10 +5,6 @@
 //
 //	golum.AddReloadable("serviceType", reloadable)
 //
-// or (old school)
-//
-//	golum.AddManager("serviceType", manager)
-//
 // Later, golum is able to provide the YAML config to create the component
 //
 //	components:
@@ -63,7 +59,7 @@ type Loaded struct {
 // track a component
 type golum_ struct {
 	name     string
-	manager  Manager
+	manager  *reloadableMgr_
 	disabled bool
 	hosts    []string
 	timeout  time.Duration
@@ -82,8 +78,6 @@ var (
 )
 
 func creatingPut(name string, it any) { creating_.Store(name, it) }
-
-//func creatingTryPut(name string, it any) { creating_.LoadOrStore(name, it) }
 
 func creatingCommit() {
 	creating_.Range(func(k, v any) (cont bool) {
@@ -290,8 +284,13 @@ func ReloadOne(s *uconfig.Section) (err error) {
 	if exists {
 		log.Printf("G: Reloading %s", existing.name)
 		err = existing.manager.ReloadGolum(existing.name, g.config)
-		if nil == err {
-			existing.config = g.config
+		if err != nil {
+			return
+		}
+		existing.config = g.config
+		err = existing.Start()
+		if err != nil {
+			return
 		}
 	} else {
 		err = g.LoadAndStore()
@@ -359,7 +358,7 @@ func newGolum(config *uconfig.Section) (g *golum_, err error) {
 			err = fmt.Errorf("No such manager (%s) for %s", manager, g.name)
 			return
 		}
-		g.manager = it.(Manager)
+		g.manager = it.(*reloadableMgr_)
 
 		//
 		// check the config against the help
