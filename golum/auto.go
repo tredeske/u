@@ -9,11 +9,21 @@ type (
 
 	// for use with AutoStartable/AutoReloadable - managed must implement
 	Startable interface {
+		//
+		// Start is called after Reload
+		//
 		Start() (err error)
 	}
 
 	// for use with AutoStoppable/AutoReloadable - managed must implement
 	Stoppable interface {
+		//
+		// Stop is only called if the component is no longer needed.
+		//
+		// That is, when Reload returns a value different than the initial
+		// Reloadable, it is stopped.  Also, when the config changes to not have
+		// the Reloadable anymore.
+		//
 		Stop()
 	}
 
@@ -25,20 +35,24 @@ type (
 		//
 		// The reload sequence is:
 		// * golum calls Reload on all changed components and new components
-		// * golum calls Start on all of the above
-		//
-		// Stop is only called if the component is no longer needed.
+		// * golum calls Stop on all obsoleted components
+		// * golum calls Start on all changed and new components
 		//
 		// Your Reload method should only be about loading the config, and should
-		// not be changing any other state.
+		// not be changing any other state or starting anything.
 		//
 		// Your Start method will need to know if this is an initial start or
-		// if this is a later start due to a config change.
+		// if this is a later start due to a config change.  Think of Start as
+		// saying, "apply the config created from Reload".
 		//
 		// It is strongly recommended that implementers load a config struct
 		// with the new values, and then apply that when Start is invoked.  This
 		// will prevent problems when a config change is made, and some other
 		// component has a bad config.
+		//
+		// If Reload returns a value (rv) different than itself, then the returned
+		// value obsoletes the initial Reloadable, and the initial Reloadable will
+		// be Stop()ed.
 		//
 		Reload(name string, config *uconfig.Chain) (rv Reloadable, err error)
 
@@ -124,6 +138,9 @@ func (this *reloadableMgr_) ReloadGolum(
 	}
 
 	uregistry.Put(name, newG)
+	if newG != g {
+		stoppingPut(g)
+	}
 	//g.Stop()
 	//err = newG.Start()
 	return

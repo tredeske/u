@@ -66,6 +66,11 @@ type golum_ struct {
 	config   *uconfig.Section
 }
 
+type nr_ struct {
+	name string
+	r    Reloadable
+}
+
 const (
 	MIN_TIMEOUT time.Duration = 2 * time.Second
 )
@@ -73,18 +78,40 @@ const (
 var (
 	managers_ sync.Map    // by type
 	golums_   sync.Map    // *golum_ by comp name
-	creating_ sync.Map    // temp registry after NewGolum, before other calls
 	DryRun    atomic.Bool //
+	lock_     sync.Mutex
+	creating_ []nr_
+	stopping_ []Reloadable
 )
 
-func creatingPut(name string, it any) { creating_.Store(name, it) }
+func creatingPut(name string, r Reloadable) {
+	lock_.Lock()
+	creating_ = append(creating_, nr_{name: name, r: r})
+	lock_.Unlock()
+}
 
 func creatingCommit() {
-	creating_.Range(func(k, v any) (cont bool) {
-		uregistry.Put(k.(string), v)
-		creating_.Delete(k)
-		return true
-	})
+	lock_.Lock()
+	for _, nr := range creating_ {
+		uregistry.Put(nr.name, nr.r)
+	}
+	creating_ = nil
+	lock_.Unlock()
+}
+
+func stoppingPut(r Reloadable) {
+	lock_.Lock()
+	stopping_ = append(stopping_, r)
+	lock_.Unlock()
+}
+
+func stoppingCommit() {
+	lock_.Lock()
+	for _, r := range stopping_ {
+		r.Stop()
+	}
+	stopping_ = nil
+	lock_.Unlock()
 }
 
 // Load components using the available lifecycle managers
@@ -162,6 +189,7 @@ func LoadAndStart(configs *uconfig.Array) (err error) {
 	if err != nil {
 		return
 	}
+	stoppingCommit()
 	return loaded.Start()
 }
 
@@ -243,6 +271,7 @@ func Reload(configs *uconfig.Array) (err error) {
 		})
 
 	creatingCommit()
+	stoppingCommit()
 
 	// start any new
 	//
@@ -288,6 +317,7 @@ func ReloadOne(s *uconfig.Section) (err error) {
 			return
 		}
 		existing.config = g.config
+		stoppingCommit()
 		err = existing.Start()
 		if err != nil {
 			return
