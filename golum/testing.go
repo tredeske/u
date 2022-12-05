@@ -9,9 +9,7 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
-//
 // for test - load specified components
-//
 func TestLoadAndStart(config interface{}) (err error) {
 
 	s, err := uconfig.NewSection(config)
@@ -36,9 +34,7 @@ func TestLoadAndStart(config interface{}) (err error) {
 	return
 }
 
-//
 // for test - reload components based on new config
-//
 func TestReload(config interface{}) (err error) {
 
 	s, err := uconfig.NewSection(config)
@@ -54,9 +50,7 @@ func TestReload(config interface{}) (err error) {
 	return
 }
 
-//
 // for test - stop named component
-//
 func TestStopComponent(name string) (err error) {
 	g, found := getGolum(name)
 	if !found {
@@ -66,9 +60,7 @@ func TestStopComponent(name string) (err error) {
 	return
 }
 
-//
 // for test - reload named component
-//
 func TestReloadComponent(name string) (err error) {
 	g, found := getGolum(name)
 	if !found {
@@ -79,17 +71,14 @@ func TestReloadComponent(name string) (err error) {
 	return
 }
 
-//
 // for test - put this in a defer() to unload all components at end of test
-//
 func TestStop() {
 	ulog.Debugf("G: TestStop")
 	golums_.Range(
-		func(itK, itV interface{}) (cont bool) {
+		func(itK, itV any) (cont bool) {
 			ulog.Debugf("G: stopping %s", itK)
-			stopGolum(itV.(*golum_))
+			(itV.(*golum_)).Stop()
 			return true
 		})
 	uregistry.TestClearAll()
-	//managers_ = make(map[string]Manager)
 }

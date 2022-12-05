@@ -67,6 +67,7 @@ type Boot struct {
 	LogSize  int64            // size of log file before rotate
 	LogKeep  int              // logs to keep around
 	Config   *uconfig.Section // the loaded config
+	DryRun   bool             // is this a dry run (config check)?
 
 	//
 	// set by build system.  examples:
@@ -111,6 +112,9 @@ func (this *Boot) Boot() (err error) {
 	show := ""
 	logSzStr := "40Mi"
 	logKeep := 4
+
+	flag.BoolVar(&this.DryRun, "dry-run", this.DryRun,
+		"Load but do not start components.  Useful to check config.")
 
 	flag.StringVar(&this.ConfigF, "config", this.ConfigF,
 		"Config file (config/[NAME].yml)")
@@ -176,6 +180,9 @@ func (this *Boot) Boot() (err error) {
 	// get absolute path to log file
 	// if we're running in 'go test' or if cmdline says so, then output to stdout
 	//
+	if this.DryRun {
+		this.LogF = "stdout"
+	}
 	if "stdout" == this.LogF || Testing {
 		this.LogF = "stdout"
 	} else {
@@ -423,6 +430,10 @@ func (this *Boot) loadComponents(
 		return // nothing left to do if no components to load
 	}
 
+	if this.DryRun {
+		golum.DryRun.Store(true)
+	}
+
 	// generic component load
 	//
 	//config.AddProp("logDir", ulog.Dir)
@@ -435,6 +446,11 @@ func (this *Boot) loadComponents(
 	components, err := golum.Load(gconfig)
 	if err != nil {
 		return
+	}
+
+	if this.DryRun {
+		ulog.Printf("Completed dry run successfully")
+		os.Exit(0)
 	}
 
 	if nil != beforeStart {

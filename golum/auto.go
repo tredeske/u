@@ -5,49 +5,51 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
-// for use with AutoStartable/AutoReloadable - managed must implement
-type Startable interface {
-	Start() (err error)
-}
+type (
 
-// for use with AutoStoppable/AutoReloadable - managed must implement
-type Stoppable interface {
-	Stop()
-}
+	// for use with AutoStartable/AutoReloadable - managed must implement
+	Startable interface {
+		Start() (err error)
+	}
 
-// for use with AutoReloadable - managed must implement
-type Reloadable interface {
-	Startable
-	Stoppable
+	// for use with AutoStoppable/AutoReloadable - managed must implement
+	Stoppable interface {
+		Stop()
+	}
 
-	//
-	// if rv is the same as current managed golum then the registry
-	// entry will stay the same and the stop/start will not occur.
-	//
-	// if rv is different, then the registry will be updated, and
-	// Stop/Start will occur.
-	//
-	Reload(name string, config *uconfig.Section) (rv Reloadable, err error)
+	// for use with AutoReloadable - managed must implement
+	Reloadable interface {
+		Startable
+		Stoppable
 
-	//
-	// provide command line help (via -show)
-	//
-	Help(name string, help *uconfig.Help)
-}
+		//
+		// The reload sequence is:
+		// * golum call Reload on all changed components and new components
+		// * golum calls Start on all of the above
+		//
+		// It is strongly recommended that implementers load a config struct
+		// with the new values, and then apply that when Start is invoked.  This
+		// will prevent problems when a config change is made, and some other
+		// component has a bad config.
+		//
+		Reload(name string, config *uconfig.Section) (rv Reloadable, err error)
 
-//
+		//
+		// provide command line help (via -show)
+		//
+		Help(name string, help *uconfig.Help)
+	}
+)
+
 // mixin to disable help
-//
 type UnhelpfulReloadable struct{}
 
 func (this *UnhelpfulReloadable) Help(name string, help *uconfig.Help) {
 	help.Init(name, "This component is antisocial and has no help")
 }
 
-//
 // mixin for Managers to automatically start a Startable
 // managed must implement Startable
-//
 type AutoStartable struct{}
 
 // implement Manager (partial)
@@ -60,10 +62,8 @@ func (this *AutoStartable) StartGolum(name string) (err error) {
 	return
 }
 
-//
 // mixin for Managers to automatically stop a Stoppable
 // managed must implement Stoppable
-//
 type AutoStoppable struct{}
 
 // implement Manager (partial)
@@ -75,11 +75,9 @@ func (this *AutoStoppable) StopGolum(name string) {
 	}
 }
 
-//
 // generic manager for Reloadable components
 //
 // see AddReloadable
-//
 type reloadableMgr_ struct {
 	AutoStartable
 	AutoStoppable
@@ -97,7 +95,7 @@ func (this *reloadableMgr_) NewGolum(name string, c *uconfig.Section) (err error
 	if err != nil {
 		return
 	}
-	uregistry.Put(name, g)
+	creatingPut(name, g)
 	return
 }
 
@@ -113,7 +111,7 @@ func (this *reloadableMgr_) ReloadGolum(
 		return
 	}
 	newG, err := g.Reload(name, c)
-	if err != nil || newG == g {
+	if err != nil { //|| newG == g {
 		return
 	}
 

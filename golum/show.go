@@ -10,17 +10,16 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-//
 // show info about named component.  if name is 'all', then list all.
-//
 func Show(name string, out io.Writer) {
 
 	if "all" == name {
 
 		var names []string
-		for k, _ := range managers_ {
-			names = append(names, k)
-		}
+		managers_.Range(func(k, v any) (cont bool) {
+			names = append(names, k.(string))
+			return true
+		})
 		sort.Strings(names)
 		for _, n := range names {
 			fmt.Fprintf(out, "%s\n", n)
@@ -28,11 +27,12 @@ func Show(name string, out io.Writer) {
 
 	} else {
 
-		mgr := managers_[name]
-		if nil == mgr {
+		it, ok := managers_.Load(name)
+		if !ok {
 			fmt.Fprintf(out, "Unknown component: %s\n", name)
 			return
 		}
+		mgr := it.(Manager)
 
 		help := &uconfig.Help{}
 		mgr.HelpGolum(name, help)
