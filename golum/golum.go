@@ -424,7 +424,7 @@ func (g *golum_) Build() (err error) {
 		log.Printf("G: Disabled %s", g.name)
 		return
 	} else if nil != g.curr {
-		panic("G: cannot build new golum when it already exists!")
+		panic(fmt.Sprintf("G: cannot build new %s when it already exists!", g.name))
 	}
 	log.Printf("G: New %s", g.name)
 	var r Reloadable

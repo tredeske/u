@@ -78,6 +78,8 @@ func TestReloadComponent(name string) (err error) {
 		return fmt.Errorf("No such component: %s", name)
 	}
 
+	g.Stop()
+
 	err = g.Build()
 	if err != nil {
 		return
