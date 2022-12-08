@@ -11,7 +11,7 @@ import (
 )
 
 // for test - load specified components
-func TestLoadAndStart(config interface{}) (err error) {
+func TestLoadAndStart(config any) (err error) {
 
 	log.Println("G: test load and start")
 
@@ -38,7 +38,7 @@ func TestLoadAndStart(config interface{}) (err error) {
 }
 
 // for test - reload components based on new config
-func TestReload(config interface{}) (err error) {
+func TestReload(config any) (err error) {
 
 	log.Println("G: test reload")
 
@@ -93,9 +93,9 @@ func TestReloadComponent(name string) (err error) {
 func TestStop() {
 	ulog.Debugf("G: TestStop")
 	golums_.Range(
-		func(itK, itV any) (cont bool) {
-			ulog.Debugf("G: stopping %s", itK)
-			g := itV.(*golum_)
+		func(k, v any) (cont bool) {
+			ulog.Debugf("G: stopping %s", k)
+			g := v.(*golum_)
 			g.Stop()
 			delGolum(g)
 			return true

@@ -2,6 +2,7 @@ package golum
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,12 @@ func setupReloadable() {
 func TestReloadable(t *testing.T) {
 	setupReloadable()
 
+	log.Printf(`
+GIVEN No components
+ WHEN Load a test component
+ THEN It loads AND is reachable
+`)
+
 	err := TestLoadAndStart([]byte(`
 components:
 - name:         reloadable
@@ -39,6 +46,43 @@ components:
 	var r *reloadable_
 	uregistry.MustGet("reloadable", &r)
 
+	log.Printf(`
+GIVEN A component running
+ WHEN Reload config
+ THEN It reloads AND is reachable
+`)
+
+	err = TestReload([]byte(`
+components:
+- name:         reloadable
+  type:         reloadable
+  config:
+    foo:        bar
+`))
+
+	uregistry.MustGet("reloadable", &r)
+	if r.foo != "bar" {
+		t.Fatalf("foo did not get updated to bar")
+	}
+
+	log.Printf(`
+GIVEN Reloaded component running
+ WHEN Reload config again
+ THEN It reloads AND is reachable
+`)
+
+	err = TestReload([]byte(`
+components:
+- name:         reloadable
+  type:         reloadable
+  config:
+    foo:        finally
+`))
+
+	uregistry.MustGet("reloadable", &r)
+	if r.foo != "finally" {
+		t.Fatalf("foo did not get updated to finally")
+	}
 }
 
 func TestReloadableDelayedStart(t *testing.T) {
@@ -68,6 +112,7 @@ type reloadable_ struct {
 	UnhelpfulReloadable
 	Name  string
 	delay time.Duration
+	foo   string
 }
 
 // implement Reloadable
@@ -77,6 +122,7 @@ func (this *reloadable_) Reload(name string, c *uconfig.Chain,
 	rv = g
 	err = c.
 		GetDuration("delay", &g.delay).
+		GetString("foo", &g.foo).
 		Done()
 	return
 }

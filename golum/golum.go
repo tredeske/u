@@ -184,7 +184,7 @@ func LoadAndStart(configs *uconfig.Array) (err error) {
 	return Start()
 }
 
-// start the components
+// start previously loaded components
 func Start() (err error) {
 	lock_.Lock()
 	ready := ready_
@@ -423,8 +423,8 @@ func (g *golum_) Build() (err error) {
 	if g.disabled {
 		log.Printf("G: Disabled %s", g.name)
 		return
-	} else if nil != g.curr {
-		panic(fmt.Sprintf("G: cannot build new %s when it already exists!", g.name))
+	} else if nil != g.old {
+		panic(fmt.Sprintf("G: cannot build new %s when old exists!", g.name))
 	}
 	log.Printf("G: New %s", g.name)
 	var r Reloadable
