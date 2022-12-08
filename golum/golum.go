@@ -232,6 +232,7 @@ func Reload(configs *uconfig.Array) (err error) {
 				g.Restore()
 			}
 		}
+		onFail_("config", err)
 	}()
 
 	//
