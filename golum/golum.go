@@ -1,9 +1,9 @@
 // Package golum is used to load components into the process
 // based on YAML configuration from uconfig.
 //
-// A component registers a service type manager with golum:
+// A component registers a service prototype with golum:
 //
-//	golum.AddReloadable("serviceType", reloadable)
+//	golum.AddReloadable("serviceType", prototype)
 //
 // Later, golum is able to provide the YAML config to create the component
 //
@@ -51,70 +51,60 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
-// handle to a loaded service
-type Loaded struct {
-	ready []*golum_
-}
-
-// track a component
-type golum_ struct {
-	name     string
-	manager  *reloadableMgr_
-	disabled bool
-	hosts    []string
-	timeout  time.Duration
-	config   *uconfig.Section
-}
-
-type nr_ struct {
-	name string
-	r    Reloadable
-}
+type FailFunc func(name string, err error)
 
 const (
 	MIN_TIMEOUT time.Duration = 2 * time.Second
 )
 
-var (
-	managers_ sync.Map    // by type
-	golums_   sync.Map    // *golum_ by comp name
-	DryRun    atomic.Bool //
-	lock_     sync.Mutex
-	creating_ []nr_
-	stopping_ []Reloadable
+type (
+
+	// track a component
+	golum_ struct {
+		name      string     // name of component
+		prototype Reloadable // build based on this
+		curr      Reloadable
+		old       Reloadable
+		hosts     []string
+		timeout   time.Duration
+		config    *uconfig.Section
+		disabled  bool
+		needStart bool
+	}
+
+	nr_ struct {
+		name string
+		r    Reloadable
+	}
 )
 
-func creatingPut(name string, r Reloadable) {
-	lock_.Lock()
-	creating_ = append(creating_, nr_{name: name, r: r})
-	lock_.Unlock()
-}
-
-func creatingCommit() {
-	lock_.Lock()
-	for _, nr := range creating_ {
-		uregistry.Put(nr.name, nr.r)
+var (
+	prototypes_ sync.Map    // by type
+	golums_     sync.Map    // *golum_ by comp name
+	DryRun      atomic.Bool //
+	lock_       sync.Mutex
+	ready_      []*golum_
+	onFail_     FailFunc = func(name string, err error) {
+		log.Printf("WARN: G: component %s failed: %s", name, err)
 	}
-	creating_ = nil
+)
+
+// register a fail handler in case of fail during a reload
+func OnFail(onFail FailFunc) {
+	lock_.Lock()
+	onFail_ = onFail
 	lock_.Unlock()
 }
 
-func stoppingPut(r Reloadable) {
-	lock_.Lock()
-	stopping_ = append(stopping_, r)
-	lock_.Unlock()
-}
-
-func stoppingCommit() {
-	lock_.Lock()
-	for _, r := range stopping_ {
-		r.Stop()
+func getProto(typ string) Reloadable {
+	it, ok := prototypes_.Load(typ)
+	if ok {
+		return it.(Reloadable)
 	}
-	stopping_ = nil
-	lock_.Unlock()
+	return nil
 }
 
-// Load components using the available lifecycle managers
+// Load components using the available prototypes
 //
 // The components are loaded from a config array, where each element must
 // have a 'name', 'type', and 'config' value.
@@ -124,10 +114,14 @@ func stoppingCommit() {
 // The 'config' is provided to the manager to create the component.
 //
 // The 'name' is the unique name of the component.
-func Load(configs *uconfig.Array) (rv *Loaded, err error) {
+func Load(configs *uconfig.Array) (err error) {
 	if nil == configs || 0 == configs.Len() {
 		return
 	}
+
+	//
+	// create the golums to manage the reloadables
+	//
 	present := make(map[string]struct{})
 	ready := make([]*golum_, 0, configs.Len())
 
@@ -156,13 +150,11 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 		return
 	}
 
+	//
+	// build the reloadables
+	//
 	for _, g := range ready {
-		if g.disabled {
-			log.Printf("G: Disabled %s", g.name)
-			uregistry.Put(g.name, Disabled{})
-			continue
-		}
-		err = g.Load()
+		err = g.Build()
 		if err != nil {
 			return
 		}
@@ -172,25 +164,44 @@ func Load(configs *uconfig.Array) (rv *Loaded, err error) {
 	// only commit changes when all is ok
 	//
 	if !DryRun.Load() {
-		creatingCommit()
 		for _, g := range ready {
-			if !g.disabled {
-				g.Store()
-			}
+			g.AfterBuild()
+			putGolum(g)
 		}
+		lock_.Lock()
+		ready_ = ready
+		lock_.Unlock()
 	}
-	rv = &Loaded{ready: ready}
 	return
 }
 
 // load and start the components
 func LoadAndStart(configs *uconfig.Array) (err error) {
-	loaded, err := Load(configs)
+	err = Load(configs)
 	if err != nil {
 		return
 	}
-	stoppingCommit()
-	return loaded.Start()
+	return Start()
+}
+
+// start the components
+func Start() (err error) {
+	lock_.Lock()
+	ready := ready_
+	ready_ = nil
+	lock_.Unlock()
+
+	for _, g := range ready {
+		g.StopOld()
+	}
+	for _, g := range ready {
+		err = g.Start()
+		if err != nil {
+			return
+		}
+	}
+	log.Printf("G: Start complete")
+	return
 }
 
 // Unload and stop the specified component
@@ -199,31 +210,27 @@ func Unload(name string) (unloaded bool) {
 	if !ok {
 		return false
 	}
+	delGolum(g)
 	g.Stop()
 	return true
 }
 
-// start the loaded components
-func (this *Loaded) Start() (err error) {
-	log.Printf("G: Start begin")
-
-	for i, g := range this.ready {
-		log.Printf("G: Starting %s", g.name)
-		err = g.Start()
-		if err != nil {
-			return
-		}
-		this.ready[i] = nil
-	}
-
-	log.Printf("G: Start complete")
-	return
-}
-
 // reload components, starting any new ones, stopping any deleted ones
 func Reload(configs *uconfig.Array) (err error) {
-	log.Printf("G: Reload begin")
 	start := make([]*golum_, 0, configs.Len())
+
+	defer func() {
+		if err != nil {
+			for _, g := range start {
+				g.Restore()
+			}
+		}
+	}()
+
+	//
+	// create new reloadables for changed or new configs
+	//
+	log.Printf("G: Reload begin")
 	present := make(map[string]struct{})
 	err = configs.Each(func(config *uconfig.Section) (err error) {
 		g, err := newGolum(config)
@@ -239,15 +246,14 @@ func Reload(configs *uconfig.Array) (err error) {
 		if exists {
 			if existing.config.DiffersFrom(g.config) {
 				log.Printf("G: Reloading %s", existing.name)
-				err = existing.manager.ReloadGolum(existing.name, g.config)
+				err = existing.Rebuild(g.config)
 				if err != nil {
 					return
 				}
-				existing.config = g.config
 				start = append(start, existing)
 			}
 		} else {
-			err = g.Load()
+			err = g.Build()
 			if err != nil {
 				return
 			}
@@ -256,31 +262,49 @@ func Reload(configs *uconfig.Array) (err error) {
 		return
 	})
 	if err != nil {
+		//
+		// abort the reload if any config problems - no harm no foul
+		//
 		return
 	}
 
+	//
 	// stop and remove any that are not part of new config
 	//
 	golums_.Range(
 		func(k, v any) (cont bool) {
 			name := k.(string)
 			if _, exists := present[name]; !exists {
-				(v.(*golum_)).Stop()
+				g := v.(*golum_)
+				g.Stop()
+				delGolum(g)
 			}
 			return true
 		})
 
-	creatingCommit()
-	stoppingCommit()
+	//
+	// out with the old
+	//
+	for _, g := range start {
+		g.AfterBuild()
+		g.StopOld()
+	}
 
+	//
 	// start any new
 	//
 	for _, g := range start {
-		log.Printf("G: Starting %s", g.name)
-		g.Store()
+		putGolum(g)
 		err = g.Start()
 		if err != nil {
-			return
+			//
+			// unlike with a start, a reload needs to continue.
+			//
+			// hopefully, someone will see the problem, fix things, and do
+			// a reload
+			//
+			onFail_(g.name, err)
+			err = nil
 		}
 	}
 	log.Printf("G: Reload complete")
@@ -312,28 +336,21 @@ func ReloadOne(s *uconfig.Section) (err error) {
 	existing, exists := getGolum(g.name)
 	if exists {
 		log.Printf("G: Reloading %s", existing.name)
-		err = existing.manager.ReloadGolum(existing.name, g.config)
+		err = existing.Rebuild(g.config)
 		if err != nil {
 			return
 		}
-		existing.config = g.config
-		stoppingCommit()
-		err = existing.Start()
-		if err != nil {
-			return
-		}
+		g = existing
 	} else {
-		err = g.LoadAndStore()
+		err = g.Build()
 		if err != nil {
 			return
 		}
-		creatingCommit()
-		log.Printf("G: Starting %s", g.name)
-		err = g.Start()
-		if err != nil {
-			return
-		}
+		putGolum(g)
 	}
+	g.AfterBuild()
+	g.StopOld()
+	err = g.Start()
 	return
 }
 
@@ -346,8 +363,11 @@ func getGolum(name string) (g *golum_, found bool) {
 	return
 }
 
+func putGolum(g *golum_) { golums_.Store(g.name, g) }
+func delGolum(g *golum_) { golums_.Delete(g.name) }
+
 func newGolum(config *uconfig.Section) (g *golum_, err error) {
-	manager := ""
+	typ := ""
 	g = &golum_{
 		config:  &uconfig.Section{},
 		timeout: MIN_TIMEOUT,
@@ -357,7 +377,7 @@ func newGolum(config *uconfig.Section) (g *golum_, err error) {
 			"timeout").
 		GetString("name", &g.name, uconfig.StringNotBlank()).
 		Then(func() { config.NameContext(g.name) }).
-		GetString("type", &manager, uconfig.StringNotBlank()).
+		GetString("type", &typ, uconfig.StringNotBlank()).
 		GetBool("disabled", &g.disabled).
 		GetStrings("hosts", &g.hosts).
 		GetDuration("timeout", &g.timeout).
@@ -383,50 +403,88 @@ func newGolum(config *uconfig.Section) (g *golum_, err error) {
 				return
 			}
 		}
-		it, ok := managers_.Load(manager)
-		if !ok {
-			err = fmt.Errorf("No such manager (%s) for %s", manager, g.name)
+		g.prototype = getProto(typ)
+		if nil == g.prototype {
+			err = fmt.Errorf("No such type (%s) for %s", typ, g.name)
 			return
 		}
-		g.manager = it.(*reloadableMgr_)
 
 		//
 		// check the config against the help
 		//
 		help := &uconfig.Help{}
-		g.manager.HelpGolum(g.name, help)
+		g.prototype.Help(g.name, help)
 		g.config.WarnUnknown(help)
 	}
 	return
 }
 
-func (g *golum_) LoadAndStore() (err error) {
-	err = g.Load()
-	if err != nil {
+func (g *golum_) Build() (err error) {
+	if g.disabled {
+		log.Printf("G: Disabled %s", g.name)
 		return
+	} else if nil != g.curr {
+		panic("G: cannot build new golum when it already exists!")
 	}
-	g.Store()
-	return
-}
-
-func (g *golum_) Load() (err error) {
 	log.Printf("G: New %s", g.name)
-	err = g.manager.NewGolum(g.name, g.config)
+	var r Reloadable
+	r, err = g.prototype.Reload(g.name, g.config.Chain())
 	if err != nil {
 		err = uerr.Chainf(err, "Creating '%s'", g.name)
+	} else {
+		g.old = g.curr
+		g.curr = r
+		g.needStart = true
 	}
 	return
 }
 
-func (g *golum_) Store() {
-	golums_.Store(g.name, g)
+func (g *golum_) Rebuild(c *uconfig.Section) (err error) {
+	saved := g.config
+	defer func() {
+		if err != nil {
+			g.config = saved
+		}
+	}()
+	g.config = c
+	return g.Build()
+}
+
+func (g *golum_) AfterBuild() {
+	if g.disabled {
+		uregistry.Put(g.name, Disabled{})
+	} else {
+		uregistry.Put(g.name, g.curr)
+	}
+}
+
+func (g *golum_) StopOld() {
+	if nil != g.old {
+		g.old.Stop()
+		g.old = nil
+	}
+}
+
+func (g *golum_) Restore() {
+	if nil != g.old {
+		g.curr = g.old
+		g.old = nil
+	}
 }
 
 func (g *golum_) Start() (err error) {
+	if nil != g.old {
+		panic("Cannot start golum if old one is still around")
+	}
+	if !g.needStart {
+		return
+	}
+	g.needStart = false
+	log.Printf("G: Starting %s", g.name)
 	timer := time.NewTimer(g.timeout)
 	startC := make(chan error)
 	go func() {
-		startC <- g.manager.StartGolum(g.name)
+		startC <- g.curr.Start()
 	}()
 	select {
 	case err = <-startC:
@@ -441,7 +499,12 @@ func (g *golum_) Start() (err error) {
 }
 
 func (g *golum_) Stop() {
+	g.StopOld()
+	uregistry.Remove(g.name)
+	if g.disabled || nil == g.curr {
+		return
+	}
 	log.Printf("G: Stopping %s", g.name)
-	g.manager.StopGolum(g.name)
-	golums_.Delete(g.name)
+	g.curr.Stop()
+	g.curr = nil
 }

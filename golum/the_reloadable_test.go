@@ -8,6 +8,7 @@ import (
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
+	"github.com/tredeske/u/uregistry"
 )
 
 var (
@@ -34,6 +35,9 @@ components:
 	}
 
 	time.Sleep(50 * time.Millisecond)
+
+	var r *reloadable_
+	uregistry.MustGet("reloadable", &r)
 
 }
 

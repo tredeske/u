@@ -2,6 +2,7 @@ package golum
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uinit"
@@ -11,6 +12,8 @@ import (
 
 // for test - load specified components
 func TestLoadAndStart(config interface{}) (err error) {
+
+	log.Println("G: test load and start")
 
 	s, err := uconfig.NewSection(config)
 	if err != nil {
@@ -37,6 +40,8 @@ func TestLoadAndStart(config interface{}) (err error) {
 // for test - reload components based on new config
 func TestReload(config interface{}) (err error) {
 
+	log.Println("G: test reload")
+
 	s, err := uconfig.NewSection(config)
 	if err != nil {
 		return
@@ -50,24 +55,35 @@ func TestReload(config interface{}) (err error) {
 	return
 }
 
-// for test - stop named component
+// for test - stop named component but keep the golum around so it can be restarted
 func TestStopComponent(name string) (err error) {
+
+	log.Println("G: test stop ", name)
+
 	g, found := getGolum(name)
 	if !found {
 		return fmt.Errorf("No such component: %s", name)
 	}
-	g.manager.StopGolum(name)
+	g.Stop()
 	return
 }
 
 // for test - reload named component
 func TestReloadComponent(name string) (err error) {
+
+	log.Println("G: test reload ", name)
+
 	g, found := getGolum(name)
 	if !found {
 		return fmt.Errorf("No such component: %s", name)
 	}
 
-	err = g.manager.ReloadGolum(name, g.config)
+	err = g.Build()
+	if err != nil {
+		return
+	}
+	g.AfterBuild()
+	g.Start()
 	return
 }
 
@@ -77,7 +93,9 @@ func TestStop() {
 	golums_.Range(
 		func(itK, itV any) (cont bool) {
 			ulog.Debugf("G: stopping %s", itK)
-			(itV.(*golum_)).Stop()
+			g := itV.(*golum_)
+			g.Stop()
+			delGolum(g)
 			return true
 		})
 	uregistry.TestClearAll()

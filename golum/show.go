@@ -10,37 +10,36 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// show info about named component.  if name is 'all', then list all.
-func Show(name string, out io.Writer) {
+// show info about named component type.  if kind is 'all', then list all.
+func Show(kind string, out io.Writer) {
 
-	if "all" == name {
+	if "all" == kind {
 
-		var names []string
-		managers_.Range(func(k, v any) (cont bool) {
-			names = append(names, k.(string))
+		var kinds []string
+		prototypes_.Range(func(k, v any) (cont bool) {
+			kinds = append(kinds, k.(string))
 			return true
 		})
-		sort.Strings(names)
-		for _, n := range names {
+		sort.Strings(kinds)
+		for _, n := range kinds {
 			fmt.Fprintf(out, "%s\n", n)
 		}
 
 	} else {
 
-		it, ok := managers_.Load(name)
+		it, ok := prototypes_.Load(kind)
 		if !ok {
-			fmt.Fprintf(out, "Unknown component: %s\n", name)
+			fmt.Fprintf(out, "Unknown component type: %s\n", kind)
 			return
 		}
-		//mgr := it.(Manager)
-		mgr := it.(reloadableMgr_)
+		prototype := it.(Reloadable)
 
 		help := &uconfig.Help{}
-		mgr.HelpGolum(name, help)
+		prototype.Help(kind, help)
 
 		content, err := yaml.Marshal(help)
 		if err != nil {
-			fmt.Fprintf(out, "Error creating help for %s: %s", name, err)
+			fmt.Fprintf(out, "Error creating help for %s: %s", kind, err)
 			return
 		}
 		out.Write(content)

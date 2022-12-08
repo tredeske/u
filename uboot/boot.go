@@ -443,7 +443,7 @@ func (this *Boot) loadComponents(
 	if err != nil {
 		return
 	}
-	components, err := golum.Load(gconfig)
+	err = golum.Load(gconfig)
 	if err != nil {
 		return
 	}
@@ -460,8 +460,6 @@ func (this *Boot) loadComponents(
 		}
 	}
 
-	if nil != components {
-		err = components.Start()
-	}
+	err = golum.Start()
 	return
 }
