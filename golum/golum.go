@@ -467,6 +467,7 @@ func (g *golum_) StopOld() {
 
 func (g *golum_) Restore() {
 	if nil != g.old {
+		log.Printf("G: Restored %s", g.name)
 		g.curr = g.old
 		g.old = nil
 	}
