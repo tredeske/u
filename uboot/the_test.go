@@ -1,6 +1,8 @@
 package uboot
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestBoot(t *testing.T) {
 

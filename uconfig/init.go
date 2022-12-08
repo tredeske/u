@@ -1,13 +1,13 @@
 package uconfig
 
 import (
-	"errors"
-	"net"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/tredeske/u/ulog"
+	"github.com/tredeske/u/unet"
 )
 
 var (
@@ -41,9 +41,7 @@ func initInstallD() (dir string) {
 	return
 }
 
-//
 // record some info about the environment
-//
 func InitEnv() (err error) {
 	if 0 != len(ThisHost) {
 		return
@@ -54,62 +52,28 @@ func InitEnv() (err error) {
 		return
 	}
 
-	addrs, err := net.InterfaceAddrs()
+	ips, err := unet.FindLocalIps(nil, nil)
 	if err != nil {
 		return
 	}
-	LocalAddrs[ThisHost] = true
-	LocalAddrs["localhost"] = true
-	for _, a := range addrs {
-		addr := strings.Split(a.String(), "/")[0]
 
-		//
-		// this may take a while...
-		//
-		// to avoid delays, ensure /etc/hosts can resolve all interfaces
-		//
-		names, errLookup := net.LookupAddr(addr)
-		if errLookup == nil && 0 != len(names) {
-			LocalAddrs[addr] = true
-			for _, name := range names {
-				LocalAddrs[name] = true
-			}
+	for _, ip := range ips {
+		names, errLookup := unet.ResolveNames(ip, 100*time.Millisecond)
+		if errLookup != nil {
+			log.Printf("WARN: unable to lookup %s."+
+				"  Consider adding it to /etc/hosts.  Err: %s", ip, errLookup)
+		}
+		LocalAddrs[ip.String()] = true
+		for _, name := range names {
+			LocalAddrs[name] = true
+		}
+		if 0 == len(ThisIp) && nil == errLookup && 0 != len(names) &&
+			!ip.IsLoopback() && !ip.IsMulticast() {
+			ThisIp = ip.String()
 		}
 	}
-
-	err = findLocalIp()
-	return
-}
-
-func findLocalIp() (err error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return
+	if 0 == len(ThisIp) {
+		ThisIp = "not-in-etc-hosts"
 	}
-	for _, in := range interfaces {
-		if "lo" == in.Name {
-			continue
-		}
-		var addrs []net.Addr
-		addrs, err = in.Addrs()
-		if err != nil {
-			return
-		} else if 0 == len(addrs) {
-			continue
-		}
-		addr, ok := addrs[0].(*net.IPNet)
-		if !ok {
-			ulog.Warnf("Did not get back expected addr type for %s: %T",
-				in.Name, addrs[0])
-			continue
-		}
-		ip := addr.IP
-		if ip.IsLoopback() || ip.IsMulticast() {
-			continue
-		}
-		ThisIp = ip.String()
-		return ///////////////////////////// success
-	}
-	err = errors.New("Unable to determine src addr")
 	return
 }

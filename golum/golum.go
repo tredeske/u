@@ -51,6 +51,8 @@ import (
 	"github.com/tredeske/u/uregistry"
 )
 
+// gets called with err non-nil when problem occurs during reload, and gets
+// called again with err nil when problem is resolved
 type FailFunc func(name string, err error)
 
 const (
@@ -70,6 +72,7 @@ type (
 		config    *uconfig.Section
 		disabled  bool
 		needStart bool
+		failed    bool
 	}
 
 	nr_ struct {
@@ -85,7 +88,11 @@ var (
 	lock_       sync.Mutex
 	ready_      []*golum_
 	onFail_     FailFunc = func(name string, err error) {
-		log.Printf("WARN: G: component %s failed: %s", name, err)
+		if nil != err {
+			log.Printf("WARN: G: component %s failed: %s", name, err)
+		} else {
+			log.Printf("G: component %s ok", name)
+		}
 	}
 )
 
@@ -303,6 +310,7 @@ func Reload(configs *uconfig.Array) (err error) {
 			// hopefully, someone will see the problem, fix things, and do
 			// a reload
 			//
+			g.failed = true
 			onFail_(g.name, err)
 			err = nil
 		}
@@ -495,6 +503,14 @@ func (g *golum_) Start() (err error) {
 		}
 	case <-timer.C:
 		err = fmt.Errorf("Start of '%s' timed out after %s", g.name, g.timeout)
+	}
+	if err != nil {
+		g.failed = true
+		return
+	}
+	if g.failed {
+		g.failed = false
+		onFail_(g.name, nil)
 	}
 	return
 }
