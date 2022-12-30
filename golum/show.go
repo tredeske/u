@@ -15,6 +15,19 @@ func Show(kind string, out io.Writer) {
 
 	if "all" == kind {
 
+		fmt.Fprintf(out, `
+components:
+- name:     NAME             # unique name of component
+  type:     TYPE             # see list, below
+  disabled: false            # is component disabled?
+  timeout:  2s               # how long to wait for component to start
+  hosts:    []               # hosts this component is valid for
+  note:     a few words about this
+  config:
+    foo:    bar              # component specific configuration
+    ...
+
+`)
 		var kinds []string
 		prototypes_.Range(func(k, v any) (cont bool) {
 			kinds = append(kinds, k.(string))
