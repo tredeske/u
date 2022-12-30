@@ -18,6 +18,7 @@ var (
 	ThisD       = ""
 	InitD       = initInitD()    // initial dir upon exec
 	InstallD    = initInstallD() // where we're installed
+	DryRun      = false
 )
 
 func initInitD() (dir string) {

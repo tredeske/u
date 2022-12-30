@@ -152,6 +152,7 @@ func (this *Boot) Boot() (err error) {
 		return
 	}
 	uconfig.ThisProcess = this.Name
+	uconfig.DryRun = this.DryRun
 
 	//
 	// verify we have a config file
