@@ -490,8 +490,9 @@ func profile() {
 	if nil != cpuF || *memProfile_ != "" {
 		uexit.AtExitF(func(exitCode int) {
 			if nil != cpuF {
-				cpuF.Close() // error handling omitted for example
 				pprof.StopCPUProfile()
+				cpuF.Close()
+				ulog.Printf("Collected CPU profile to " + *cpuProfile_)
 			}
 			if *memProfile_ != "" {
 				f, err := os.Create(*memProfile_)
@@ -504,6 +505,7 @@ func profile() {
 				if err != nil {
 					log.Fatal("could not write memory profile: ", err)
 				}
+				ulog.Printf("Collected memory profile to " + *memProfile_)
 			}
 		})
 	}
