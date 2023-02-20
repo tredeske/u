@@ -9,14 +9,11 @@ import (
 	"time"
 )
 
-//
 // Time to wait for stuff to die, if anything registered
-//
 var WaitTime = 5 * time.Second
 
 // invoke from *end* of main thread to turn main thread into signal handler, or
 // invoke as goroutine
-//
 func SimpleSignalHandling() {
 	ExitOnStandardSignals()
 	DumpOnSigQuit()
@@ -27,9 +24,12 @@ func DumpOnSigQuit() {
 	go func() {
 		sigsC := make(chan os.Signal, 1)
 		signal.Notify(sigsC, syscall.SIGQUIT)
-		buf := make([]byte, 1<<20)
+		var buf []byte
 		for {
 			<-sigsC
+			if 0 == len(buf) {
+				buf = make([]byte, 1<<20)
+			}
 			runtime.Stack(buf, true)
 			log.Println("=== received SIGQUIT ===\n" +
 				"*** goroutine dump...\n" +
@@ -46,7 +46,7 @@ type exitHandler_ struct {
 var (
 	sigC_         chan os.Signal     = make(chan os.Signal, 8)
 	exitC_        chan int           = make(chan int)
-	exitHandlerC_ chan *exitHandler_ = make(chan *exitHandler_) // sync!
+	exitHandlerC_ chan *exitHandler_ = make(chan *exitHandler_, 8)
 	exitDoneC_    chan bool          = make(chan bool, 32)
 	waitC_        chan bool          = start()
 )
@@ -140,15 +140,24 @@ func manageExit(waitC chan bool) {
 //
 // The exit handler will wait for a brief time for a response on the reply channel
 // from each AtExit registration, then exit.
-//
 func AtExit() (exitNotifyC <-chan int, exitReplyC chan<- bool) {
 	notifyC := make(chan int, 2) // non blocking notifications
 	exitNotifyC = notifyC
 
-	exitHandlerC_ <- &exitHandler_{ // may block here til WaitForExit
+	exitHandlerC_ <- &exitHandler_{
 		ch: notifyC,
 	}
 	return exitNotifyC, exitDoneC_
+}
+
+// register a func to be run when program exits
+func AtExitF(onExit func(exitCode int)) {
+	go func() {
+		onExitC, respC := AtExit()
+		exitCode := <-onExitC // wait
+		onExit(exitCode)
+		respC <- true
+	}()
 }
 
 // register signals that should cause process exit
@@ -156,24 +165,18 @@ func ExitOnSignals(sigs ...os.Signal) {
 	signal.Notify(sigC_, sigs...)
 }
 
-//
 // register the usual signals that should cause process exit
-//
 func ExitOnStandardSignals() {
 	signal.Notify(sigC_, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 }
 
-//
 // invoke from main thread to park it until process death
-//
 func WaitForExit() {
 
 	<-waitC_
 }
 
-//
 // cause the process to exit by the deadline
-//
 func ExitWait(code int, wait time.Duration) {
 	exitC_ <- code
 	time.Sleep(wait)
@@ -181,9 +184,7 @@ func ExitWait(code int, wait time.Duration) {
 	os.Exit(code)
 }
 
-//
 // cause the process to exit within WaitTime seconds
-//
 func Exit(code int) {
 	ExitWait(code, WaitTime)
 }

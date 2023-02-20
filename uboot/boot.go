@@ -34,12 +34,14 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/tredeske/u/golum"
 	"github.com/tredeske/u/uconfig"
+	"github.com/tredeske/u/uexit"
 	"github.com/tredeske/u/uinit"
 	"github.com/tredeske/u/ulog"
 )
@@ -49,6 +51,8 @@ var (
 		syscall.Umask(002)                            // cause prior to init()
 		return strings.HasSuffix(os.Args[0], ".test") // detect 'go test'
 	}()
+	cpuProfile_ = flag.String("cpu-profile", "", "write cpu profile to `file`")
+	memProfile_ = flag.String("mem-profile", "", "write memory profile to `file`")
 )
 
 // simple boot using default values
@@ -358,6 +362,8 @@ func (this *Boot) Configure(
 	err error,
 ) {
 
+	profile()
+
 	log.Printf("configuring from %s", this.ConfigF)
 	config, err = uinit.InitConfig(this.ConfigF)
 	if err != nil {
@@ -463,4 +469,42 @@ func (this *Boot) loadComponents(
 
 	err = golum.Start()
 	return
+}
+
+func profile() {
+	var err error
+	var cpuF *os.File
+
+	if *cpuProfile_ != "" {
+		ulog.Printf("Saving CPU profile to " + *cpuProfile_)
+		cpuF, err = os.Create(*cpuProfile_)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		err = pprof.StartCPUProfile(cpuF)
+		if err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+	}
+
+	if nil != cpuF || *memProfile_ != "" {
+		uexit.AtExitF(func(exitCode int) {
+			if nil != cpuF {
+				cpuF.Close() // error handling omitted for example
+				pprof.StopCPUProfile()
+			}
+			if *memProfile_ != "" {
+				f, err := os.Create(*memProfile_)
+				if err != nil {
+					log.Fatal("could not create memory profile: ", err)
+				}
+				defer f.Close()
+				runtime.GC() // get up-to-date statistics
+				err = pprof.WriteHeapProfile(f)
+				if err != nil {
+					log.Fatal("could not write memory profile: ", err)
+				}
+			}
+		})
+	}
 }
