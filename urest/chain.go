@@ -32,25 +32,27 @@ var defaultClient_ = &http.Client{}
 // err := urest.Chain(client).Get("http://google.com").IsOK().Done()
 //
 // err := urest.NewChain(client).
-//           SetMethod("POST").
-//           SetUrlString("http://...").
-//           SetBody( body ).
-//           Do().
-//           IsOK().Done()
+//
+//	SetMethod("POST").
+//	SetUrlString("http://...").
+//	SetBody( body ).
+//	Do().
+//	IsOK().Done()
 //
 // err := urest.NewChain(client).
-//           PostAsJson("http://...",thing).
-//           IsOK().
-//           BodyJson(&resp).
-//           Done()
+//
+//	PostAsJson("http://...",thing).
+//	IsOK().
+//	BodyJson(&resp).
+//	Done()
 //
 // err := urest.NewChain(client).
-//           UploadMultipart("http://...",file,fileParm, ...).
-//           IsOK().Done()
+//
+//	UploadMultipart("http://...",file,fileParm, ...).
+//	IsOK().Done()
 //
 // var reqW, respW bytes.Buffer
 // _, err := urest.NewChain(client).Dump(&reqW,&respW).PostAsJson(url,...
-//
 type Chained struct {
 	Client   *http.Client
 	Request  *http.Request
@@ -59,10 +61,8 @@ type Chained struct {
 	cancel   context.CancelFunc
 }
 
-//
 // create a new request chain.  if client is nil (not recommended), then use
 // default client.
-//
 func NewChain(client *http.Client) (rv *Chained) {
 	if nil == client {
 		client = defaultClient_
@@ -72,19 +72,15 @@ func NewChain(client *http.Client) (rv *Chained) {
 	return rv
 }
 
-//
 // retrieve a reference to the chain
-//
 func (this *Chained) GetChain(c **Chained) *Chained {
 	*c = this
 	return this
 }
 
-//
 // set a timeout to this request
 //
 // since we create the context, we handle cancelation/cleanup
-//
 func (this *Chained) SetTimeout(d time.Duration) *Chained {
 	if nil == this.Error && 0 != d {
 		ctx, cancel := context.WithTimeout(context.Background(), d)
@@ -94,12 +90,10 @@ func (this *Chained) SetTimeout(d time.Duration) *Chained {
 	return this
 }
 
-//
 // add a cancelation context to the request
 //
 // since the context is provided by caller, it is caller's responsibility to
 // check the context and cancel it, etc...
-//
 func (this *Chained) WithContext(ctx context.Context) *Chained {
 	if nil == this.Error && nil != ctx {
 		this.Request = this.Request.WithContext(ctx)
@@ -107,9 +101,7 @@ func (this *Chained) WithContext(ctx context.Context) *Chained {
 	return this
 }
 
-//
 // set basic auth info.  if user is "", then do not actually set the info
-//
 func (this *Chained) SetBasicAuth(user, pass string) *Chained {
 	if nil == this.Error && 0 != len(user) {
 		this.Request.SetBasicAuth(user, pass)
@@ -117,9 +109,7 @@ func (this *Chained) SetBasicAuth(user, pass string) *Chained {
 	return this
 }
 
-//
 // set the HTTP verb (GET, PUT, POST, DELETE, ...) to use
-//
 func (this *Chained) SetMethod(method string) *Chained {
 	if nil == this.Error && 0 != len(method) {
 		this.Request.Method = method
@@ -127,9 +117,7 @@ func (this *Chained) SetMethod(method string) *Chained {
 	return this
 }
 
-//
 // set the URL to use for the request
-//
 func (this *Chained) SetUrl(url *nurl.URL) *Chained {
 	if nil == this.Error && nil != url {
 		this.Request.URL = url
@@ -138,9 +126,7 @@ func (this *Chained) SetUrl(url *nurl.URL) *Chained {
 	return this
 }
 
-//
 // set the URL to use for the request
-//
 func (this *Chained) SetUrlString(url string) *Chained {
 	if nil == this.Error && 0 != len(url) {
 		var u *nurl.URL
@@ -161,9 +147,7 @@ func (this *Chained) ensureReq(method, url string) {
 	}
 }
 
-//
 // set a JSON body
-//
 func (this *Chained) SetBodyJson(body interface{}) *Chained {
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -175,18 +159,14 @@ func (this *Chained) SetBodyJson(body interface{}) *Chained {
 	return this
 }
 
-//
 // set the body and content length.
-//
 func (this *Chained) SetBodyBytes(body []byte) *Chained {
 	this.SetContentLength(int64(len(body)))
 	return this.SetBody(bytes.NewReader(body))
 }
 
-//
 // set the body.  setting nil indicates no data in body.
 // the body will be automatically closed
-//
 func (this *Chained) SetBody(body io.Reader) *Chained {
 	if nil == this.Error && nil != body {
 		rc, ok := body.(io.ReadCloser)
@@ -228,9 +208,7 @@ func (this *Chained) surmiseContentLength(body io.Reader) {
 	}
 }
 
-//
 // set the body to the contents (and length) of the specified file
-//
 func (this *Chained) SetBodyFile(filename string) *Chained {
 	if nil == this.Error {
 		body, err := os.Open(filename)
@@ -250,12 +228,10 @@ func (this *Chained) SetBodyFile(filename string) *Chained {
 	return this
 }
 
-//
 // Set the Content-Length HTTP request header
 //
 // if content length is set to a positive number, then go http will use
 // a LimitReader, which will prevent ReaderFrom/WriterTo optimization
-//
 func (this *Chained) SetContentLength(length int64) *Chained {
 	if nil == this.Error {
 		this.Request.ContentLength = length
@@ -263,9 +239,7 @@ func (this *Chained) SetContentLength(length int64) *Chained {
 	return this
 }
 
-//
 // Set the Content-Type HTTP request header
-//
 func (this *Chained) SetContentType(ctype string) *Chained {
 	if nil == this.Error && 0 != len(ctype) {
 		//ctype = "application/octet-stream"
@@ -274,9 +248,7 @@ func (this *Chained) SetContentType(ctype string) *Chained {
 	return this
 }
 
-//
 // set the named HTTP request header to the specified value(s)
-//
 func (this *Chained) SetHeader(key, value string, values ...string) *Chained {
 	if nil == this.Error && 0 != len(key) {
 		this.Request.Header.Set(key, value)
@@ -287,9 +259,7 @@ func (this *Chained) SetHeader(key, value string, values ...string) *Chained {
 	return this
 }
 
-//
 // set the HTTP request headers
-//
 func (this *Chained) SetHeaders(headers map[string]string) *Chained {
 	if nil == this.Error {
 		for k, v := range headers {
@@ -299,11 +269,9 @@ func (this *Chained) SetHeaders(headers map[string]string) *Chained {
 	return this
 }
 
-//
 // set headers without allowing Go to make them HTTP compliant, such
 // as capitalizing the header key, etc.  Some services are broken and
 // require this.
-//
 func (this *Chained) SetRawHeaders(headers map[string]string) *Chained {
 
 	if nil == this.Error && 0 != len(headers) {
@@ -316,10 +284,8 @@ func (this *Chained) SetRawHeaders(headers map[string]string) *Chained {
 	return this
 }
 
-//
 // set a header without allowing Go to make the header HTTP compliant, such
 // as capitalizing the header key, etc.
-//
 func (this *Chained) SetRawHeader(key, value string) *Chained {
 	if nil == this.Error && 0 != len(key) {
 		this.Request.Header[key] = []string{value}
@@ -327,12 +293,10 @@ func (this *Chained) SetRawHeader(key, value string) *Chained {
 	return this
 }
 
-//
 // Get response header values.  There may be multiple header values for the
 // key, and the values may be CSV separated.  The spec says that CSV
 // separated values should be treated the same as multiple header/value
 // pairs.  Normalize all of that to an array of values.
-//
 func (this *Chained) ResponseHeaders(key string) (rv []string) {
 	if nil != this.Response {
 		for _, value := range this.Response.Header[key] {
@@ -350,16 +314,15 @@ func (this *Chained) ResponseHeaders(key string) (rv []string) {
 
 var linkExpr_ = regexp.MustCompile(`<\s?(.+)\s?>;\s?rel="(.+)"`)
 
-//
 // get Link headers for pagination, returning map of links per rel type.
 //
 // if key is not set, it will default to "Link"
 //
 // Link: <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=15>; rel="next",
-//  <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=34>; rel="last",
-//  <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=1>; rel="first",
-//  <https://api.github.com/search/code?q=addClass+user%3Amozilla&page=13>; rel="prev"
 //
+//	<https://api.github.com/search/code?q=addClass+user%3Amozilla&page=34>; rel="last",
+//	<https://api.github.com/search/code?q=addClass+user%3Amozilla&page=1>; rel="first",
+//	<https://api.github.com/search/code?q=addClass+user%3Amozilla&page=13>; rel="prev"
 func (this *Chained) LinkResponseHeaders(key string) (rv map[string]string) {
 	if 0 == len(key) {
 		key = "Link"
@@ -376,9 +339,7 @@ func (this *Chained) LinkResponseHeaders(key string) (rv map[string]string) {
 	return
 }
 
-//
 // Perform specialized adjustment of req before making the request
-//
 func (this *Chained) BeforeRequest(f func(req *http.Request) error) *Chained {
 	if nil == this.Error {
 		this.Error = f(this.Request)
@@ -386,9 +347,7 @@ func (this *Chained) BeforeRequest(f func(req *http.Request) error) *Chained {
 	return this
 }
 
-//
 // perform the request
-//
 func (this *Chained) Do() *Chained {
 	if nil == this.Error {
 		if nil != this.Request.Body && 0 == this.Request.ContentLength {
@@ -404,17 +363,13 @@ func (this *Chained) Do() *Chained {
 	return this
 }
 
-//
 // perform a simple GET
-//
 func (this *Chained) Get(url string) *Chained {
 	this.ensureReq("GET", url)
 	return this.Do()
 }
 
-//
 // perform a simple POST
-//
 func (this *Chained) Post(url, bodyType string, body io.Reader) *Chained {
 	this.ensureReq("POST", url)
 	this.SetBody(body)
@@ -422,9 +377,7 @@ func (this *Chained) Post(url, bodyType string, body io.Reader) *Chained {
 	return this.Do()
 }
 
-//
 // perform a simple JSON POST
-//
 func (this *Chained) PostAsJson(url string, body interface{}) *Chained {
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -436,15 +389,12 @@ func (this *Chained) PostAsJson(url string, body interface{}) *Chained {
 	return this
 }
 
-//
 // Post URL encoded form data
-//
 func (this *Chained) PostForm(url string, values *nurl.Values) *Chained {
 	this.Response, this.Error = this.Client.PostForm(url, *values)
 	return this
 }
 
-//
 // upload a file by posting as a multipart form
 //
 // a direct post is preferred as it is much more efficient and much easier,
@@ -452,7 +402,6 @@ func (this *Chained) PostForm(url string, values *nurl.Values) *Chained {
 //
 // we stream the file contents to the server instead of assembling the
 // whole multipart message in memory.
-//
 func (this *Chained) UploadFileMultipart(
 	url, fileName, fileField, fileFieldValue string,
 	fields map[string]string,
@@ -472,7 +421,6 @@ func (this *Chained) UploadFileMultipart(
 	return this.UploadMultipart(url, contentR, fileField, fileFieldValue, fields)
 }
 
-//
 // upload content by posting as a multipart form
 //
 // a direct post is preferred as it is much more efficient and much easier,
@@ -480,7 +428,6 @@ func (this *Chained) UploadFileMultipart(
 //
 // we stream the content to the server instead of assembling the
 // whole multipart message in memory.
-//
 func (this *Chained) UploadMultipart(
 	url string,
 	contentR io.Reader,
@@ -543,11 +490,9 @@ func (this *Chained) UploadMultipart(
 	return
 }
 
-//
 // Write response body to dst
 //
 // implement io.WriterTo
-//
 func (this *Chained) WriteTo(dst io.Writer) (nwrote int64, err error) {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
@@ -556,9 +501,7 @@ func (this *Chained) WriteTo(dst io.Writer) (nwrote int64, err error) {
 	return nwrote, this.Error
 }
 
-//
 // Write response body to dst
-//
 func (this *Chained) BodyWrite(dst io.Writer, nwrote *int64) *Chained {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
@@ -567,9 +510,7 @@ func (this *Chained) BodyWrite(dst io.Writer, nwrote *int64) *Chained {
 	return this
 }
 
-//
 // Copy response body to dst
-//
 func (this *Chained) BodyCopy(dst io.Writer) *Chained {
 	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
@@ -585,16 +526,12 @@ func (this *Chained) BodyCopy(dst io.Writer) *Chained {
 	return this
 }
 
-//
 // get the body of the response
-//
 func (this *Chained) Body(body *[]byte) *Chained {
 	return this.BodyIf(nil, body)
 }
 
-//
 // get the body of the response if cond met
-//
 func (this *Chained) BodyIf(cond CondF, body *[]byte) *Chained {
 	if nil != this.Response && nil != this.Response.Body &&
 		(nil == cond || cond(this)) {
@@ -609,16 +546,12 @@ func (this *Chained) BodyIf(cond CondF, body *[]byte) *Chained {
 	return this
 }
 
-//
 // decode response body JSON into result
-//
 func (this *Chained) BodyJson(result interface{}) *Chained {
 	return this.BodyJsonIf(nil, result)
 }
 
-//
 // decode response body JSON into result if condition met
-//
 func (this *Chained) BodyJsonIf(cond CondF, result interface{}) *Chained {
 	if nil != this.Response && nil != this.Response.Body &&
 		(nil == cond || cond(this)) {
@@ -632,16 +565,12 @@ func (this *Chained) BodyJsonIf(cond CondF, result interface{}) *Chained {
 	return this
 }
 
-//
 // decode response body text into result if condition met
-//
 func (this *Chained) BodyText(result *string) *Chained {
 	return this.BodyTextIf(nil, result)
 }
 
-//
 // decode response body text into result if condition met
-//
 func (this *Chained) BodyTextIf(cond CondF, result *string) *Chained {
 	var body []byte
 	this.BodyIf(cond, &body)
@@ -651,7 +580,6 @@ func (this *Chained) BodyTextIf(cond CondF, result *string) *Chained {
 	return this
 }
 
-//
 // Repeatedly perform request until onResp returns false or an error
 //
 // if times is less than or equal to 0 (zero), then retry indefinitely as long
@@ -664,12 +592,11 @@ func (this *Chained) BodyTextIf(cond CondF, result *string) *Chained {
 // Error will not be set, but Response may indicate a retriable problem with
 // the server (502, 503, 504, ...)
 //
-// Error will be set to the returned error (if any) of onResp
+// # Error will be set to the returned error (if any) of onResp
 //
 // NOTE: This is primarily for requests that can be replayed, such as GET.
 // or POST/PUT with no Body.  The onResp method must perform any required
 // reset.
-//
 func (this *Chained) DoRetriably(
 	times int,
 	delay time.Duration,
@@ -715,9 +642,7 @@ func (this *Chained) RetryOnError(times int, delay time.Duration, reset func(),
 }
 */
 
-//
 // a function that computes a condition
-//
 type CondF func(*Chained) bool
 
 // produce a CondF to check status
@@ -754,9 +679,7 @@ func StatusNotIn(statusen ...int) CondF {
 	}
 }
 
-//
 // if return status is as specified, then invoke method
-//
 func (this *Chained) IfStatusIs(
 	status int,
 	then func(c *Chained) error,
@@ -774,10 +697,7 @@ func (this *Chained) IfStatusIs(
 	return this
 }
 
-//
-//
 // if return status is one of specified, then invoke func
-//
 func (this *Chained) IfStatusIn(
 	status []int,
 	then func(c *Chained) error,
@@ -812,23 +732,17 @@ func (this *Chained) IsStatusIn(status []int) (rv bool) {
 	return false
 }
 
-//
 // error unless response status OK
-//
 func (this *Chained) IsOK() *Chained {
 	return this.StatusIs(http.StatusOK)
 }
 
-//
 // error unless response status OK
-//
 func (this *Chained) IsOk() *Chained {
 	return this.StatusIs(http.StatusOK)
 }
 
-//
 // error unless response status is one of the indicated ones
-//
 func (this *Chained) StatusIn(status ...int) *Chained {
 	ok := false
 	this.IfStatusIn(status,
@@ -867,9 +781,7 @@ func (this *Chained) StatusIn(status ...int) *Chained {
 	*/
 }
 
-//
 // error unless response status specified one
-//
 func (this *Chained) StatusIs(status int) *Chained {
 	if this.Error == nil {
 		if nil == this.Response {
@@ -884,9 +796,7 @@ func (this *Chained) StatusIs(status int) *Chained {
 	return this
 }
 
-//
 // get status if there is a response
-//
 func (this *Chained) Status(status *int) *Chained {
 	if nil == this.Response {
 		if nil == this.Error {
@@ -898,9 +808,7 @@ func (this *Chained) Status(status *int) *Chained {
 	return this
 }
 
-//
 // invoke the function after response
-//
 func (this *Chained) Then(f func(c *Chained) error) *Chained {
 	if nil == this.Error {
 		if nil == this.Response { // programming error
@@ -939,9 +847,7 @@ func (this *Chained) CheckResponse(checker func(resp *http.Response) error) *Cha
 }
 */
 
-//
 // complete the invocation chain, returning any error encountered
-//
 func (this *Chained) Done() error {
 	cancel := this.cancel
 	if nil != cancel {
@@ -960,9 +866,7 @@ func (this *Chained) Done() error {
 
 //////////////////////////////////////
 
-//
 // dump out request and response to log
-//
 func (this *Chained) Log() *Chained {
 	this.Client.Transport = &logTransport_{
 		rt: this.Client.Transport,
@@ -1008,10 +912,8 @@ func (this *logTransport_) RoundTrip(req *http.Request,
 
 //////////////////////////////////////
 
-//
 // dump out request and/or response to specified writers.
 // put nil in if you don't want one or the other
-//
 func (this *Chained) Dump(reqW, respW io.Writer) *Chained {
 	this.Client.Transport = &debugTransport_{
 		rt:    this.Client.Transport,

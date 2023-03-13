@@ -3,6 +3,7 @@ package unet
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"syscall"
@@ -614,6 +615,9 @@ func (this *Socket) Read(buff []byte) (nread int, err error) {
 	fd, good := this.goodFd()
 	if good {
 		nread, err = syscall.Read(fd, buff)
+		if 0 == nread && nil == err {
+			err = io.EOF
+		}
 	} else {
 		err = this.Error
 	}

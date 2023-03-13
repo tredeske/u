@@ -11,9 +11,7 @@ import (
 	"github.com/tredeske/u/ulog"
 )
 
-//
 // show params available for building http.Client
-//
 func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p := help
 	if 0 != len(name) {
@@ -75,11 +73,9 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 	return p
 }
 
-//
 // build a http.Client using uconfig
 //
 // if c is nil, then build default http.Client
-//
 func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 
 	//
@@ -143,9 +139,7 @@ func DefaultHttpClient() (rv *http.Client) {
 	return it.(*http.Client)
 }
 
-//
 // show params available for building http.Server
-//
 func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p := help
 	if 0 != len(name) {
@@ -180,11 +174,9 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	return p
 }
 
-//
 // build a http.Server using uconfig
 //
 // if c is nil, then build default http.Server
-//
 func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 	httpServer := &http.Server{}
 	keepAlives := true
@@ -211,16 +203,12 @@ func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 	return
 }
 
-//
 // is the httpServer configured for TLS?
-//
 func IsTlsServer(s *http.Server) bool {
 	return nil != s && ucerts.HasTlsCerts(s.TLSConfig)
 }
 
-//
 // start listening on a server
-//
 func StartServer(svr *http.Server, onDone func(err error)) {
 	go func() {
 
