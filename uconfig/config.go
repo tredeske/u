@@ -1225,28 +1225,70 @@ func (this *Section) toInts(
 	validators []IntValidator,
 ) (rv []int, err error) {
 
-	ok := false
-	rv, ok = it.([]int)
-	if !ok {
-		raw, isArray := it.([]any)
-		if isArray {
-			rv = make([]int, len(raw))
-			for i, v := range raw {
-				err = this.asInt(key, v, &rv[i], validators)
-				if err != nil {
-					rv = nil
-					return
-				}
-			}
-
-		} else { // not an array, so attempt to create an array
-
-			rv = make([]int, 1)
-			err = this.asInt(key, it, &rv[0], validators)
+	switch raw := it.(type) {
+	case []any:
+		rv = make([]int, len(raw))
+		for i, v := range raw {
+			err = this.asInt(key, v, &rv[i], validators)
 			if err != nil {
 				rv = nil
 				return
 			}
+		}
+	case string:
+		// a range, which is a number, followed by hyphen, followed by number
+		rangeExpr := regexp.MustCompile(`^(\d+) *- *(\d+)$`)
+		var array []string
+		if strings.Contains(raw, ",") { // comma separated values
+			array = strings.Split(raw, ",")
+		} else { // single value or single range
+			array = []string{raw}
+		}
+		rv = make([]int, 0, len(array))
+		for _, s := range array {
+			m := rangeExpr.FindStringSubmatch(strings.TrimSpace(s))
+			if nil == m { // a single value
+				var result int
+				err = this.asInt(key, s, &result, validators)
+				if err != nil {
+					rv = nil
+					return
+				}
+				rv = append(rv, result)
+
+			} else { // a range
+				var start, end int
+				err = this.asInt(key, m[1], &start, validators)
+				if err != nil {
+					rv = nil
+					return
+				}
+				err = this.asInt(key, m[2], &end, validators)
+				if err != nil {
+					rv = nil
+					return
+				} else if start >= end {
+					err = fmt.Errorf("parsing config: value of %s has range "+
+						"where start is not greater than end", this.ctx(key))
+					rv = nil
+					return
+				} else if end-start > 1_000_000 {
+					err = fmt.Errorf("parsing config: value of %s has range "+
+						"that is more than 1M", this.ctx(key))
+					rv = nil
+					return
+				}
+				for i := start; i <= end; i++ {
+					rv = append(rv, i)
+				}
+			}
+		}
+	default: // a single value
+		rv = make([]int, 1)
+		err = this.asInt(key, it, &rv[0], validators)
+		if err != nil {
+			rv = nil
+			return
 		}
 	}
 	return

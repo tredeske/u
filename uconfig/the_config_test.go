@@ -71,6 +71,7 @@ array:
 noEscapeCheck:  "{{.noEscape}}"
 strings:        ["one", 2, "three"]
 ints:           [1, 5, 7]
+csvRange:       "1, 5-7,9"
 int:            1
 `)
 	if err != nil {
@@ -236,6 +237,18 @@ int:            1
 		t.Fatalf("ints: 1 != '%d'", ints[0])
 	}
 
+	//
+	// int csv, range
+	//
+	ints = ints[:0]
+	err = config.GetInts("csvRange", &ints)
+	if err != nil {
+		t.Fatal(err)
+	} else if 5 != len(ints) {
+		t.Fatalf("ints: 5 != len(%v)", ints)
+	} else if 6 != ints[2] {
+		t.Fatalf("ints: 6 != '%d'", ints[2])
+	}
 }
 
 func TestDiff(t *testing.T) {
