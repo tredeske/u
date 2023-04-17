@@ -29,8 +29,16 @@ func TestAcquireReleaseFd(t *testing.T) {
 		t.Fatalf("fd should be valid")
 	}
 
-	mfd.Acquire()
-	mfd.Acquire()
+	_, valid = mfd.Acquire()
+	if !valid {
+		t.Fatalf("fd should be valid")
+	}
+
+	_, valid = mfd.Acquire()
+	if !valid {
+		t.Fatalf("fd should be valid")
+	}
+
 	count := mfd.ReleaseAndDisableAndMaybeClose()
 	if 1 != count {
 		t.Fatalf("should only be 1 ref left")

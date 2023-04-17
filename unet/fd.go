@@ -196,8 +196,9 @@ func (this *ManagedFd) Disable() (disabled bool) {
 	return
 }
 
-// add a reference count to this if it is valid
-func (this *ManagedFd) Acquire() (valid bool) {
+// add a reference count to this if it is valid, returning fd if valid
+func (this *ManagedFd) Acquire() (fd int, valid bool) {
+	fd = -1
 retry:
 	v := this.load()
 	valid = openBit_ == (v & (disableBit_ | openBit_))
@@ -208,6 +209,7 @@ retry:
 		if !this.cas(v, v+fdCountOne_) {
 			goto retry
 		}
+		fd = int(v & fdMask_)
 	}
 	return
 }
