@@ -14,6 +14,9 @@ import (
 //
 // This allows that activity to be safely performed.
 //
+// On Linux, fds are limited to 32 bits (see epoll interfaces).
+// OS limits push that down considerably.
+//
 // NOTES:
 //   - When a TCP socket is shutdown, reads will return 0 bytes, so the reader
 //     needs to check IsDisabled upon getting 0 bytes.
@@ -24,9 +27,11 @@ import (
 type ManagedFd uint64
 
 const (
-	fdMask_     = 0x3fffffffffffffff
-	openBit_    = 0x4000000000000000
-	disableBit_ = 0x8000000000000000
+	fdMask_      = 0x0000_ffff_ffff_ffff
+	fdCountMask_ = 0x0fff_0000_0000_0000
+	fdCountOne_  = 0x0001_0000_0000_0000
+	openBit_     = 0x4000_0000_0000_0000
+	disableBit_  = 0x8000_0000_0000_0000
 )
 
 func (this *ManagedFd) load() uint64 {
@@ -187,6 +192,49 @@ func (this *ManagedFd) Disable() (disabled bool) {
 	if openBit_ == (v&(openBit_|disableBit_)) && this.cas(v, v|disableBit_) {
 		syscall.Shutdown(int(v&fdMask_), syscall.SHUT_RDWR)
 		disabled = true
+	}
+	return
+}
+
+// add a reference count to this if it is valid
+func (this *ManagedFd) Acquire() (valid bool) {
+retry:
+	v := this.load()
+	valid = openBit_ == (v & (disableBit_ | openBit_))
+	if valid {
+		if v&fdCountMask_ == fdCountMask_ {
+			panic("fd acquire overflow")
+		}
+		if !this.cas(v, v+fdCountOne_) {
+			goto retry
+		}
+	}
+	return
+}
+
+// remove a reference count to this, returning status and remaining refs
+func (this *ManagedFd) Release() (disabled bool, count int) {
+retry:
+	v := this.load()
+	if 0 != v&fdCountMask_ {
+		w := v - fdCountOne_
+		if !this.cas(v, w) {
+			goto retry
+		}
+		v = w
+	}
+	return 0 != (v & disableBit_), int(v & fdCountMask_ >> 48)
+}
+
+// remove a ref to this, disabling if not disabled, closing if count zero
+func (this *ManagedFd) ReleaseAndDisableAndMaybeClose() (count int) {
+	var disabled bool
+	disabled, count = this.Release()
+	if !disabled {
+		this.Disable()
+	}
+	if 0 == count {
+		this.Close()
 	}
 	return
 }

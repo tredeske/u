@@ -5,6 +5,55 @@ import (
 	"testing"
 )
 
+func TestAcquireReleaseFd(t *testing.T) {
+	var mfd ManagedFd
+
+	pipeFds := [2]int{}
+	err := syscall.Pipe(pipeFds[:])
+	if err != nil {
+		t.Fatalf("Unable to create pipe: %s", err)
+	} else if !isOpen(pipeFds[0]) {
+		t.Fatalf("pipe fd 0 not open!")
+	}
+
+	defer func() {
+		syscall.Close(pipeFds[1])
+	}()
+
+	ok := mfd.Set(pipeFds[0])
+	if !ok {
+		t.Fatalf("Unable to set fd")
+	}
+	fd, valid := mfd.Get()
+	if !valid {
+		t.Fatalf("fd should be valid")
+	}
+
+	mfd.Acquire()
+	mfd.Acquire()
+	count := mfd.ReleaseAndDisableAndMaybeClose()
+	if 1 != count {
+		t.Fatalf("should only be 1 ref left")
+	} else if !mfd.IsDisabled() {
+		t.Fatalf("should be disabled after release")
+	} else if mfd.IsClosed() {
+		t.Fatalf("should not be marked closed yet!")
+	} else if !isOpen(fd) {
+		t.Fatalf("pipe fd 0 not open anymore!")
+	}
+
+	count = mfd.ReleaseAndDisableAndMaybeClose()
+	if 0 != count {
+		t.Fatalf("should only be 1 ref left")
+	} else if !mfd.IsDisabled() {
+		t.Fatalf("should be disabled after release")
+	} else if !mfd.IsClosed() {
+		t.Fatalf("should be marked closed!")
+	} else if isOpen(fd) {
+		t.Fatalf("pipe fd still open!")
+	}
+}
+
 func TestManagedFd(t *testing.T) {
 	var mfd ManagedFd
 
