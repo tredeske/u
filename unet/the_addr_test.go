@@ -2,6 +2,7 @@ package unet
 
 import (
 	"fmt"
+	"syscall"
 	"testing"
 )
 
@@ -69,11 +70,31 @@ GIVEN %s IP %s
 				t.Fatalf("should be equal: %#v and %#v", ip, addr)
 			}
 
+			fmt.Printf(`
+GIVEN %s IP %s
+ WHEN create sockaddr from Address
+  AND create new Address back from sockaddr
+ THEN recovered Address matches original Address
+ `, testCase.version, ip)
 			sockaddr := addr.AsSockaddr()
 			addr2 := Address{}
 			addr2.FromSockaddr(sockaddr)
 			if addr != addr2 {
 				t.Fatalf("(sockaddr) should be equal: %#v and %#v", addr, addr2)
+			}
+
+			fmt.Printf(`
+GIVEN %s IP %s
+ WHEN create name bytes from Address
+  AND create new Address back from name bytes
+ THEN recovered Address matches original Address
+ `, testCase.version, ip)
+			space := make([]byte, syscall.SizeofSockaddrInet6)
+			name, namelen := addr.AsNameBytes(space)
+			addr3 := Address{}
+			addr3.FromNameBytes(name, namelen)
+			if addr != addr3 {
+				t.Fatalf("(name bytes) should be equal: %#v and %#v", addr, addr3)
 			}
 		})
 	}

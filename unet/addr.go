@@ -2,7 +2,6 @@ package unet
 
 import (
 	"encoding/hex"
-	"fmt"
 	"net"
 	"strconv"
 	"syscall"
@@ -57,11 +56,25 @@ func (this *Address) AsIp() (rv net.IP) {
 }
 
 func (this *Address) AsIpV4() (rv net.IP) {
-	return this.AsIp()[12:16]
+	return (*[16]byte)(unsafe.Pointer(this))[12:16:16]
 }
 
+// allocate and populate a sockaddr based on this
 func (this *Address) AsSockaddr() (rv syscall.Sockaddr) {
-	return AsSockaddr(this.AsIp(), int(this.Port()))
+	if this.IsIpv4() || !this.IsIpSet() {
+		sa := &syscall.SockaddrInet4{
+			Port: int(this.Port()),
+		}
+		copy(sa.Addr[:], this.AsIpV4())
+		rv = sa
+	} else {
+		sa := &syscall.SockaddrInet6{
+			Port: int(this.Port()),
+		}
+		copy(sa.Addr[:], this.AsIp())
+		rv = sa
+	}
+	return
 }
 
 // Pack addr into provided space, returning name and namelen that point into
@@ -70,11 +83,25 @@ func (this *Address) AsSockaddr() (rv syscall.Sockaddr) {
 // Use for syscall.Msghdr (sendmsg/recvmsg)
 func (this *Address) AsNameBytes(space []byte) (name *byte, namelen uint32) {
 
-	var err error
-	name, namelen, err = RawSockaddrAsNameBytes(
-		AsSockaddr(this.AsIp(), int(this.Port())), space)
-	if err != nil {
-		panic(fmt.Sprintf("Impossible!  Failed sockaddr conversion: %s", err))
+	name = &space[0]
+	if this.IsIpv4() || !this.IsIpSet() {
+		if len(space) < syscall.SizeofSockaddrInet4 {
+			panic("not enough space for IPv4 sockaddr")
+		}
+		rsa := (*syscall.RawSockaddrInet4)(unsafe.Pointer(name))
+		namelen = syscall.SizeofSockaddrInet4
+		rsa.Family = syscall.AF_INET
+		rsa.Port = Htons(this.Port())
+		copy(rsa.Addr[:], this.AsIpV4())
+	} else {
+		if len(space) < syscall.SizeofSockaddrInet6 {
+			panic("not enough space for IPv6 sockaddr")
+		}
+		rsa := (*syscall.RawSockaddrInet6)(unsafe.Pointer(name))
+		namelen = syscall.SizeofSockaddrInet6
+		rsa.Family = syscall.AF_INET6
+		rsa.Port = Htons(this.Port())
+		copy(rsa.Addr[:], this.AsIp())
 	}
 	return
 }
@@ -157,26 +184,24 @@ func (this *Address) FromCmsghdr(cmsgB []byte) (err error) {
 // see syscall.Msghdr (Name and Namelen fields)
 func (this *Address) FromNameBytes(name *byte, namelen uint32) {
 	if syscall.SizeofSockaddrInet4 == namelen { // ipv4: store as ipv4-in-ipv6
-		if syscall.SizeofSockaddrInet4 > namelen {
-			panic("expecting sockaddr for ipv4, but it is too small")
-		}
 		actual := (*syscall.RawSockaddrInet4)(unsafe.Pointer(name))
+		//if actual.Family != syscall.AF_INET {
+		//	panic("family not set to IPv4")
+		//}
 		this.addr1 = 0
 		this.addr2 = (0xffff << 16) |
 			(uint64(actual.Addr[3]) << 56) | (uint64(actual.Addr[2]) << 48) |
 			(uint64(actual.Addr[1]) << 40) | (uint64(actual.Addr[0]) << 32)
-		//this.plus = uint64(Htons(actual.Port))
 		this.plus |= addrBit_
 		this.SetPort(Htons(actual.Port))
 
 	} else if syscall.SizeofSockaddrInet6 == namelen { // ipv6
-		if syscall.SizeofSockaddrInet6 > namelen {
-			panic("expecting sockaddr for ipv6, but it is too small")
-		}
 		actual := (*syscall.RawSockaddrInet6)(unsafe.Pointer(name))
+		//if actual.Family != syscall.AF_INET6 {
+		//	panic("family not set to IPv6")
+		//}
 		to := (*[16]byte)(unsafe.Pointer(this))[:16:16]
 		copy(to, actual.Addr[:])
-		//this.plus = uint64(Htons(actual.Port))
 		this.plus |= addrBit_
 		this.SetPort(Htons(actual.Port))
 
