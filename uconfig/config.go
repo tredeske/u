@@ -1052,8 +1052,8 @@ func (this *Section) asInt(
 		*p = int8(val)
 
 	default:
-		err = fmt.Errorf("result must be a type of signed integer.  is %s",
-			reflect.TypeOf(result))
+		err = fmt.Errorf("result for %s must be a type of signed integer.  is %s",
+			this.ctx(key), reflect.TypeOf(result))
 		return
 	}
 
