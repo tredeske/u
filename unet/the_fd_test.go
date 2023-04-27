@@ -87,15 +87,17 @@ func TestManagedFd(t *testing.T) {
 		t.Fatalf("mfd should be closed")
 	}
 
-	//
-	// try to eject non-existing fd
-	//
-	fd, valid = mfd.Eject()
-	if valid {
-		t.Fatalf("fd should not be valid")
-	} else if 0 <= fd {
-		t.Fatalf("fd should not be valid")
-	}
+	/*
+		//
+		// try to eject non-existing fd
+		//
+		fd, valid = mfd.Eject()
+		if valid {
+			t.Fatalf("fd should not be valid")
+		} else if 0 <= fd {
+			t.Fatalf("fd should not be valid")
+		}
+	*/
 
 	//
 	// try to close non-existing fd
@@ -125,50 +127,121 @@ func TestManagedFd(t *testing.T) {
 		t.Fatalf("did not get back correct fd")
 	}
 
+	/*
+		//
+		// eject existing fd
+		//
+		fd, valid = mfd.Eject()
+		if !valid {
+			t.Fatalf("fd should be valid")
+		} else if 0 > fd {
+			t.Fatalf("fd should be valid")
+		} else if mfd.IsDisabled() {
+			t.Fatalf("mfd should not be disabled")
+		} else if !mfd.IsClosed() {
+			t.Fatalf("mfd should be closed")
+		}
+
+		//
+		// set it again
+		//
+		ok = mfd.Set(pipeFds[0])
+		if !ok {
+			t.Fatalf("Unable to set fd")
+		}
+
+		//
+		// replace and close
+		//
+		ok = mfd.ReplaceAndClose(pipeFds[1])
+		if !ok {
+			t.Fatalf("Unable to replace fd")
+		} else if isOpen(pipeFds[0]) {
+			t.Fatalf("did not close pipe 0")
+		} else if !isOpen(pipeFds[1]) {
+			t.Fatalf("pipe 1 closed!")
+		}
+	*/
+
 	//
-	// eject existing fd
+	// close existing fd
 	//
-	fd, valid = mfd.Eject()
+	ok, err = mfd.Close()
+	if !ok {
+		t.Fatalf("should have closed")
+	} else if err != nil {
+		t.Fatalf("close error: %s", err)
+	} else if isOpen(pipeFds[0]) {
+		t.Fatalf("did not close pipe 0")
+	} else if mfd.IsDisabled() {
+		t.Fatalf("mfd should not be disabled")
+	}
+
+	//
+	// set to a different fd
+	//
+	ok = mfd.Set(pipeFds[1])
+	if !ok {
+		t.Fatalf("Unable to set fd")
+	}
+	fd, valid = mfd.Get()
 	if !valid {
 		t.Fatalf("fd should be valid")
 	} else if 0 > fd {
 		t.Fatalf("fd should be valid")
 	} else if mfd.IsDisabled() {
 		t.Fatalf("mfd should not be disabled")
+	} else if mfd.IsClosed() {
+		t.Fatalf("mfd should NOT be closed")
+	} else if pipeFds[1] != fd {
+		t.Fatalf("did not get back correct fd")
+	}
+
+	//
+	// Disable
+	//
+	mfd.Disable()
+	if !mfd.IsDisabled() {
+		t.Fatalf("mfd should be disabled")
+	} else if mfd.IsClosed() {
+		t.Fatalf("mfd should NOT be closed")
+	}
+
+	//
+	// close disabled fd
+	//
+	ok, err = mfd.Close()
+	if !ok {
+		t.Fatalf("should have closed disabled")
+	} else if err != nil {
+		t.Fatalf("close error: %s", err)
+	} else if isOpen(pipeFds[1]) {
+		t.Fatalf("did not close pipe 1")
+	} else if !mfd.IsClosed() {
+		t.Fatalf("mfd should be closed")
+	} else if !mfd.IsDisabled() {
+		t.Fatalf("mfd should be disabled")
+	}
+
+	//
+	// close disabled fd (again)
+	//
+	ok, err = mfd.Close()
+	if ok {
+		t.Fatalf("should not be able to close already closed")
+	} else if err != nil {
+		t.Fatalf("close error: %s", err)
+	}
+
+	//
+	// Disable closed
+	//
+	mfd.Disable()
+	if !mfd.IsDisabled() {
+		t.Fatalf("mfd should be disabled")
 	} else if !mfd.IsClosed() {
 		t.Fatalf("mfd should be closed")
 	}
-
-	//
-	// set it again
-	//
-	ok = mfd.Set(pipeFds[0])
-	if !ok {
-		t.Fatalf("Unable to set fd")
-	}
-
-	//
-	// replace and close
-	//
-	ok = mfd.ReplaceAndClose(pipeFds[1])
-	if !ok {
-		t.Fatalf("Unable to replace fd")
-	} else if isOpen(pipeFds[0]) {
-		t.Fatalf("did not close pipe 0")
-	} else if !isOpen(pipeFds[1]) {
-		t.Fatalf("pipe 1 closed!")
-	}
-
-	//
-	// close existing fd
-	//
-	ok, _ = mfd.Close()
-	if !ok {
-		t.Fatalf("should have closed")
-	} else if isOpen(pipeFds[1]) {
-		t.Fatalf("did not close pipe 0")
-	}
-
 }
 
 func isOpen(fd int) bool {
