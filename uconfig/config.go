@@ -435,6 +435,27 @@ func (this *Section) WarnExtraKeys(allowedKeys ...string) {
 	}
 }
 
+// return true if any of the listed keys are present
+func (this *Section) AnyKeysIn(keys ...string) bool {
+	for _, k := range keys {
+		_, found := this.section[k]
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// return true if any of the keys match
+func (this *Section) AnyKeysMatch(r *regexp.Regexp) bool {
+	for k := range this.section {
+		if r.MatchString(k) {
+			return true
+		}
+	}
+	return false
+}
+
 // iterate through config items in section, aborting if visitor returns error
 func (this *Section) Each(fn func(key string, val any) error) error {
 	for k, v := range this.section {

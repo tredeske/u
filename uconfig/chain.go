@@ -445,6 +445,22 @@ func (this *Chain) Must(key string, builder ChainVisitor) *Chain {
 	return this
 }
 
+// if any of the keys are present, call handler
+func (this *Chain) IfHasKeysIn(f ChainVisitor, keys ...string) *Chain {
+	if nil == this.Error && this.Section.AnyKeysIn(keys...) {
+		this.Error = f(this)
+	}
+	return this
+}
+
+// if any of the keys are present, call handler
+func (this *Chain) IfHasKeysMatching(f ChainVisitor, r *regexp.Regexp) *Chain {
+	if nil == this.Error && this.Section.AnyKeysMatch(r) {
+		this.Error = f(this)
+	}
+	return this
+}
+
 // run builder against each sub section in named array
 func (this *Chain) Each(key string, builder ChainVisitor) *Chain {
 

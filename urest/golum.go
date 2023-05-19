@@ -4,11 +4,13 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/tredeske/u/ucerts"
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/ulog"
+	"golang.org/x/net/http2"
 )
 
 // show params available for building http.Client
@@ -69,6 +71,29 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 		"How long to wait for TLS init").
 		SetDefault("17s")
 
+	p.NewItem("useHttp2", "bool",
+		"Force use of HTTP2 even if no HTTP2 parameters are set").SetOptional()
+	p.NewItem("http2DisableCompression", "bool",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2AllowHttp", "bool",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2MaxHeaderListSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2MaxReadFrameSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2MaxDecoderHeaderTableSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2MaxEncoderHeaderTableSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2StrictMaxConcurrentStreams", "bool",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2ReadIdleTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2PingTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+	p.NewItem("http2WriteByteTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+
 	ucerts.ShowTlsConfig("", p)
 	return p
 }
@@ -76,7 +101,7 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 // build a http.Client using uconfig
 //
 // if c is nil, then build default http.Client
-func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
+func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 
 	//
 	// wish we could do this, but there is a mutex that gets copied
@@ -106,6 +131,8 @@ func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 	}
 
 	if nil != c {
+		var t2 *http2.Transport
+		var useHttp2 bool
 		err = c.
 			Build(&httpTransport.TLSClientConfig, ucerts.BuildTlsConfig).
 			GetBool("httpDisableCompression", &httpTransport.DisableCompression).
@@ -118,9 +145,42 @@ func BuildHttpClient(c *uconfig.Chain) (rv interface{}, err error) {
 			GetDuration("tlsHandshakeTimeout", &httpTransport.TLSHandshakeTimeout).
 			GetDuration("tcpTimeout", &dialer.Timeout).
 			GetDuration("tcpKeepAlive", &dialer.KeepAlive).
+			GetBool("useHttp2", &useHttp2).
+			IfHasKeysMatching( // special http2 config settings
+				func(c *uconfig.Chain) (err error) {
+					t2, err = http2.ConfigureTransports(httpTransport)
+					if err != nil {
+						return
+					}
+					return c.
+						GetBool("http2DisableCompression", &t2.DisableCompression).
+						GetBool("http2AllowHttp", &t2.AllowHTTP).
+						GetUInt("http2MaxHeaderListSize", &t2.MaxHeaderListSize).
+						GetUInt("http2MaxReadFrameSize", &t2.MaxReadFrameSize).
+						GetUInt("http2MaxDecoderHeaderTableSize",
+							&t2.MaxDecoderHeaderTableSize).
+						GetUInt("http2MaxEncoderHeaderTableSize",
+							&t2.MaxEncoderHeaderTableSize).
+						GetBool("http2StrictMaxConcurrentStreams",
+							&t2.StrictMaxConcurrentStreams).
+						GetDuration("http2ReadIdleTimeout", &t2.ReadIdleTimeout).
+						GetDuration("http2PingTimeout", &t2.PingTimeout).
+						GetDuration("http2WriteByteTimeout", &t2.WriteByteTimeout).
+						Error
+				}, regexp.MustCompile("^http2")).
 			Error
 		if err != nil {
 			return
+		}
+		if useHttp2 && nil == t2 {
+			//
+			// no special http2 settings are present, but we were told to ensure
+			// http2 would be used
+			//
+			err = http2.ConfigureTransport(httpTransport)
+			if err != nil {
+				return
+			}
 		}
 	} else {
 		httpTransport.TLSClientConfig = ucerts.DefaultTlsConfig()
@@ -152,6 +212,10 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 		"string",
 		"host:port to listen on.  if not set, endpoint is disabled.").
 		SetOptional()
+	p.NewItem("httpDisableOptionsHandler",
+		"bool",
+		"If true, pass OPTIONS to handler instead of always responding 200").
+		SetOptional()
 	p.NewItem("httpMaxHeaderBytes",
 		"int",
 		"Max number of bytes allowed in request headers").SetOptional()
@@ -169,7 +233,25 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 		"How long to wait for client to accept response").SetOptional()
 	p.NewItem("httpKeepAlives",
 		"bool",
-		"Enable keepalives?").Set("default", "true")
+		"Enable keepalives?").Default("true")
+	p.NewItem("http2MaxHandlers", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2MaxConcurrentStreams", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2MaxDecoderHeaderTableSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2MaxEncoderHeaderTableSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2MaxReadFrameSize", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2PermitProhibitedCipherSuites", "bool",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2IdleTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2MaxUploadBufferPerConnection", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+	p.NewItem("http2MaxUploadBufferPerStream", "int",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
 	ucerts.ShowTlsConfig("", p)
 	return p
 }
@@ -177,7 +259,7 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 // build a http.Server using uconfig
 //
 // if c is nil, then build default http.Server
-func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
+func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	httpServer := &http.Server{}
 	keepAlives := true
 
@@ -185,12 +267,41 @@ func BuildHttpServer(c *uconfig.Chain) (rv interface{}, err error) {
 		err = c.
 			Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
 			GetString("httpAddress", &httpServer.Addr).
+			GetBool("httpDisableOptionsHandler",
+				&httpServer.DisableGeneralOptionsHandler).
 			GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
 			GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
 			GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
 			GetDuration("httpWriteTimeout", &httpServer.WriteTimeout).
 			GetInt("httpMaxHeaderBytes", &httpServer.MaxHeaderBytes).
 			GetBool("httpKeepAlives", &keepAlives).
+			IfHasKeysMatching(
+				func(c *uconfig.Chain) (err error) {
+					s2 := http2.Server{}
+					err = c.
+						GetInt("http2MaxHandlers", &s2.MaxHandlers).
+						GetUInt("http2MaxConcurrentStreams",
+							&s2.MaxConcurrentStreams).
+						GetUInt("http2MaxConcurrentStreams",
+							&s2.MaxConcurrentStreams).
+						GetUInt("http2MaxDecoderHeaderTableSize",
+							&s2.MaxDecoderHeaderTableSize).
+						GetUInt("http2MaxEncoderHeaderTableSize",
+							&s2.MaxEncoderHeaderTableSize).
+						GetUInt("http2MaxReadFrameSize", &s2.MaxReadFrameSize).
+						GetBool("http2PermitProhibitedCipherSuites",
+							&s2.PermitProhibitedCipherSuites).
+						GetDuration("http2IdleTimeout", &s2.IdleTimeout).
+						GetInt("http2MaxUploadBufferPerConnection",
+							&s2.MaxUploadBufferPerConnection).
+						GetInt("http2MaxUploadBufferPerStream",
+							&s2.MaxUploadBufferPerStream).
+						Error
+					if err != nil {
+						return
+					}
+					return http2.ConfigureServer(httpServer, &s2)
+				}, regexp.MustCompile("^http2")).
 			Error
 		if err != nil {
 			return
