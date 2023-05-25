@@ -322,6 +322,40 @@ func (this *Socket) SetOptReuseAddr(tristate ...int) *Socket {
 	return this.SetOptTristate(syscall.SOL_SOCKET, syscall.SO_REUSEADDR, tristate)
 }
 
+// set SO_RCVTIMEO on socket if timeout is positive
+func (this *Socket) SetOptRcvTimeout(timeout time.Duration, unless ...bool) *Socket {
+	if 0 < timeout && (0 == len(unless) || !unless[0]) {
+		fd, good := this.goodFd()
+		if good {
+			tv := syscall.NsecToTimeval(int64(timeout))
+			err := syscall.SetsockoptTimeval(
+				fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv)
+			if err != nil {
+				this.Error = uerr.Chainf(err, "syscall.Setsockopt SO_RCVTIMEO")
+			}
+			this.closeIfError()
+		}
+	}
+	return this
+}
+
+// set SO_SNDTIMEO on socket if timeout is positive
+func (this *Socket) SetOptSndTimeout(timeout time.Duration, unless ...bool) *Socket {
+	if 0 < timeout && (0 == len(unless) || !unless[0]) {
+		fd, good := this.goodFd()
+		if good {
+			tv := syscall.NsecToTimeval(int64(timeout))
+			err := syscall.SetsockoptTimeval(
+				fd, syscall.SOL_SOCKET, syscall.SO_SNDTIMEO, &tv)
+			if err != nil {
+				this.Error = uerr.Chainf(err, "syscall.Setsockopt SO_SNDTIMEO")
+			}
+			this.closeIfError()
+		}
+	}
+	return this
+}
+
 // must be before bind
 //
 // default to 'on'.  if specified, values are 0 (off), 1 (on) - any other value

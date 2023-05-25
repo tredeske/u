@@ -4,9 +4,7 @@ import (
 	"sync/atomic"
 )
 
-//
 // boolean that is safe to access by multiple threads
-//
 type AtomicBool struct {
 	v int64
 }
@@ -28,9 +26,12 @@ func (this *AtomicBool) SetUnlessSet() (changed bool) {
 	return atomic.CompareAndSwapInt64(&this.v, 0, 1)
 }
 
-//
+// return true if able to clear
+func (this *AtomicBool) ClearUnlessClear() (changed bool) {
+	return atomic.CompareAndSwapInt64(&this.v, 1, 0)
+}
+
 // smaller boolean that is safe to access by multiple threads
-//
 type AtomicBool32 struct {
 	v int32
 }
@@ -52,11 +53,14 @@ func (this *AtomicBool32) SetUnlessSet() (changed bool) {
 	return atomic.CompareAndSwapInt32(&this.v, 0, 1)
 }
 
+// return true if able to clear
+func (this *AtomicBool32) ClearUnlessClear() (changed bool) {
+	return atomic.CompareAndSwapInt32(&this.v, 1, 0)
+}
+
 //------------------------------------------------------------------
 
-//
 // a set of 64 booleans that are safe to access by multiple threads
-//
 type AtomicBools struct {
 	v uint64
 }
@@ -110,9 +114,7 @@ retry:
 	return false
 }
 
-//
 // a set of 32 booleans that are safe to access by multiple threads
-//
 type AtomicBools32 struct {
 	v uint32
 }
