@@ -451,6 +451,16 @@ func (this *Socket) Bind(unless ...bool) *Socket {
 	return this
 }
 
+func (this *Socket) GetNearAddress(rv *Address) *Socket {
+	if nil == this.NearAddr {
+		this.GetSockName()
+	}
+	if nil != this.NearAddr {
+		rv.FromSockaddr(this.NearAddr)
+	}
+	return this
+}
+
 func (this *Socket) GetSockName(unless ...bool) *Socket {
 	fd, good := this.goodFd()
 	if good && (0 == len(unless) || !unless[0]) {

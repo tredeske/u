@@ -13,8 +13,14 @@ import (
 	"golang.org/x/net/http2"
 )
 
+var defaultDialer_ = &net.Dialer{
+	Timeout:   67 * time.Second,
+	KeepAlive: 67 * time.Second,
+}
+
 // show params available for building http.Client
 func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
+	tp := DefaultHttpTransport()
 	p := help
 	if 0 != len(name) {
 		if 0 == len(descr) {
@@ -25,74 +31,75 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p.NewItem("httpDisableCompression",
 		"bool",
 		"Turn off compression").
-		SetDefault(false)
+		Default(tp.DisableCompression)
 
 	p.NewItem("httpDisableKeepAlives",
 		"bool",
 		"Turn off reuse of connections").
-		SetDefault(false)
+		Default(tp.DisableKeepAlives)
 
 	p.NewItem("httpExpectContinueTimeout",
 		"duration",
 		"If not zero, emit Expect: 100-continue and wait to send body").
-		SetDefault("1s")
+		Default(tp.ExpectContinueTimeout)
 
 	p.NewItem("httpIdleConnTimeout",
 		"duration",
 		"How long to keep idle connections around").
-		SetDefault("90s")
+		Default(tp.IdleConnTimeout)
 
 	p.NewItem("httpMaxIdleConns",
 		"int",
 		"Max conns to keep around just in case").
-		SetDefault("128")
+		Default(tp.MaxIdleConns)
 
 	p.NewItem("httpMaxIdleConnsPerHost",
 		"int",
 		"Max conns to keep around just in case").
-		SetDefault("64")
+		Default(tp.MaxIdleConnsPerHost)
 
 	p.NewItem("httpResponseTimeout",
 		"duration",
 		"How long to wait for a response (not incl body)").
-		SetDefault("forever")
+		Default(tp.ResponseHeaderTimeout)
 
 	p.NewItem("tcpKeepAlive", "duration",
 		"Detect broken conn after no keepalives").
-		SetDefault("67s")
+		Default(defaultDialer_.KeepAlive)
 
 	p.NewItem("tcpTimeout",
 		"duration",
 		"Detect unable to connect after").
-		SetDefault("67s")
+		Default(defaultDialer_.Timeout)
 
 	p.NewItem("tlsHandshakeTimeout",
 		"duration",
 		"How long to wait for TLS init").
-		SetDefault("17s")
+		Default(tp.TLSHandshakeTimeout)
 
 	p.NewItem("useHttp2", "bool",
-		"Force use of HTTP2 even if no HTTP2 parameters are set").SetOptional()
+		"Force use of HTTP2 even if no HTTP2 parameters are set").
+		Default(tp.ForceAttemptHTTP2)
 	p.NewItem("http2DisableCompression", "bool",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2AllowHttp", "bool",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2MaxHeaderListSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2MaxReadFrameSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2MaxDecoderHeaderTableSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2MaxEncoderHeaderTableSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2StrictMaxConcurrentStreams", "bool",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2ReadIdleTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2PingTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2WriteByteTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 
 	ucerts.ShowTlsConfig("", p)
 	return p
@@ -103,52 +110,28 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 // if c is nil, then build default http.Client
 func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 
-	//
-	// wish we could do this, but there is a mutex that gets copied
-	//
-	//    *httpTransport = *(http.DefaultTransport.(*http.Transport))
-	//
-	// as it is, as this structures change, we'll need to revisit this
-	// code once in a while
-	//
-	// refer to http.DefaultTransport
-	//
-	dialer := &net.Dialer{
-		Timeout:   67 * time.Second,
-		KeepAlive: 67 * time.Second,
-		DualStack: true,
-	}
-
-	httpTransport := &http.Transport{
-		Dial:                  dialer.Dial, // unclear if needed for TLS
-		DialContext:           dialer.DialContext,
-		Proxy:                 http.ProxyFromEnvironment,
-		MaxIdleConns:          128,
-		MaxIdleConnsPerHost:   64,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   17 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
+	dialer := &net.Dialer{}
+	*dialer = *defaultDialer_
+	tp := DefaultHttpTransport()
+	tp.DialContext = dialer.DialContext
 	if nil != c {
 		var t2 *http2.Transport
-		var useHttp2 bool
 		err = c.
-			Build(&httpTransport.TLSClientConfig, ucerts.BuildTlsConfig).
-			GetBool("httpDisableCompression", &httpTransport.DisableCompression).
-			GetBool("httpDisableKeepAlives", &httpTransport.DisableKeepAlives).
-			GetInt("httpMaxIdleConnsPerHost", &httpTransport.MaxIdleConnsPerHost).
-			GetInt("httpMaxIdleConns", &httpTransport.MaxIdleConns).
-			GetDuration("httpResponseTimeout", &httpTransport.ResponseHeaderTimeout).
-			GetDuration("httpIdleConnTimeout", &httpTransport.IdleConnTimeout).
-			GetDuration("httpExpectContinueTimeout", &httpTransport.ExpectContinueTimeout).
-			GetDuration("tlsHandshakeTimeout", &httpTransport.TLSHandshakeTimeout).
+			Build(&tp.TLSClientConfig, ucerts.BuildTlsConfig).
+			GetBool("httpDisableCompression", &tp.DisableCompression).
+			GetBool("httpDisableKeepAlives", &tp.DisableKeepAlives).
+			GetInt("httpMaxIdleConnsPerHost", &tp.MaxIdleConnsPerHost).
+			GetInt("httpMaxIdleConns", &tp.MaxIdleConns).
+			GetDuration("httpResponseTimeout", &tp.ResponseHeaderTimeout).
+			GetDuration("httpIdleConnTimeout", &tp.IdleConnTimeout).
+			GetDuration("httpExpectContinueTimeout", &tp.ExpectContinueTimeout).
+			GetDuration("tlsHandshakeTimeout", &tp.TLSHandshakeTimeout).
 			GetDuration("tcpTimeout", &dialer.Timeout).
 			GetDuration("tcpKeepAlive", &dialer.KeepAlive).
-			GetBool("useHttp2", &useHttp2).
+			GetBool("useHttp2", &tp.ForceAttemptHTTP2).
 			IfHasKeysMatching( // special http2 config settings
 				func(c *uconfig.Chain) (err error) {
-					t2, err = http2.ConfigureTransports(httpTransport)
+					t2, err = http2.ConfigureTransports(tp)
 					if err != nil {
 						return
 					}
@@ -172,31 +155,42 @@ func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 		if err != nil {
 			return
 		}
-		if useHttp2 && nil == t2 {
+		if tp.ForceAttemptHTTP2 && nil == t2 {
 			//
 			// no special http2 settings are present, but we were told to ensure
 			// http2 would be used
 			//
-			err = http2.ConfigureTransport(httpTransport)
+			err = http2.ConfigureTransport(tp)
 			if err != nil {
 				return
 			}
 		}
 	} else {
-		httpTransport.TLSClientConfig = ucerts.DefaultTlsConfig()
+		tp.TLSClientConfig = ucerts.DefaultTlsConfig()
 	}
 	rv = &http.Client{
-		Transport: httpTransport,
+		Transport: tp,
 	}
 	return
 }
 
+func DefaultHttpTransport() (rv *http.Transport) {
+	rv = (http.DefaultTransport.(*http.Transport)).Clone()
+	rv.DialContext = defaultDialer_.DialContext
+	return
+}
+
 func DefaultHttpClient() (rv *http.Client) {
-	it, err := BuildHttpClient(nil)
-	if err != nil {
-		panic(err)
+	return &http.Client{
+		Transport: DefaultHttpTransport(),
 	}
-	return it.(*http.Client)
+	/*
+		it, err := BuildHttpClient(nil)
+		if err != nil {
+			panic(err)
+		}
+		return it.(*http.Client)
+	*/
 }
 
 // show params available for building http.Server
@@ -211,47 +205,47 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p.NewItem("httpAddress",
 		"string",
 		"host:port to listen on.  if not set, endpoint is disabled.").
-		SetOptional()
+		Optional()
 	p.NewItem("httpDisableOptionsHandler",
 		"bool",
 		"If true, pass OPTIONS to handler instead of always responding 200").
-		SetOptional()
+		Optional()
 	p.NewItem("httpMaxHeaderBytes",
 		"int",
-		"Max number of bytes allowed in request headers").SetOptional()
+		"Max number of bytes allowed in request headers").Optional()
 	p.NewItem("httpIdleTimeout",
 		"duration",
-		"How long to wait for next req").SetOptional()
+		"How long to wait for next req").Optional()
 	p.NewItem("httpReadTimeout",
 		"duration",
-		"Max time to read entire request").SetOptional()
+		"Max time to read entire request").Optional()
 	p.NewItem("httpReadHeaderTimeout",
 		"duration",
-		"Max time to read headers in request").SetOptional()
+		"Max time to read headers in request").Optional()
 	p.NewItem("httpWriteTimeout",
 		"duration",
-		"How long to wait for client to accept response").SetOptional()
+		"How long to wait for client to accept response").Optional()
 	p.NewItem("httpKeepAlives",
 		"bool",
 		"Enable keepalives?").Default("true")
 	p.NewItem("http2MaxHandlers", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxConcurrentStreams", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxDecoderHeaderTableSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxEncoderHeaderTableSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxReadFrameSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2PermitProhibitedCipherSuites", "bool",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2IdleTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxUploadBufferPerConnection", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxUploadBufferPerStream", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").SetOptional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	ucerts.ShowTlsConfig("", p)
 	return p
 }
@@ -261,54 +255,53 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 // if c is nil, then build default http.Server
 func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	httpServer := &http.Server{}
-	keepAlives := true
+	if nil == c {
+		return httpServer, nil
+	}
 
-	if nil != c {
-		err = c.
-			Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
-			GetString("httpAddress", &httpServer.Addr).
-			GetBool("httpDisableOptionsHandler",
-				&httpServer.DisableGeneralOptionsHandler).
-			GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
-			GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
-			GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
-			GetDuration("httpWriteTimeout", &httpServer.WriteTimeout).
-			GetInt("httpMaxHeaderBytes", &httpServer.MaxHeaderBytes).
-			GetBool("httpKeepAlives", &keepAlives).
-			IfHasKeysMatching(
-				func(c *uconfig.Chain) (err error) {
-					s2 := http2.Server{}
-					err = c.
-						GetInt("http2MaxHandlers", &s2.MaxHandlers).
-						GetUInt("http2MaxConcurrentStreams",
-							&s2.MaxConcurrentStreams).
-						GetUInt("http2MaxConcurrentStreams",
-							&s2.MaxConcurrentStreams).
-						GetUInt("http2MaxDecoderHeaderTableSize",
-							&s2.MaxDecoderHeaderTableSize).
-						GetUInt("http2MaxEncoderHeaderTableSize",
-							&s2.MaxEncoderHeaderTableSize).
-						GetUInt("http2MaxReadFrameSize", &s2.MaxReadFrameSize).
-						GetBool("http2PermitProhibitedCipherSuites",
-							&s2.PermitProhibitedCipherSuites).
-						GetDuration("http2IdleTimeout", &s2.IdleTimeout).
-						GetInt("http2MaxUploadBufferPerConnection",
-							&s2.MaxUploadBufferPerConnection).
-						GetInt("http2MaxUploadBufferPerStream",
-							&s2.MaxUploadBufferPerStream).
-						Error
-					if err != nil {
-						return
-					}
-					return http2.ConfigureServer(httpServer, &s2)
-				}, regexp.MustCompile("^http2")).
-			Error
-		if err != nil {
-			return
-		}
-		if !keepAlives {
-			httpServer.SetKeepAlivesEnabled(keepAlives)
-		}
+	keepAlives := true
+	err = c.
+		Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
+		GetString("httpAddress", &httpServer.Addr).
+		GetBool("httpDisableOptionsHandler",
+			&httpServer.DisableGeneralOptionsHandler).
+		GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
+		GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
+		GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
+		GetDuration("httpWriteTimeout", &httpServer.WriteTimeout).
+		GetInt("httpMaxHeaderBytes", &httpServer.MaxHeaderBytes).
+		GetBool("httpKeepAlives", &keepAlives).
+		IfHasKeysMatching(
+			func(c *uconfig.Chain) (err error) {
+				s2 := http2.Server{}
+				err = c.
+					GetInt("http2MaxHandlers", &s2.MaxHandlers).
+					GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
+					GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
+					GetUInt("http2MaxDecoderHeaderTableSize",
+						&s2.MaxDecoderHeaderTableSize).
+					GetUInt("http2MaxEncoderHeaderTableSize",
+						&s2.MaxEncoderHeaderTableSize).
+					GetUInt("http2MaxReadFrameSize", &s2.MaxReadFrameSize).
+					GetBool("http2PermitProhibitedCipherSuites",
+						&s2.PermitProhibitedCipherSuites).
+					GetDuration("http2IdleTimeout", &s2.IdleTimeout).
+					GetInt("http2MaxUploadBufferPerConnection",
+						&s2.MaxUploadBufferPerConnection).
+					GetInt("http2MaxUploadBufferPerStream",
+						&s2.MaxUploadBufferPerStream).
+					Error
+				if err != nil {
+					return
+				}
+				return http2.ConfigureServer(httpServer, &s2)
+			}, regexp.MustCompile("^http2")).
+		Error
+	if err != nil {
+		return
+	}
+	if !keepAlives {
+		httpServer.SetKeepAlivesEnabled(keepAlives)
 	}
 	rv = httpServer
 	return

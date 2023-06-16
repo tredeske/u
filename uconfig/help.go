@@ -18,6 +18,11 @@ func (this *Help) Init(name, note string) (rv *Help) {
 	return params
 }
 
+// produce the help contents in YAML format
+func (this *Help) AsYaml() (content []byte, err error) {
+	return yaml.Marshal(this)
+}
+
 // Add an item to the help info
 func (this *Help) NewItem(name, theType, note string) (rv *Help) {
 	rv = &Help{

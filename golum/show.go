@@ -6,8 +6,6 @@ import (
 	"sort"
 
 	"github.com/tredeske/u/uconfig"
-
-	"gopkg.in/yaml.v2"
 )
 
 // show info about named component type.  if kind is 'all', then list all.
@@ -50,7 +48,7 @@ components:
 		help := &uconfig.Help{}
 		prototype.Help(kind, help)
 
-		content, err := yaml.Marshal(help)
+		content, err := help.AsYaml()
 		if err != nil {
 			fmt.Fprintf(out, "Error creating help for %s: %s", kind, err)
 			return
