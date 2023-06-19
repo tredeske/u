@@ -1560,13 +1560,21 @@ func (this *Section) GetRegexp(key string, result **regexp.Regexp) (err error) {
 }
 
 // if found and not blank, parse to url and set result
-func (this *Section) GetUrlIf(key string, result **nurl.URL) (err error) {
+func (this *Section) GetUrlIf(
+	key string,
+	result **nurl.URL,
+	validators ...StringValidator,
+) (err error) {
 	this.track(key)
 	raw, found, err := this.getString(key)
 	if err != nil {
 		return
 	}
 	if found && 0 != len(raw) {
+		err = this.validString(key, raw, validators)
+		if err != nil {
+			return
+		}
 		*result, err = nurl.Parse(raw)
 		if err != nil {
 			err = uerr.Chainf(err, "Unable to build URL for '%s'", this.ctx(key))
@@ -1576,10 +1584,14 @@ func (this *Section) GetUrlIf(key string, result **nurl.URL) (err error) {
 }
 
 // get and parse the url, setting result
-func (this *Section) GetUrl(key string, result **nurl.URL) (err error) {
+func (this *Section) GetUrl(
+	key string,
+	result **nurl.URL,
+	validators ...StringValidator,
+) (err error) {
 
 	this.track(key)
-	err = this.GetUrlIf(key, result)
+	err = this.GetUrlIf(key, result, validators...)
 	if nil == err && nil == *result {
 		err = fmt.Errorf("No URL value for '%s'", this.ctx(key))
 	}

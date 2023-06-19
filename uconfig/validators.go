@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"math/bits"
 	"net"
+	nurl "net/url"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/tredeske/u/uerr"
 )
@@ -278,6 +281,50 @@ func StringIp() StringValidator {
 		}
 		return
 	}
+}
+
+// return a StringValidator to ensure valid host:port
+func ValidHostPort() StringValidator {
+	return func(v string) (err error) {
+		host, portStr, err := net.SplitHostPort(v)
+		if err != nil {
+			return
+		} else if 0 == len(host) {
+			return errors.New("no host specified as part of host:port")
+		} else if 0 == len(portStr) {
+			return errors.New("no port specified as part of host:port")
+		} else if nil == net.ParseIP(host) && !ValidHostname(host) {
+			return fmt.Errorf("String (%s) not a valid IP or hostname", host)
+		}
+		port, err := strconv.Atoi(portStr)
+		if nil == err && (0 >= port || 65535 < port) {
+			err = errors.New("port " + portStr + " out of range")
+		}
+		return
+	}
+}
+
+// return a StringValidator to ensure valid URL with a valid scheme
+func ValidUrl(scheme ...string) StringValidator {
+	return func(v string) (err error) {
+		url, err := nurl.Parse(v)
+		if err != nil {
+			return
+		} else if 0 == len(scheme) {
+			return // good
+		}
+		for _, s := range scheme {
+			if s == url.Scheme {
+				return // good
+			}
+		}
+		return fmt.Errorf("URL (%s) is not one of %s", v, strings.Join(scheme, ", "))
+	}
+}
+
+// return a StringValidator to ensure valid http or https URL
+func ValidHttpUrl() StringValidator {
+	return ValidUrl("http", "https")
 }
 
 /*

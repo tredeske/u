@@ -287,16 +287,24 @@ func (this *Chain) GetRegexpIf(key string, value **regexp.Regexp) *Chain {
 	return this
 }
 
-func (this *Chain) GetUrl(key string, value **nurl.URL) *Chain {
+func (this *Chain) GetUrl(
+	key string,
+	value **nurl.URL,
+	validators ...StringValidator,
+) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetUrl(key, value)
+		this.Error = this.Section.GetUrl(key, value, validators...)
 	}
 	return this
 }
 
-func (this *Chain) GetUrlIf(key string, value **nurl.URL) *Chain {
+func (this *Chain) GetUrlIf(
+	key string,
+	value **nurl.URL,
+	validators ...StringValidator,
+) *Chain {
 	if nil == this.Error {
-		this.Error = this.Section.GetUrlIf(key, value)
+		this.Error = this.Section.GetUrlIf(key, value, validators...)
 	}
 	return this
 }
