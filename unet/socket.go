@@ -588,10 +588,10 @@ func (this *Socket) closeIfError() *Socket {
 
 func (this *Socket) goodToGo() (good bool) {
 	if nil == this.Error {
-		disabled, closed := this.Fd.IsDisabledOrClosed()
+		open, disabled, _ := this.Fd.GetStatus()
 		if disabled {
 			this.Error = ErrFdDisabled
-		} else if closed {
+		} else if !open {
 			this.Error = ErrNotInitialized
 		} else {
 			good = true
@@ -604,10 +604,10 @@ func (this *Socket) goodFd() (fd int, good bool) {
 	if nil == this.Error {
 		fd, good = this.Fd.Get()
 		if !good {
-			disabled, closed := this.Fd.IsDisabledOrClosed()
+			open, disabled, _ := this.Fd.GetStatus()
 			if disabled {
 				this.Error = ErrFdDisabled
-			} else if closed {
+			} else if !open {
 				this.Error = ErrNotInitialized
 			}
 		}

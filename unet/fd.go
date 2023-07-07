@@ -184,9 +184,9 @@ func (this *ManagedFd) IsDisabled() (disabled bool) {
 	return 0 != (this.load() & disableBit_)
 }
 
-func (this *ManagedFd) IsDisabledOrClosed() (disabled, closed bool) {
+func (this *ManagedFd) IsDisabledOrClosed() (disabledOrClosed bool) {
 	v := this.load()
-	return 0 != (v & disableBit_), 0 == (v & openBit_)
+	return 0 != (v&disableBit_) || 0 == (v&openBit_)
 }
 
 // If the fd is open, close it.  Preserve disabled state.
