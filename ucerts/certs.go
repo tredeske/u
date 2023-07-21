@@ -98,16 +98,12 @@ func LoadRoots(pem string, roots *x509.CertPool) (rv *x509.CertPool, err error) 
 	return
 }
 
-//
 // Does the config have TLS certs loaded?
-//
 func HasTlsCerts(tlsConfig *tls.Config) (rv bool) {
 	return nil != tlsConfig && nil != tlsConfig.Certificates
 }
 
-//
 // for uboot/golum -show
-//
 func ShowTlsConfig(name string, help *uconfig.Help) {
 	p := help
 	if 0 != len(name) {
@@ -116,29 +112,24 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	}
 	p.NewItem("tlsInsecure",
 		"bool",
-		"(client) If true, do not verify server credentials").
-		SetDefault(false)
+		"(client) If true, do not verify server credentials").Default(false)
 	p.NewItem("tlsDisableSessionTickets", "bool", "(server) Look it up").
-		SetDefault(true)
-	p.NewItem("tlsPreferServerCipherSuites", "bool", "(server) Look it up").
-		SetDefault(true)
+		Default(true)
+	p.NewItem("tlsPreferServerCiphers", "bool", "(server) Look it up").Default(true)
 	p.NewItem("tlsClientAuth",
 		"string",
-		"(server) One of: noClientCert, requestClientCert, requireAnyClientCert, verifyClientCertIfGiven, requireAndVerifyClientCert").
-		SetDefault("noClientCert")
-	p.NewItem("privateKey", "string", "Path to PEM").SetOptional()
-	p.NewItem("publicCert", "string", "Path to PEM").SetOptional()
-	p.NewItem("caCerts", "string", "Path to PEM").SetOptional()
+		"(server) One of: noClientCert, requestClientCert, requireAnyClientCert, verifyClientCertIfGiven, requireAndVerifyClientCert").Default("noClientCert")
+	p.NewItem("privateKey", "string", "Path to PEM").Optional()
+	p.NewItem("publicCert", "string", "Path to PEM").Optional()
+	p.NewItem("caCerts", "string", "Path to PEM").Optional()
 	p.NewItem("clientCaCerts", "string", "Path to PEM for validating client certs").
-		SetOptional()
-	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2, 1.3").SetDefault("1.2")
-	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2, 1.3").SetOptional()
-	p.NewItem("tlsServerName", "string", "(client)Name of server").SetOptional()
+		Optional()
+	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2, 1.3").Default("1.2")
+	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2, 1.3").Optional()
+	p.NewItem("tlsServerName", "string", "(client)Name of server").Optional()
 }
 
-//
 // Build a tls.Config
-//
 func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 	var clientCacerts,
 		cacerts,
