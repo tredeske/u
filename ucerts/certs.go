@@ -110,23 +110,38 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 		p = help.Init(name,
 			"TLS info")
 	}
-	p.NewItem("tlsInsecure",
-		"bool",
-		"(client) If true, do not verify server credentials").Default(false)
+	p.NewItem("tlsInsecure", "bool", `
+(client) If true, do not verify server credentials`).Default(false)
 	p.NewItem("tlsDisableSessionTickets", "bool", "(server) Look it up").
 		Default(true)
-	p.NewItem("tlsPreferServerCiphers", "bool", "(server) Look it up").Default(true)
-	p.NewItem("tlsClientAuth",
-		"string",
-		"(server) One of: noClientCert, requestClientCert, requireAnyClientCert, verifyClientCertIfGiven, requireAndVerifyClientCert").Default("noClientCert")
-	p.NewItem("privateKey", "string", "Path to PEM").Optional()
-	p.NewItem("publicCert", "string", "Path to PEM").Optional()
-	p.NewItem("caCerts", "string", "Path to PEM").Optional()
-	p.NewItem("clientCaCerts", "string", "Path to PEM for validating client certs").
-		Optional()
-	p.NewItem("tlsMin", "string", "One of: 1.0, 1.1, 1.2, 1.3").Default("1.2")
+	p.NewItem("tlsPreferServerCiphers", "bool", `
+(server) If true, server prefers its own ciphers over client.  Otherwise
+it's the opposite.  Has no effect for TLS 1.3.`).Default(true)
+	p.NewItem("tlsClientAuth", "string", `
+(server) What server should do when client connects:
+  - noClientCert
+  - requestClientCert
+  - requireAnyClientCert
+  - verifyClientCertIfGiven
+  - requireAndVerifyClientCert`).Default("noClientCert")
+	p.NewItem("privateKey", "string", `
+(client) PEM file containing client private key.
+(server) PEM file containing server private key.`).Optional()
+	p.NewItem("publicCert", "string", `
+(client) PEM file containing client public cert.
+(server) PEM file containing server public cert.`).Optional()
+	p.NewItem("caCerts", "string", `
+(client) PEM file with CA certs client uses to verify server certs.
+(server) PEM file with CA certs server uses to verify client certs.`).Optional()
+	p.NewItem("clientCaCerts", "string", `
+(server) PEM file containing CA certs that server should use to verify
+client certs.  If 'caCerts' is set, then this defaults to the same PEM.`).Optional()
+	p.NewItem("tlsMin", "string", `
+One of: 1.0, 1.1, 1.2, 1.3
+1.3 is recommended for clients.  1.2 is recommended for servers.`).Default("1.2")
 	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2, 1.3").Optional()
-	p.NewItem("tlsServerName", "string", "(client)Name of server").Optional()
+	p.NewItem("tlsServerName", "string", `
+(client) Name of server (for TLS SSI)`).Optional()
 }
 
 // Build a tls.Config
