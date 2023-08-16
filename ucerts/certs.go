@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"strings"
 
 	"github.com/tredeske/u/uconfig"
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uio"
+	"github.com/tredeske/u/ustrings"
 )
 
 func LoadKeyAndCert(privKeyPem, pubCertPem string, tlsc *tls.Config) (err error) {
@@ -103,6 +105,15 @@ func HasTlsCerts(tlsConfig *tls.Config) (rv bool) {
 	return nil != tlsConfig && nil != tlsConfig.Certificates
 }
 
+func cipherNames() (rv []string) {
+	suites := tls.CipherSuites()
+	rv = make([]string, len(suites))
+	for i, suite := range suites {
+		rv[i] = suite.Name
+	}
+	return
+}
+
 // for uboot/golum -show
 func ShowTlsConfig(name string, help *uconfig.Help) {
 	p := help
@@ -117,6 +128,9 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	p.NewItem("tlsPreferServerCiphers", "bool", `
 (server) If true, server prefers its own ciphers over client.  Otherwise
 it's the opposite.  Has no effect for TLS 1.3.`).Default(true)
+	p.NewItem("tlsCiphers", "[]string", `
+A list of ciphers to use.  Has no effect for TLS 1.3.
+Choose from: `+strings.Join(cipherNames(), ", ")).Optional()
 	p.NewItem("tlsClientAuth", "string", `
 (server) What server should do when client connects:
   - noClientCert
@@ -153,6 +167,7 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 		clientAuth,
 		serverName,
 		tlsMax string
+	var ciphers []string
 	tlsMin := "1.2"
 	insecureSkipVerify := false
 	preferServerCipherSuites := true
@@ -162,6 +177,8 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			GetBool("tlsInsecure", &insecureSkipVerify).
 			GetBool("tlsDisableSessionTickets", &sessionTicketsDisabled).
 			GetBool("tlsPreferServerCiphers", &preferServerCipherSuites).
+			GetStrings("tlsCiphers", &ciphers,
+				uconfig.StringOneOf(cipherNames()...)).
 			GetString("tlsClientAuth", &clientAuth).
 			GetString("tlsServerName", &serverName).
 			GetString("privateKey", &privateKey).
@@ -237,6 +254,20 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 		err = fmt.Errorf("TLS min version, %s, less than max version %s",
 			tlsMin, tlsMax)
 		return
+	}
+	if 0 != len(ciphers) {
+		if tlsConfig.MinVersion == tls.VersionTLS13 {
+			err = errors.New("Cannot set tlsCiphers for TLS 1.3")
+			return
+		}
+		var ids []uint16
+		suites := tls.CipherSuites()
+		for _, suite := range suites {
+			if ustrings.Contains(ciphers, suite.Name) {
+				ids = append(ids, suite.ID)
+			}
+		}
+		tlsConfig.CipherSuites = ids
 	}
 	rv = tlsConfig
 	return
