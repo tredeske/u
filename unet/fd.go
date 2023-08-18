@@ -43,11 +43,11 @@ States
 type ManagedFd uint64
 
 const (
-	fdMask_     = 0x0000_ffff_ffff_ffff
-	refsMask_   = 0x0fff_0000_0000_0000
-	refsOne_    = 0x0001_0000_0000_0000
-	openBit_    = 0x4000_0000_0000_0000
-	disableBit_ = 0x8000_0000_0000_0000
+	fdMask_     = 0x0000ffffffffffff
+	refsMask_   = 0x0fff000000000000
+	refsOne_    = 0x0001000000000000
+	openBit_    = 0x4000000000000000
+	disableBit_ = 0x8000000000000000
 )
 
 func (this *ManagedFd) load() uint64 {
