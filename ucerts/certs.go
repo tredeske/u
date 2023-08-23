@@ -260,12 +260,17 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 			err = errors.New("Cannot set tlsCiphers for TLS 1.3")
 			return
 		}
-		var ids []uint16
+		ids := make([]uint16, 0, len(ciphers))
 		suites := tls.CipherSuites()
 		for _, suite := range suites {
 			if ustrings.Contains(ciphers, suite.Name) {
 				ids = append(ids, suite.ID)
 			}
+		}
+		if len(ids) != len(ciphers) {
+			err = fmt.Errorf("Only found %d of %d ciphers from %#v",
+				len(ids), len(ciphers), ciphers)
+			return
 		}
 		tlsConfig.CipherSuites = ids
 	}
