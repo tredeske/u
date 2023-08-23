@@ -70,7 +70,6 @@ func Load(
 	}
 
 	tlsc.MinVersion = tls.VersionTLS12
-	tlsc.PreferServerCipherSuites = true
 	tlsc.SessionTicketsDisabled = true
 	return
 }
@@ -126,8 +125,8 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	p.NewItem("tlsDisableSessionTickets", "bool", "(server) Look it up").
 		Default(true)
 	p.NewItem("tlsPreferServerCiphers", "bool", `
-(server) If true, server prefers its own ciphers over client.  Otherwise
-it's the opposite.  Has no effect for TLS 1.3.`).Default(true)
+(server) This setting is no longer supported by TLS library and is ignored.`).
+		Optional()
 	p.NewItem("tlsCiphers", "[]string", `
 A list of ciphers to use.  Has no effect for TLS 1.3.
 Choose from: `+strings.Join(cipherNames(), ", ")).Optional()
@@ -159,7 +158,7 @@ One of: 1.0, 1.1, 1.2, 1.3
 }
 
 // Build a tls.Config
-func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
+func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 	var clientCacerts,
 		cacerts,
 		privateKey,
@@ -170,13 +169,13 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 	var ciphers []string
 	tlsMin := "1.2"
 	insecureSkipVerify := false
-	preferServerCipherSuites := true
+	ignore := true
 	sessionTicketsDisabled := true
 	if nil != c {
 		err = c.
 			GetBool("tlsInsecure", &insecureSkipVerify).
 			GetBool("tlsDisableSessionTickets", &sessionTicketsDisabled).
-			GetBool("tlsPreferServerCiphers", &preferServerCipherSuites).
+			GetBool("tlsPreferServerCiphers", &ignore).
 			GetStrings("tlsCiphers", &ciphers,
 				uconfig.StringOneOf(cipherNames()...)).
 			GetString("tlsClientAuth", &clientAuth).
@@ -208,7 +207,6 @@ func BuildTlsConfig(c *uconfig.Chain) (rv interface{}, err error) {
 		}
 	}
 	tlsConfig.InsecureSkipVerify = insecureSkipVerify
-	tlsConfig.PreferServerCipherSuites = preferServerCipherSuites
 	tlsConfig.SessionTicketsDisabled = sessionTicketsDisabled
 
 	switch clientAuth {
