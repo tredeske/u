@@ -123,12 +123,9 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 	p.NewItem("tlsInsecure", "bool", `
 (client) If true, do not verify server credentials`).Default(false)
 	p.NewItem("tlsDisableSessionTickets", "bool", "(server) Look it up").
-		Default(true)
-	p.NewItem("tlsPreferServerCiphers", "bool", `
-(server) This setting is no longer supported by TLS library and is ignored.`).
-		Optional()
+		Default(false)
 	p.NewItem("tlsCiphers", "[]string", `
-A list of ciphers to use.  Has no effect for TLS 1.3.
+A list of ciphers to use.  Has no effect for TLS 1.3 on client side.
 Choose from: `+strings.Join(cipherNames(), ", ")).Optional()
 	p.NewItem("tlsClientAuth", "string", `
 (server) What server should do when client connects:
@@ -158,28 +155,32 @@ One of: 1.0, 1.1, 1.2, 1.3
 }
 
 // Build a tls.Config
+//
+// The go TLS stdlib no longer supports PreferServerCipherSuitess, and also does not
+// limit the cipher suites if those are explicitly set.  However, if tlsCiphers are
+// set, we add a GetConfigForClient callback that will adjust the tls ClientHello
+// to limit the ciphers.
+//
+// If you also set GetConfigForClient, you will need to make sure that you call
+// the one we set as part of that.
 func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 	var clientCacerts,
 		cacerts,
 		privateKey,
 		publicCert,
 		clientAuth,
-		serverName,
 		tlsMax string
 	var ciphers []string
 	tlsMin := "1.2"
-	insecureSkipVerify := false
-	ignore := true
-	sessionTicketsDisabled := true
+	tlsConfig := &tls.Config{}
 	if nil != c {
 		err = c.
-			GetBool("tlsInsecure", &insecureSkipVerify).
-			GetBool("tlsDisableSessionTickets", &sessionTicketsDisabled).
-			GetBool("tlsPreferServerCiphers", &ignore).
+			GetBool("tlsInsecure", &tlsConfig.InsecureSkipVerify).
+			GetBool("tlsDisableSessionTickets", &tlsConfig.SessionTicketsDisabled).
 			GetStrings("tlsCiphers", &ciphers,
 				uconfig.StringOneOf(cipherNames()...)).
 			GetString("tlsClientAuth", &clientAuth).
-			GetString("tlsServerName", &serverName).
+			GetString("tlsServerName", &tlsConfig.ServerName).
 			GetString("privateKey", &privateKey).
 			GetString("publicCert", &publicCert).
 			GetString("caCerts", &cacerts).
@@ -190,9 +191,6 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 		if err != nil {
 			return
 		}
-	}
-	tlsConfig := &tls.Config{
-		ServerName: serverName,
 	}
 	if 0 != len(cacerts) || 0 != len(privateKey) {
 		err = Load(privateKey, publicCert, cacerts, tlsConfig)
@@ -206,8 +204,6 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 			return
 		}
 	}
-	tlsConfig.InsecureSkipVerify = insecureSkipVerify
-	tlsConfig.SessionTicketsDisabled = sessionTicketsDisabled
 
 	switch clientAuth {
 	case "", "noClientCert":
@@ -254,26 +250,97 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 		return
 	}
 	if 0 != len(ciphers) {
-		if tlsConfig.MinVersion == tls.VersionTLS13 {
-			err = errors.New("Cannot set tlsCiphers for TLS 1.3")
+		err = AddCipherSifter(ciphers, tlsConfig)
+		if err != nil {
 			return
 		}
-		ids := make([]uint16, 0, len(ciphers))
-		suites := tls.CipherSuites()
-		for _, suite := range suites {
-			if ustrings.Contains(ciphers, suite.Name) {
-				ids = append(ids, suite.ID)
-			}
-		}
-		if len(ids) != len(ciphers) {
-			err = fmt.Errorf("Only found %d of %d ciphers from %#v",
-				len(ids), len(ciphers), ciphers)
-			return
-		}
-		tlsConfig.CipherSuites = ids
 	}
 	rv = tlsConfig
 	return
+}
+
+// Use on TLS server side to limit the ciphers to use.  The go stdlib no longer
+// supports this, but sometimes policy requires a limited cipher suite.
+//
+// This adds a GetConfigForClient callback that will adjust the tls ClientHello
+// to limit the ciphers.
+//
+// If you also set GetConfigForClient, you will need to make sure that you call
+// the one we set as part of that.
+func AddCipherSifter(ciphers []string, tlsConfig *tls.Config) (err error) {
+
+	const errNoCommonCiphers = uerr.Const("no common ciphers")
+
+	ids := make([]uint16, 0, len(ciphers))
+	var ids12, ids13 []uint16
+	suites := tls.CipherSuites()
+	for _, suite := range suites {
+		if ustrings.Contains(ciphers, suite.Name) {
+			ids = append(ids, suite.ID)
+			for _, v := range suite.SupportedVersions {
+				if tls.VersionTLS13 == v {
+					ids13 = append(ids13, suite.ID)
+				} else if tls.VersionTLS12 == v {
+					ids12 = append(ids12, suite.ID)
+				}
+			}
+		}
+	}
+	if len(ids) != len(ciphers) {
+		err = fmt.Errorf("Only found %d of %d ciphers from %#v",
+			len(ids), len(ciphers), ciphers)
+		return
+	}
+	tlsConfig.CipherSuites = ids
+
+	// avoid allocations and use arrays instead of maps as short arrays are faster
+	tlsConfig.GetConfigForClient =
+		func(hello *tls.ClientHelloInfo) (config *tls.Config, err error) {
+			// try TLS 1.3 first
+			if 0 != len(ids13) &&
+				(0 == tlsConfig.MaxVersion ||
+					tls.VersionTLS13 <= tlsConfig.MaxVersion) {
+				var client13 bool
+				for i := 0; i < len(hello.SupportedVersions) && !client13; i++ {
+					client13 = hello.SupportedVersions[i] == tls.VersionTLS13
+				}
+				if client13 {
+					saveLen := len(hello.CipherSuites)
+					hello.CipherSuites = siftCiphers(ids13, hello.CipherSuites)
+					if 0 != len(hello.CipherSuites) {
+						return
+					}
+					hello.CipherSuites = hello.CipherSuites[:saveLen]
+				}
+			}
+
+			// the rest
+			if 0 != len(ids12) {
+				hello.CipherSuites = siftCiphers(ids12, hello.CipherSuites)
+				if 0 != len(hello.CipherSuites) {
+					return
+				}
+			}
+			return nil, errNoCommonCiphers
+		}
+	return
+}
+
+func siftCiphers(allowed, ask []uint16) (rv []uint16) {
+	pos := 0
+	for i := 0; i < len(ask); i++ {
+		id := ask[i]
+		for j := 0; j < len(allowed); j++ {
+			if id == allowed[j] {
+				if i >= pos {
+					ask[pos] = id
+				}
+				pos++
+				break
+			}
+		}
+	}
+	return ask[:pos]
 }
 
 func DefaultTlsConfig() (rv *tls.Config) {
