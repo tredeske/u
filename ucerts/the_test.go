@@ -46,40 +46,4 @@ tlsCiphers:
 	} else if tls.TLS_AES_256_GCM_SHA384 != tlsConfig.CipherSuites[0] {
 		t.Fatalf("Invalid cipher suite set: %#v", tlsConfig.CipherSuites)
 	}
-
-	//
-	// test tls.ClientHello
-	//
-	if nil == tlsConfig.GetConfigForClient {
-		t.Fatalf("cipher list set but no sifter func added!")
-	}
-
-	// say hello with only a TLS 1.2 cipher that will match
-	hello := &tls.ClientHelloInfo{
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_CHACHA20_POLY1305_SHA256,
-		},
-		SupportedVersions: []uint16{tls.VersionTLS12, tls.VersionTLS13},
-	}
-	_, err = tlsConfig.GetConfigForClient(hello)
-	if err != nil {
-		t.Fatalf("Problem: %s", err)
-	} else if 1 != len(hello.CipherSuites) {
-		t.Fatalf("hello cipher suits not sifted.  Is %#v", hello.CipherSuites)
-	} else if tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 != hello.CipherSuites[0] {
-		t.Fatalf("hello cipher suits not ok.  Is %#v", hello.CipherSuites)
-	}
-
-	// add a TLS1.3 cipher and it should take priority
-	hello.CipherSuites = append(hello.CipherSuites, tls.TLS_AES_256_GCM_SHA384)
-	_, err = tlsConfig.GetConfigForClient(hello)
-	if err != nil {
-		t.Fatalf("Problem: %s", err)
-	} else if 1 != len(hello.CipherSuites) {
-		t.Fatalf("hello cipher suits not sifted.  Is %#v", hello.CipherSuites)
-	} else if tls.TLS_AES_256_GCM_SHA384 != hello.CipherSuites[0] {
-		t.Fatalf("hello cipher suits not ok.  Is %#v", hello.CipherSuites)
-	}
-
 }

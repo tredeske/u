@@ -2,6 +2,7 @@ package urest
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"regexp"
@@ -332,7 +333,12 @@ func StartServer(svr *http.Server, onDone func(err error)) {
 
 		var err error
 		if IsTlsServer(svr) {
-			err = svr.ListenAndServeTLS("", "")
+			var l net.Listener
+			l, err = tls.Listen("tcp", svr.Addr, svr.TLSConfig)
+			if nil == err {
+				err = svr.Serve(l)
+			}
+			//err = svr.ListenAndServeTLS("", "")
 		} else {
 			err = svr.ListenAndServe()
 		}
