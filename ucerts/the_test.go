@@ -22,8 +22,7 @@ func TestCerts(t *testing.T) {
 func TestCreate(t *testing.T) {
 	configS := `
 tlsCiphers:
-- TLS_AES_256_GCM_SHA384                    # TLS 1.3
-- TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384   # TLS 1.2
+- TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 `
 	var tlsConfig *tls.Config
 	s, err := uconfig.NewSection(configS)
@@ -41,9 +40,9 @@ tlsCiphers:
 		t.Fatalf("insecure set!")
 	} else if tlsConfig.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("tls min is not 1.2, is %d", tlsConfig.MinVersion)
-	} else if 2 != len(tlsConfig.CipherSuites) {
+	} else if 1 != len(tlsConfig.CipherSuites) {
 		t.Fatalf("tls CipherSuites is len %d", len(tlsConfig.CipherSuites))
-	} else if tls.TLS_AES_256_GCM_SHA384 != tlsConfig.CipherSuites[0] {
+	} else if tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 != tlsConfig.CipherSuites[0] {
 		t.Fatalf("Invalid cipher suite set: %#v", tlsConfig.CipherSuites)
 	}
 }

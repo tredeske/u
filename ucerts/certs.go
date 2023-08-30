@@ -104,11 +104,17 @@ func HasTlsCerts(tlsConfig *tls.Config) (rv bool) {
 	return nil != tlsConfig && nil != tlsConfig.Certificates
 }
 
-func cipherNames() (rv []string) {
+func cipherNames() (names12, names13 []string) {
 	suites := tls.CipherSuites()
-	rv = make([]string, len(suites))
-	for i, suite := range suites {
-		rv[i] = suite.Name
+	for _, suite := range suites {
+		for _, v := range suite.SupportedVersions {
+			if tls.VersionTLS13 == v {
+				names13 = append(names13, suite.Name)
+			}
+			if tls.VersionTLS12 == v {
+				names12 = append(names12, suite.Name)
+			}
+		}
 	}
 	return
 }
@@ -120,11 +126,12 @@ func ShowTlsConfig(name string, help *uconfig.Help) {
 		p = help.Init(name,
 			"TLS info")
 	}
+	names12, names13 := cipherNames()
 	p.NewItem("tlsInsecure", "bool", `
 (client) If true, do not verify server credentials`).Default(false)
 	p.NewItem("tlsDisableSessionTickets", "bool", "(server) Look it up").
 		Default(false)
-	p.NewItem("tlsCiphers", "[]string", `
+	p.NewItem("tlsCiphers", "[]string", fmt.Sprintf(`
 Limit ciphers to use for TLS 1.2 and lower, but no effect for TLS 1.3.
 
 RFC 7540 (HTTP/2), section 9.2.2 states that if TLS 1.2 is used, then
@@ -134,7 +141,10 @@ enforces this restriction.
 RFC 8446 (TLS 1.3), section 9.1 states that TLS_AES_128_GCM_SHA256 must be provided
 by all compliant implementations.  The go stdlib enforces this restriction.
 
-Choose from: `+strings.Join(cipherNames(), ", ")).Optional()
+TLS 1.3 ciphers (FYI): %s
+
+TLS 1.2 ciphers to choose from: %s`,
+		strings.Join(names13, ", "), strings.Join(names12, ", "))).Optional()
 	p.NewItem("tlsClientAuth", "string", `
 (server) What server should do when client connects:
   - noClientCert
@@ -174,6 +184,7 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 		clientAuth,
 		tlsMax string
 	var ciphers []string
+	names12, _ := cipherNames()
 	tlsMin := "1.2"
 	tlsConfig := &tls.Config{}
 	if nil != c {
@@ -181,7 +192,7 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 			GetBool("tlsInsecure", &tlsConfig.InsecureSkipVerify).
 			GetBool("tlsDisableSessionTickets", &tlsConfig.SessionTicketsDisabled).
 			GetStrings("tlsCiphers", &ciphers,
-				uconfig.StringOneOf(cipherNames()...)).
+				uconfig.StringOneOf(names12...)).
 			GetString("tlsClientAuth", &clientAuth).
 			GetString("tlsServerName", &tlsConfig.ServerName).
 			GetString("privateKey", &privateKey).
@@ -253,6 +264,10 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 		return
 	}
 	if 0 != len(ciphers) {
+		if tlsConfig.MinVersion > tls.VersionTLS12 {
+			err = errors.New("Cannot set cipher list for TLS 1.3")
+			return
+		}
 		ids := make([]uint16, 0, len(ciphers))
 		suites := tls.CipherSuites()
 		for _, suite := range suites {
