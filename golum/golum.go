@@ -252,7 +252,9 @@ func Reload(configs *uconfig.Array) (err error) {
 		present[g.name] = struct{}{}
 		existing, exists := getGolum(g.name)
 		if exists {
-			if existing.config.DiffersFrom(g.config) {
+			if existing.config.DiffersFrom(g.config) ||
+				g.disabled != existing.disabled {
+
 				log.Printf("G: Reloading %s", existing.name)
 				err = existing.Rebuild(g.config)
 				if err != nil {
@@ -382,7 +384,7 @@ func newGolum(config *uconfig.Section) (g *golum_, err error) {
 		timeout: MIN_TIMEOUT,
 	}
 	err = config.Chain().
-		WarnExtraKeys("name", "type", "disabled", "config", "hosts", "note",
+		FailExtraKeys("name", "type", "disabled", "config", "hosts", "note",
 			"timeout").
 		GetString("name", &g.name, uconfig.StringNotBlank()).
 		Then(func() { config.NameContext(g.name) }).

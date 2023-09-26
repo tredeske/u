@@ -397,6 +397,13 @@ func (this *Chain) WarnExtraKeys(allowedKeys ...string) *Chain {
 	return this
 }
 
+func (this *Chain) FailExtraKeys(allowedKeys ...string) *Chain {
+	if nil == this.Error {
+		this.Section.FailExtraKeys(allowedKeys...)
+	}
+	return this
+}
+
 // end the accessor chain, detecting invalid config, returning active error (if any)
 func (this *Chain) Done() error {
 	if nil == this.Error {

@@ -435,6 +435,18 @@ func (this *Section) WarnExtraKeys(allowedKeys ...string) {
 	}
 }
 
+// fail if any other keys are specified in the section than have
+// already been acessed or (if provided) specified in allowedKeys
+func (this *Section) FailExtraKeys(allowedKeys ...string) {
+	for k := range this.trackKeys {
+		allowedKeys = append(allowedKeys, k)
+	}
+	extra := this.ExtraKeys(allowedKeys)
+	if 0 != len(extra) {
+		ulog.Fatalf("section %s has extra keys: %v", this.Context, extra)
+	}
+}
+
 // return true if any of the listed keys are present
 func (this *Section) AnyKeysIn(keys ...string) bool {
 	for _, k := range keys {
