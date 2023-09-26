@@ -64,6 +64,7 @@ type (
 	// track a component
 	golum_ struct {
 		name      string     // name of component
+		typ       string     // type of component
 		prototype Reloadable // build based on this
 		curr      Reloadable
 		old       Reloadable
@@ -378,7 +379,6 @@ func putGolum(g *golum_) { golums_.Store(g.name, g) }
 func delGolum(g *golum_) { golums_.Delete(g.name) }
 
 func newGolum(config *uconfig.Section) (g *golum_, err error) {
-	typ := ""
 	g = &golum_{
 		config:  &uconfig.Section{},
 		timeout: MIN_TIMEOUT,
@@ -388,7 +388,7 @@ func newGolum(config *uconfig.Section) (g *golum_, err error) {
 			"timeout").
 		GetString("name", &g.name, uconfig.StringNotBlank()).
 		Then(func() { config.NameContext(g.name) }).
-		GetString("type", &typ, uconfig.StringNotBlank()).
+		GetString("type", &g.typ, uconfig.StringNotBlank()).
 		GetBool("disabled", &g.disabled).
 		GetStrings("hosts", &g.hosts).
 		GetDuration("timeout", &g.timeout).
@@ -399,34 +399,42 @@ func newGolum(config *uconfig.Section) (g *golum_, err error) {
 	}
 
 	if !g.disabled {
-		//
-		// if hosts specified, then disable unless we are on a listed host
-		//
-		if 0 != len(g.hosts) {
-			g.disabled = true
-			for _, h := range g.hosts {
-				if uconfig.IsThisHost(h) {
-					g.disabled = false
-					break
-				}
-			}
-			if g.disabled {
-				return
-			}
-		}
-		g.prototype = getProto(typ)
-		if nil == g.prototype {
-			err = fmt.Errorf("No such type (%s) for %s", typ, g.name)
+		err = g.enable()
+		if err != nil {
 			return
 		}
-
-		//
-		// check the config against the help
-		//
-		help := &uconfig.Help{}
-		g.prototype.Help(g.name, help)
-		g.config.WarnUnknown(help)
 	}
+	return
+}
+
+func (g *golum_) enable() (err error) {
+	//
+	// if hosts specified, then disable unless we are on a listed host
+	//
+	if 0 != len(g.hosts) {
+		g.disabled = true
+		for _, h := range g.hosts {
+			if uconfig.IsThisHost(h) {
+				g.disabled = false
+				break
+			}
+		}
+		if g.disabled {
+			return
+		}
+	}
+	g.prototype = getProto(g.typ)
+	if nil == g.prototype {
+		err = fmt.Errorf("No such type (%s) for %s", g.typ, g.name)
+		return
+	}
+
+	//
+	// check the config against the help
+	//
+	help := &uconfig.Help{}
+	g.prototype.Help(g.name, help)
+	g.config.WarnUnknown(help)
 	return
 }
 
@@ -458,6 +466,9 @@ func (g *golum_) Rebuild(c *uconfig.Section) (err error) {
 		}
 	}()
 	g.config = c
+	if nil == g.prototype {
+		g.enable()
+	}
 	return g.Build()
 }
 
