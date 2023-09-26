@@ -244,8 +244,7 @@ func Reload(configs *uconfig.Array) (err error) {
 		g, err := newGolum(config)
 		if err != nil {
 			return
-		}
-		if g.disabled {
+		} else if g.disabled {
 			log.Printf("G: Disabled %s", g.name)
 			return
 		}
@@ -256,6 +255,7 @@ func Reload(configs *uconfig.Array) (err error) {
 				g.disabled != existing.disabled {
 
 				log.Printf("G: Reloading %s", existing.name)
+				existing.disabled = g.disabled
 				err = existing.Rebuild(g.config)
 				if err != nil {
 					return
