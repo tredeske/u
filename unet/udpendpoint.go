@@ -17,10 +17,9 @@ type UdpEndpoint struct {
 // this barely inlines (budget: 78)
 func RecvMsg(fd, msghdr, flags uintptr) (nread int, err syscall.Errno) {
 	var rv1 uintptr
-	rv1, _, err = syscall.Syscall6( // TODO: use Syscall3???
+	rv1, _, err = syscall.Syscall(
 		syscall.SYS_RECVMSG, fd, // one less M
-		msghdr, flags, //syscall.MSG_WAITALL,
-		0, 0, 0)
+		msghdr, flags) //syscall.MSG_WAITALL,
 	return int(rv1), err
 }
 
@@ -67,10 +66,9 @@ func (this *UdpEndpoint) SendMMsgRetry(fd, n int) (retries int, err syscall.Errn
 func SendMsg(fd, hdr, flags uintptr) (nsent int, err syscall.Errno) {
 
 	var rv1 uintptr
-	rv1, _, err = syscall.Syscall6( // TODO: use Syscall3???????
+	rv1, _, err = syscall.Syscall(
 		syscall.SYS_SENDMSG, fd, // one less M
-		hdr, flags,
-		0, 0, 0)
+		hdr, flags)
 	return int(rv1), err
 }
 

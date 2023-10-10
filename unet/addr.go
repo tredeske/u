@@ -8,6 +8,11 @@ import (
 	"unsafe"
 )
 
+const (
+	InvalidIpv4Str = "192.0.2.1" // RFC5737 - for testing, 192.0.2.0/24
+	InvalidIpv6Str = "0100::1"   // RFC6666 - for testing, 0100::/64
+)
+
 // a struct that can hold either ipv4 or ipv6 address, plus port
 //
 // the net.IP type is a slice, so cannot be used as a key in a map, etc.
@@ -171,6 +176,7 @@ func (this *Address) FromHostPort(hostOrIp string, port uint16) (err error) {
 	return
 }
 
+/*
 func (this *Address) FromCmsghdr(cmsgB []byte) (err error) {
 	space := [16]byte{}
 	ip, err := CmsghdrAsIp(cmsgB, net.IP(space[:]))
@@ -180,6 +186,7 @@ func (this *Address) FromCmsghdr(cmsgB []byte) (err error) {
 	this.SetIp(ip)
 	return
 }
+*/
 
 // see syscall.Msghdr (Name and Namelen fields)
 func (this *Address) FromNameBytes(name *byte, namelen uint32) {

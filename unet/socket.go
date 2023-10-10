@@ -98,14 +98,14 @@ func (this *Socket) SetFarAddr(far syscall.Sockaddr, unless ...bool) *Socket {
 		this.Error = errors.New("No far provided")
 		return this
 	}
-	if nil == this.Error && (0 == len(unless) || !unless[0]) {
+	if this.canDo(unless) {
 		this.FarAddr = far
 	}
 	return this
 }
 
 func (this *Socket) ResolveFarAddr(host string, port int, unless ...bool) *Socket {
-	if nil == this.Error && (0 == len(unless) || !unless[0]) {
+	if this.canDo(unless) {
 		if 0 == len(host) {
 			this.Error = errors.New("No far host provided")
 			return this
@@ -128,7 +128,7 @@ func (this *Socket) SetNearAddress(near *Address, unless ...bool) *Socket {
 }
 
 func (this *Socket) SetNearAddr(near syscall.Sockaddr, unless ...bool) *Socket {
-	if nil == this.Error && (0 == len(unless) || !unless[0]) {
+	if this.canDo(unless) {
 		if nil == near {
 			this.Error = errors.New("No near provided")
 			return this
@@ -139,7 +139,7 @@ func (this *Socket) SetNearAddr(near syscall.Sockaddr, unless ...bool) *Socket {
 }
 
 func (this *Socket) ResolveNearAddr(host string, port int, unless ...bool) *Socket {
-	if nil == this.Error && (0 == len(unless) || !unless[0]) {
+	if this.canDo(unless) {
 		if 0 == len(host) {
 			host = "0.0.0.0"
 		}
@@ -225,7 +225,7 @@ func (this *Socket) closeUnconditionally() {
 }
 
 func (this *Socket) SetOpt(opt SockOpt, unless ...bool) *Socket {
-	if (0 == len(unless) || !unless[0]) && this.goodToGo() {
+	if this.canDo(unless) && this.goodToGo() {
 		this.Error = opt(this)
 		this.closeIfError()
 	}
@@ -248,7 +248,7 @@ func (this *Socket) GetOptInt(layer, key int, value *int) *Socket {
 
 func (this *Socket) SetOptInt(layer, key, value int, unless ...bool) *Socket {
 	fd, good := this.goodFd()
-	if good && (0 == len(unless) || !unless[0]) {
+	if good && this.canDo(unless) {
 		err := syscall.SetsockoptInt(fd, layer, key, value)
 		if err != nil {
 			this.Error = uerr.Chainf(err, "syscall.Setsockopt")
@@ -303,10 +303,97 @@ func tristateEnabled(tristate []int) (rv int, enabled bool) {
 // that will then be segmented by the kernel (or the NIC if hardware
 // segmentation offloading is supported and enabled).
 func (this *Socket) SetOptGso(size int, unless ...bool) *Socket {
-	if 0 < size && (0 == len(unless) || !unless[0]) && nil == this.Error {
+	if 0 < size && this.canDo(unless) {
 		this.SetOptInt(syscall.IPPROTO_UDP, UDP_SEGMENT, size)
 		if this.Error != nil {
 			this.Error = uerr.Chainf(this.Error, "GSO requires kernel 4.18+")
+		}
+	}
+	return this
+}
+
+func (this *Socket) canDo(unless []bool) bool {
+	return (0 == len(unless) || !unless[0]) && nil == this.Error
+}
+
+// MTU Discovery option
+//
+// https://man7.org/linux/man-pages/man7/ip.7.html
+//
+// /usr/include/bits/in.h
+type MtuDisco int
+
+const (
+	MtuDiscoNone  MtuDisco = 0 // unset (leave as system default)
+	MtuDiscoDo    MtuDisco = 1 // always set DF
+	MtuDiscoDont  MtuDisco = 2 // do not set DF
+	MtuDiscoProbe MtuDisco = 3 // set DF, ignore path MTU
+	MtuDiscoWant  MtuDisco = 4 // fragment according to path MTU, or set DF
+	MtuDiscoIntfc MtuDisco = 5 // always use intfc MTU, do not set DF, ignore icmp
+	MtuDiscoOmit  MtuDisco = 6 // Like MtuDiscoIntfc, but all pkts to be fragmented
+)
+
+func (this *Socket) SetOptMtuDiscover(disco MtuDisco, unless ...bool) *Socket {
+	const errUnknownIpVer = uerr.Const("Set near or far addr before SetOptMtuDisco")
+	if MtuDiscoNone != disco && this.canDo(unless) {
+		level := syscall.IPPROTO_IP
+		opt := syscall.IP_MTU_DISCOVER
+		var val int
+		ipv4 := true
+		switch this.NearAddr.(type) {
+		case *syscall.SockaddrInet4:
+		case *syscall.SockaddrInet6:
+			ipv4 = false
+		default:
+			switch this.FarAddr.(type) {
+			case *syscall.SockaddrInet4:
+			case *syscall.SockaddrInet6:
+				ipv4 = false
+			default:
+				this.Error = errUnknownIpVer
+				return this
+			}
+		}
+		if ipv4 {
+			switch disco {
+			case MtuDiscoDo:
+				val = syscall.IP_PMTUDISC_DO
+			case MtuDiscoDont:
+				val = syscall.IP_PMTUDISC_DONT
+			case MtuDiscoProbe:
+				val = syscall.IP_PMTUDISC_PROBE
+			case MtuDiscoWant:
+				val = syscall.IP_PMTUDISC_WANT
+			case MtuDiscoIntfc:
+				val = unix.IP_PMTUDISC_INTERFACE
+			case MtuDiscoOmit:
+				val = unix.IP_PMTUDISC_OMIT
+			default:
+				panic("unknown path mtu disco")
+			}
+		} else { // ipv6
+			level = syscall.IPPROTO_IPV6
+			opt = syscall.IPV6_MTU_DISCOVER
+			switch disco {
+			case MtuDiscoDo:
+				val = syscall.IPV6_PMTUDISC_DO
+			case MtuDiscoDont:
+				val = syscall.IPV6_PMTUDISC_DONT
+			case MtuDiscoProbe:
+				val = syscall.IPV6_PMTUDISC_PROBE
+			case MtuDiscoWant:
+				val = syscall.IPV6_PMTUDISC_WANT
+			case MtuDiscoIntfc:
+				val = unix.IPV6_PMTUDISC_INTERFACE
+			case MtuDiscoOmit:
+				val = unix.IPV6_PMTUDISC_OMIT
+			default:
+				panic("unknown path mtu disco")
+			}
+		}
+		this.SetOptInt(level, opt, val)
+		if this.Error != nil {
+			this.Error = uerr.Chainf(this.Error, "IP_MTU_DISCOVER")
 		}
 	}
 	return this
@@ -324,7 +411,7 @@ func (this *Socket) SetOptReuseAddr(tristate ...int) *Socket {
 
 // set SO_RCVTIMEO on socket if timeout is positive
 func (this *Socket) SetOptRcvTimeout(timeout time.Duration, unless ...bool) *Socket {
-	if 0 < timeout && (0 == len(unless) || !unless[0]) {
+	if 0 < timeout && this.canDo(unless) {
 		fd, good := this.goodFd()
 		if good {
 			tv := syscall.NsecToTimeval(int64(timeout))
@@ -341,7 +428,7 @@ func (this *Socket) SetOptRcvTimeout(timeout time.Duration, unless ...bool) *Soc
 
 // set SO_SNDTIMEO on socket if timeout is positive
 func (this *Socket) SetOptSndTimeout(timeout time.Duration, unless ...bool) *Socket {
-	if 0 < timeout && (0 == len(unless) || !unless[0]) {
+	if 0 < timeout && this.canDo(unless) {
 		fd, good := this.goodFd()
 		if good {
 			tv := syscall.NsecToTimeval(int64(timeout))
@@ -369,7 +456,7 @@ func (this *Socket) GetOptRcvBuf(size *int) *Socket {
 }
 
 func (this *Socket) SetOptRcvBuf(size int, unless ...bool) *Socket {
-	if 0 < size && (0 == len(unless) || !unless[0]) {
+	if 0 < size && this.canDo(unless) {
 		this.SetOptInt(syscall.SOL_SOCKET, syscall.SO_RCVBUF, size)
 		var v int
 		this.GetOptInt(syscall.SOL_SOCKET, syscall.SO_RCVBUF, &v)
@@ -386,7 +473,7 @@ func (this *Socket) GetOptSndBuf(size *int) *Socket {
 }
 
 func (this *Socket) SetOptSndBuf(size int, unless ...bool) *Socket {
-	if 0 < size && (0 == len(unless) || !unless[0]) {
+	if 0 < size && this.canDo(unless) {
 		this.SetOptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF, size)
 		var v int
 		this.GetOptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF, &v)
@@ -400,7 +487,7 @@ func (this *Socket) SetOptSndBuf(size int, unless ...bool) *Socket {
 
 // set IP DSCP / TOS (priority) bits.
 func (this *Socket) SetOptDscpTos(tos byte, unless ...bool) *Socket {
-	if (0 == len(unless) || !unless[0]) && this.goodToGo() {
+	if this.canDo(unless) && this.goodToGo() {
 		this.Error = ValidDscpTosCode(tos)
 		if nil == this.Error {
 			//this.SetOptInt(syscall.IPPROTO_IP, syscall.IP_TOS, int(tos))
@@ -415,15 +502,16 @@ func (this *Socket) SetOptDscpTos(tos byte, unless ...bool) *Socket {
 // default to 'on'.  if specified, values are 0 (off), 1 (on) - any other value
 // is 'no change'
 func (this *Socket) SetOptRecvPktInfo(tristate ...int) *Socket {
-	if opt, enabled := tristateEnabled(tristate); enabled {
+	if val, enabled := tristateEnabled(tristate); enabled {
 		switch this.NearAddr.(type) {
 		case *syscall.SockaddrInet4:
-			return this.SetOptInt(syscall.IPPROTO_IP, syscall.IP_PKTINFO, opt)
+			return this.SetOptInt(syscall.IPPROTO_IP, syscall.IP_PKTINFO, val)
 		case *syscall.SockaddrInet6:
 			this.SetOptInt(syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-			return this.SetOptInt(syscall.IPPROTO_IPV6, syscall.IPV6_RECVPKTINFO, opt)
+			return this.SetOptInt(syscall.IPPROTO_IPV6, syscall.IPV6_RECVPKTINFO, val)
+		default:
+			this.Error = errors.New("set near addr before set recv_pkt_info")
 		}
-		panic("should not get here")
 	}
 	return this
 }
@@ -436,7 +524,7 @@ func (this *Socket) BindTo(host string, port int, unless ...bool) *Socket {
 // see https://idea.popcount.org/2014-04-03-bind-before-connect/
 func (this *Socket) Bind(unless ...bool) *Socket {
 	fd, good := this.goodFd()
-	if good && (0 == len(unless) || !unless[0]) {
+	if good && this.canDo(unless) {
 		if nil == this.NearAddr {
 			this.Error = errors.New("ResolveNearAddr must be called before Bind")
 			return this
@@ -463,7 +551,7 @@ func (this *Socket) GetNearAddress(rv *Address) *Socket {
 
 func (this *Socket) GetSockName(unless ...bool) *Socket {
 	fd, good := this.goodFd()
-	if good && (0 == len(unless) || !unless[0]) {
+	if good && this.canDo(unless) {
 		var addr syscall.Sockaddr
 		addr, this.Error = syscall.Getsockname(fd)
 		this.closeIfError()
@@ -476,7 +564,7 @@ func (this *Socket) GetSockName(unless ...bool) *Socket {
 
 func (this *Socket) Listen(depth int, unless ...bool) *Socket {
 	fd, good := this.goodFd()
-	if good && (0 == len(unless) || !unless[0]) {
+	if good && this.canDo(unless) {
 		if nil == this.NearAddr {
 			this.Error = errors.New("ResolveNearAddr must be called before Listen")
 			return this
@@ -520,7 +608,7 @@ func (this *Socket) Accept(sock *Socket) (err error) {
 
 func (this *Socket) Connect(unless ...bool) *Socket {
 	fd, good := this.goodFd()
-	if good && (0 == len(unless) || !unless[0]) {
+	if good && this.canDo(unless) {
 		if nil == this.FarAddr {
 			this.Error = errors.New("ResolveFarAddr must be called before Connect")
 			return this
@@ -565,9 +653,9 @@ func (this *Socket) ClearTimeout() *Socket {
 }
 
 // end chain, clean up, return any error
-func (this *Socket) Done() (err error) {
+func (this *Socket) Done() (s *Socket, err error) {
 	this.CancelDeadline()
-	return this.Error
+	return this, this.Error
 }
 
 // perform user specified validation
