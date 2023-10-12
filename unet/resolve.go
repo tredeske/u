@@ -144,10 +144,13 @@ func SockaddrFamily(sa syscall.Sockaddr) (rv int, err error) {
 }
 
 // convert uint16 from one byte order to the other
-func Htons(port uint16) (rv uint16) {
-	rv = (port << 8) & 0xff00
-	rv |= (port >> 8) & 0xff
-	return
+func Htons(v uint16) (rv uint16) {
+	return (v >> 8) | (v << 8)
+}
+
+// convert uint32 from one byte order to the other
+func Htonl(v uint32) (rv uint32) {
+	return (v >> 24) | (v << 24) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000)
 }
 
 // Suitable for creating Name and Namelen of syscall.Msghdr
