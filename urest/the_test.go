@@ -32,7 +32,7 @@ func TestRequests(t *testing.T) {
 
 	var body strings.Builder
 
-	err := NewChain(nil).
+	_, err := NewChain(nil).
 		SetHeader("X-Test", "GET").
 		Get("http://" + addr + "/test").
 		IsOk().
@@ -57,7 +57,7 @@ func TestRequests(t *testing.T) {
 	jsonReq := TestReq{"foo", "bar"}
 	var jsonResp TestReq
 
-	err = NewChain(nil).
+	_, err = NewChain(nil).
 		SetMethod("POST").
 		SetTimeout(time.Second).
 		SetUrlString("http://"+addr+"/test").
@@ -76,9 +76,7 @@ func TestRequests(t *testing.T) {
 	}
 }
 
-//
 // a simple http server to test against
-//
 func setupServer() (addr string) {
 	addr = "localhost:28087"
 

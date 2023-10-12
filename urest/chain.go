@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -25,34 +24,37 @@ import (
 
 var defaultClient_ = &http.Client{}
 
+const errNoResp = uerr.Const("No response - was HTTP method even called?")
+
 // a fluent wrapper to deal with http interactions
 //
 // Example:
-// client := &http.Client{}
-// err := urest.Chain(client).Get("http://google.com").IsOK().Done()
 //
-// err := urest.NewChain(client).
+//	_, err := urest.NewChain(nil).Get("http://google.com").IsOK().Done()
 //
-//	SetMethod("POST").
-//	SetUrlString("http://...").
-//	SetBody( body ).
-//	Do().
-//	IsOK().Done()
+//	var client *http.Client
+//	...
+//	c, err := urest.NewChain(client).
+//	   SetMethod("POST").
+//	   SetUrlString("http://...").
+//	   SetBody(body).
+//	   Do().
+//	   IsOK().
+//	   Done()
 //
-// err := urest.NewChain(client).
+//	c, err := urest.NewChain(client).
+//	   PostAsJson("http://...",thing).
+//	   IsOK().
+//	   BodyJson(&resp).
+//	   Done()
 //
-//	PostAsJson("http://...",thing).
-//	IsOK().
-//	BodyJson(&resp).
-//	Done()
+//	c, err := urest.NewChain(client).
+//	   UploadMultipart("http://...",file,fileParm, ...).
+//	   IsOK().
+//	   Done()
 //
-// err := urest.NewChain(client).
-//
-//	UploadMultipart("http://...",file,fileParm, ...).
-//	IsOK().Done()
-//
-// var reqW, respW bytes.Buffer
-// _, err := urest.NewChain(client).Dump(&reqW,&respW).PostAsJson(url,...
+//	var reqW, respW bytes.Buffer
+//	_, err := urest.NewChain(client).Dump(&reqW,&respW).PostAsJson(url,...
 type Chained struct {
 	Client   *http.Client
 	Request  *http.Request
@@ -148,7 +150,7 @@ func (this *Chained) ensureReq(method, url string) {
 }
 
 // set a JSON body
-func (this *Chained) SetBodyJson(body interface{}) *Chained {
+func (this *Chained) SetBodyJson(body any) *Chained {
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		this.Error = err
@@ -378,7 +380,7 @@ func (this *Chained) Post(url, bodyType string, body io.Reader) *Chained {
 }
 
 // perform a simple JSON POST
-func (this *Chained) PostAsJson(url string, body interface{}) *Chained {
+func (this *Chained) PostAsJson(url string, body any) *Chained {
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		this.Error = err
@@ -547,12 +549,12 @@ func (this *Chained) BodyIf(cond CondF, body *[]byte) *Chained {
 }
 
 // decode response body JSON into result
-func (this *Chained) BodyJson(result interface{}) *Chained {
+func (this *Chained) BodyJson(result any) *Chained {
 	return this.BodyJsonIf(nil, result)
 }
 
 // decode response body JSON into result if condition met
-func (this *Chained) BodyJsonIf(cond CondF, result interface{}) *Chained {
+func (this *Chained) BodyJsonIf(cond CondF, result any) *Chained {
 	if nil != this.Response && nil != this.Response.Body &&
 		(nil == cond || cond(this)) {
 
@@ -686,7 +688,7 @@ func (this *Chained) IfStatusIs(
 ) (rv *Chained) {
 	if nil == this.Error {
 		if nil == this.Response {
-			this.Error = errors.New("No response to get status from")
+			this.Error = errNoResp
 		} else if status == this.Response.StatusCode {
 			err := then(this)
 			if nil != err && nil == this.Error {
@@ -704,7 +706,7 @@ func (this *Chained) IfStatusIn(
 ) (rv *Chained) {
 	if nil == this.Error {
 		if nil == this.Response {
-			this.Error = errors.New("No response to get status from")
+			this.Error = errNoResp
 		} else {
 			if this.IsStatusIn(status) {
 				err := then(this)
@@ -742,6 +744,13 @@ func (this *Chained) IsOk() *Chained {
 	return this.StatusIs(http.StatusOK)
 }
 
+func (this *Chained) invalidStatus() {
+	var body []byte
+	this.Body(&body)
+	this.Error = fmt.Errorf("Invalid status: %d, resp: '%s'",
+		this.Response.StatusCode, string(body))
+}
+
 // error unless response status is one of the indicated ones
 func (this *Chained) StatusIn(status ...int) *Chained {
 	ok := false
@@ -751,46 +760,18 @@ func (this *Chained) StatusIn(status ...int) *Chained {
 			return nil
 		})
 	if !ok && nil == this.Error {
-		var body []byte
-		this.Body(&body)
-		this.Error = fmt.Errorf("Invalid status: %d, resp: '%s'",
-			this.Response.StatusCode, string(body))
+		this.invalidStatus()
 	}
 	return this
-	/*
-		if this.Error == nil {
-			if nil == this.Response {
-				this.Error = errors.New("No response to get status from")
-			} else {
-				ok := false
-				for _, status := range statusen {
-					if status == this.Response.StatusCode {
-						ok = true
-						break
-					}
-				}
-				if !ok {
-					var body []byte
-					this.Body(&body)
-					this.Error = fmt.Errorf("Invalid status: %d, resp: '%s'",
-						this.Response.StatusCode, string(body))
-				}
-			}
-		}
-		return this
-	*/
 }
 
 // error unless response status specified one
 func (this *Chained) StatusIs(status int) *Chained {
 	if this.Error == nil {
 		if nil == this.Response {
-			this.Error = errors.New("No response to get status from")
+			this.Error = errNoResp
 		} else if status != this.Response.StatusCode {
-			var body []byte
-			this.Body(&body)
-			this.Error = fmt.Errorf("Invalid status: %d, resp: '%s'",
-				this.Response.StatusCode, string(body))
+			this.invalidStatus()
 		}
 	}
 	return this
@@ -800,7 +781,7 @@ func (this *Chained) StatusIs(status int) *Chained {
 func (this *Chained) Status(status *int) *Chained {
 	if nil == this.Response {
 		if nil == this.Error {
-			this.Error = errors.New("No response to get status from")
+			this.Error = errNoResp
 		}
 	} else {
 		*status = this.Response.StatusCode
@@ -812,7 +793,7 @@ func (this *Chained) Status(status *int) *Chained {
 func (this *Chained) Then(f func(c *Chained) error) *Chained {
 	if nil == this.Error {
 		if nil == this.Response { // programming error
-			this.Error = errors.New("No response available")
+			this.Error = errNoResp
 		} else {
 			this.Error = f(this)
 		}
@@ -838,7 +819,7 @@ func (this *Chained) Then(f func(c *Chained)) *Chained {
 func (this *Chained) CheckResponse(checker func(resp *http.Response) error) *Chained {
 	if this.Error == nil {
 		if nil == this.Response {
-			this.Error = errors.New("No response to check")
+			this.Error = errNoResp
 		} else {
 			this.Error = checker(this.Response)
 		}
@@ -848,7 +829,7 @@ func (this *Chained) CheckResponse(checker func(resp *http.Response) error) *Cha
 */
 
 // complete the invocation chain, returning any error encountered
-func (this *Chained) Done() error {
+func (this *Chained) Done() (rv *Chained, err error) {
 	cancel := this.cancel
 	if nil != cancel {
 		cancel()
@@ -861,7 +842,7 @@ func (this *Chained) Done() error {
 	if nil != this.Request && nil != this.Request.Body {
 		this.Request.Body.Close()
 	}
-	return this.Error
+	return this, this.Error
 }
 
 //////////////////////////////////////
