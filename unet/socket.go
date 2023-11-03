@@ -149,6 +149,8 @@ func (this *Socket) ResolveNearAddr(host string, port int, unless ...bool) *Sock
 	return this
 }
 
+// construct Socket from provided mfd, transferring state from mfd to this.
+//
 // if transfer of state fails, then fd will be closed
 func (this *Socket) ConstructFd(mfd *ManagedFd) *Socket {
 	if !this.Fd.From(mfd) {
@@ -158,6 +160,16 @@ func (this *Socket) ConstructFd(mfd *ManagedFd) *Socket {
 		} else {
 			this.Error = ErrAlreadyInitialized
 		}
+	}
+	return this
+}
+
+// construct a temporary Socket from mfd, not transferring state.
+func (this *Socket) Temp(mfd ManagedFd) *Socket {
+	if mfd.IsDisabledOrClosed() {
+		this.Error = ErrFdDisabled
+	} else {
+		this.Fd = mfd
 	}
 	return this
 }
@@ -237,7 +249,7 @@ func (this *Socket) GetOptInt(layer, key int, value *int) *Socket {
 	if good {
 		v, err := syscall.GetsockoptInt(fd, layer, key)
 		if err != nil {
-			this.Error = uerr.Chainf(err, "syscall.Setsockopt")
+			this.Error = uerr.Chainf(err, "syscall.Getsockopt")
 		} else {
 			*value = v
 		}
@@ -316,6 +328,24 @@ func (this *Socket) canDo(unless []bool) bool {
 	return (0 == len(unless) || !unless[0]) && nil == this.Error
 }
 
+func (this *Socket) IsIpv6() bool {
+	const errUnknownIpVer = uerr.Const("Set near or far addr before SetOptMtuDisco")
+	switch this.NearAddr.(type) {
+	case *syscall.SockaddrInet4:
+	case *syscall.SockaddrInet6:
+		return true
+	default:
+		switch this.FarAddr.(type) {
+		case *syscall.SockaddrInet4:
+		case *syscall.SockaddrInet6:
+			return true
+		default:
+			this.Error = errUnknownIpVer
+		}
+	}
+	return false
+}
+
 // MTU Discovery option
 //
 // https://man7.org/linux/man-pages/man7/ip.7.html
@@ -334,27 +364,11 @@ const (
 )
 
 func (this *Socket) SetOptMtuDiscover(disco MtuDisco, unless ...bool) *Socket {
-	const errUnknownIpVer = uerr.Const("Set near or far addr before SetOptMtuDisco")
 	if MtuDiscoNone != disco && this.canDo(unless) {
 		level := syscall.IPPROTO_IP
 		opt := syscall.IP_MTU_DISCOVER
 		var val int
-		ipv4 := true
-		switch this.NearAddr.(type) {
-		case *syscall.SockaddrInet4:
-		case *syscall.SockaddrInet6:
-			ipv4 = false
-		default:
-			switch this.FarAddr.(type) {
-			case *syscall.SockaddrInet4:
-			case *syscall.SockaddrInet6:
-				ipv4 = false
-			default:
-				this.Error = errUnknownIpVer
-				return this
-			}
-		}
-		if ipv4 {
+		if !this.IsIpv6() {
 			switch disco {
 			case MtuDiscoDo:
 				val = syscall.IP_PMTUDISC_DO
@@ -397,6 +411,20 @@ func (this *Socket) SetOptMtuDiscover(disco MtuDisco, unless ...bool) *Socket {
 		}
 	}
 	return this
+}
+
+// If socket is connected, can get the MTU with this, which will either be the
+// MTU of the interface, or the path MTU (PMTU) discovered from ICMP.
+//
+// Especially handy after EMSGSIZE.
+func (this *Socket) GetOptMtu(mtu *int) *Socket {
+	level := syscall.IPPROTO_IP
+	opt := syscall.IP_MTU
+	if this.IsIpv6() {
+		level = syscall.IPPROTO_IPV6
+		opt = syscall.IPV6_MTU
+	}
+	return this.GetOptInt(level, opt, mtu)
 }
 
 // must be before bind
@@ -557,6 +585,19 @@ func (this *Socket) GetSockName(unless ...bool) *Socket {
 		this.closeIfError()
 		if nil == this.Error {
 			this.NearAddr = addr
+		}
+	}
+	return this
+}
+
+func (this *Socket) GetPeerName(unless ...bool) *Socket {
+	fd, good := this.goodFd()
+	if good && this.canDo(unless) {
+		var addr syscall.Sockaddr
+		addr, this.Error = syscall.Getpeername(fd)
+		this.closeIfError()
+		if nil == this.Error {
+			this.FarAddr = addr
 		}
 	}
 	return this
