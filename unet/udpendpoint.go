@@ -119,21 +119,13 @@ retry:
 		uintptr(avail))
 
 	if 0 != err {
-		//
-		// connected udp sockets will get ECONNREFUSED if remote endpoint not
-		// up at the moment, but that can clear
-		//
-		if err == syscall.EINTR || err == syscall.EAGAIN ||
-			err == syscall.ECONNREFUSED {
-
+		if err == syscall.EINTR || err == syscall.EAGAIN {
 			retries++
 			runtime.Gosched()
 			err = 0
 			goto retry
-
-		} else {
-			return
 		}
+		return
 
 	} else if messages != avail {
 		if 0 >= messages {
