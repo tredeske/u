@@ -229,6 +229,23 @@ retry:
 	return
 }
 
+// shut down the read portion of the socket if it is valid.
+//
+// this is commonly used when a goroutine may be blocking on an fd, and another
+// goroutine is trying to tell it that it is time to die.  this provides that
+// notification to the blocked goroutine, but keeps the fd open.  this prevents
+// the race condition where one goroutine closes a fd, and then a new connection
+// is made that gets the same fd, and then the other goroutine that was using
+// the fd now has an fd to the wrong thing
+func (this *ManagedFd) ShutdownRead() (valid bool) {
+	var fd int
+	fd, valid = this.Get()
+	if valid {
+		syscall.Shutdown(fd, syscall.SHUT_RD)
+	}
+	return
+}
+
 // add a reference count to this if it is valid, returning fd if valid
 func (this *ManagedFd) Acquire() (fd int, valid bool) {
 	fd = -1
