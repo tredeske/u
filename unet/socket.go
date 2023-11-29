@@ -8,6 +8,7 @@ import (
 	"os"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/ulog"
@@ -414,7 +415,8 @@ func (this *Socket) SetOptMtuDiscover(disco MtuDisco, unless ...bool) *Socket {
 }
 
 // If socket is connected, can get the MTU with this, which will either be the
-// MTU of the interface, or the path MTU (PMTU) discovered from ICMP.
+// MTU of the interface, or the path MTU (PMTU) discovered from ICMP and cached
+// in the kernel.
 //
 // Especially handy after EMSGSIZE.
 func (this *Socket) GetOptMtu(mtu *int) *Socket {
@@ -425,6 +427,14 @@ func (this *Socket) GetOptMtu(mtu *int) *Socket {
 		opt = syscall.IPV6_MTU
 	}
 	return this.GetOptInt(level, opt, mtu)
+}
+
+func (this *Socket) IpOverhead() (rv int) {
+	rv = IP_OVERHEAD
+	if this.IsIpv6() {
+		rv = IP6_OVERHEAD
+	}
+	return
 }
 
 // must be before bind
@@ -577,6 +587,16 @@ func (this *Socket) GetNearAddress(rv *Address) *Socket {
 	return this
 }
 
+func (this *Socket) GetFarAddress(rv *Address) *Socket {
+	if nil == this.FarAddr {
+		this.GetPeerName()
+	}
+	if nil != this.FarAddr {
+		rv.FromSockaddr(this.FarAddr)
+	}
+	return this
+}
+
 func (this *Socket) GetSockName(unless ...bool) *Socket {
 	fd, good := this.goodFd()
 	if good && this.canDo(unless) {
@@ -651,7 +671,7 @@ func (this *Socket) Connect(unless ...bool) *Socket {
 	fd, good := this.goodFd()
 	if good && this.canDo(unless) {
 		if nil == this.FarAddr {
-			this.Error = errors.New("ResolveFarAddr must be called before Connect")
+			this.Error = errors.New("FarAddr must be set before Connect")
 			return this
 		}
 		this.Error = syscall.Connect(fd, this.FarAddr)
@@ -801,6 +821,85 @@ func (this *Socket) Write(buff []byte) (nwrote int, err error) {
 	fd, good := this.goodFd()
 	if good {
 		nwrote, err = syscall.Write(fd, buff)
+	} else {
+		err = this.Error
+	}
+	return
+}
+
+func (this *Socket) Send(buff []byte, flags int) (err error) {
+	fd, good := this.goodFd()
+	if good {
+		err = unix.Send(fd, buff, flags)
+	} else {
+		err = this.Error
+	}
+	return
+}
+
+func (this *Socket) SendTo(
+	buff []byte, flags int, to syscall.Sockaddr,
+) (
+	err error,
+) {
+	fd, good := this.goodFd()
+	if good {
+		err = syscall.Sendto(fd, buff, flags, to)
+	} else {
+		err = this.Error
+	}
+	return
+}
+
+func (this *Socket) SendMsg(
+	msghdr *syscall.Msghdr, flags int,
+) (
+	nsent int, err error,
+) {
+	fd, good := this.goodFd()
+	if good {
+		rv1, _, errno := syscall.Syscall(syscall.SYS_SENDMSG,
+			uintptr(fd), uintptr(unsafe.Pointer(msghdr)), uintptr(flags))
+		nsent = int(rv1)
+		if 0 != errno {
+			err = errno
+		}
+	} else {
+		err = this.Error
+	}
+	return
+}
+
+// wrapper for go syscall, which require alloc of from on each recv
+// useful for simple, non-performant cases
+func (this *Socket) RecvFrom(
+	buff []byte, flags int,
+) (
+	nread int, from syscall.Sockaddr, err error,
+) {
+	fd, good := this.goodFd()
+	if good {
+		nread, from, err = syscall.Recvfrom(fd, buff, flags)
+	} else {
+		err = this.Error
+	}
+	return
+}
+
+func (this *Socket) RecvMsg(
+	msghdr *syscall.Msghdr,
+	flags int,
+) (
+	nread int, err error,
+) {
+	fd, good := this.goodFd()
+	if good {
+		rv1, _, errno := syscall.Syscall(syscall.SYS_RECVMSG,
+			uintptr(fd), uintptr(unsafe.Pointer(msghdr)), uintptr(flags))
+		nread = int(rv1)
+		if 0 != errno {
+			err = errno
+		}
 	} else {
 		err = this.Error
 	}

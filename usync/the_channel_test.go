@@ -5,15 +5,71 @@ import (
 	"time"
 )
 
-func TesItChan(t *testing.T) {
+func TestGenericChan(t *testing.T) {
+	const times = 17
 
-	times := 17
-	var ch ItChan = make(chan interface{}, 8)
+	ch := NewChan[int](8)
 
 	//
 	// test get from empty chan
 	//
-	it, ok := ch.GetTry()
+	it, ok := ch.TryGet()
+	if ok {
+		t.Fatalf("Got something from chan when shouldn't have")
+	} else if 0 != it {
+		t.Fatalf("it should be zero")
+	}
+
+	it, ok = ch.GetWait(time.Millisecond)
+	if ok {
+		t.Fatalf("Got something from chan when shouldn't have")
+	} else if 0 != it {
+		t.Fatalf("it should be zero")
+	}
+
+	//
+	// test PutWait
+	//
+
+	resultC := make(chan bool)
+
+	go func() {
+		for i := 0; i < times; i++ {
+			if !ch.PutWait(i, time.Second) {
+				resultC <- false
+				return
+			}
+		}
+		resultC <- true
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	for i := 0; i < times; i++ {
+		it, ok = ch.Get()
+		if !ok {
+			t.Fatalf("channel unreadable!")
+		}
+		v := it
+		if v != i {
+			t.Fatalf("incorrect value!")
+		}
+	}
+	ok = <-resultC
+	if !ok {
+		t.Fatalf("should have been successful")
+	}
+}
+
+func TestAnyChan(t *testing.T) {
+
+	const times = 17
+	var ch Chan[any] = NewChan[any](8)
+
+	//
+	// test get from empty chan
+	//
+	it, ok := ch.TryGet()
 	if ok {
 		t.Fatalf("Got something from chan when shouldn't have")
 	} else if nil != it {
@@ -35,14 +91,12 @@ func TesItChan(t *testing.T) {
 
 	go func() {
 		for i := 0; i < times; i++ {
-			if i < len(ch) {
-				ch.Put(i)
-			} else {
-				ch.PutWait(i, time.Second)
+			if !ch.PutWait(i, time.Second) {
+				resultC <- false
+				return
 			}
 		}
-		ok := ch.PutRecover(-1)
-		resultC <- ok
+		resultC <- true
 	}()
 
 	for i := 0; i < times; i++ {
@@ -55,9 +109,9 @@ func TesItChan(t *testing.T) {
 			t.Fatalf("incorrect value!")
 		}
 	}
-	close(ch)      // force feeder to pop out of PutRecover
 	ok = <-resultC // wait for it
-	if ok {
-		t.Fatalf("should not have been successful")
+	if !ok {
+		t.Fatalf("should have been successful")
 	}
+	close(ch)
 }

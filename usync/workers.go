@@ -6,31 +6,29 @@ import (
 	"time"
 )
 
-type WorkF func(interface{})
+type WorkF func(any)
 
-//
 // A pool of workers
 //
 // Example:
-//    pool := usync.Workers{}
 //
-//    // start a bunch of workers
-//    pool.Go( 2,
-//        func(req interface{}) {
-//            ...
-//        })
+//	pool := usync.Workers{}
 //
-//    go func() { // feeder feeds requests to pool
-//        for ... {
-//            pool.RequestC <- ...
-//        }
-//        pool.Close() // feeder closes pool
-//    }()
+//	// start a bunch of workers
+//	pool.Go( 2,
+//	    func(req any) {
+//	        ...
+//	    })
 //
-//
+//	go func() { // feeder feeds requests to pool
+//	    for ... {
+//	        pool.RequestC <- ...
+//	    }
+//	    pool.Close() // feeder closes pool
+//	}()
 type Workers struct {
 	OnDone   func()         // if set, call this when workers done
-	RequestC ItChan         // where to post requests to be worked on
+	RequestC Chan[any]      // where to post requests to be worked on
 	drain    AtomicBool     //
 	wg       sync.WaitGroup //
 
@@ -40,16 +38,14 @@ type Workers struct {
 	//
 	// if this is not set, panic will be captured and logged, and worker will end
 	//
-	OnPanic func(cause interface{}) (die bool)
+	OnPanic func(cause any) (die bool)
 }
 
-//
 // start N workers to perform processing
-//
 func (this *Workers) Go(workers int, factory func() (work WorkF)) {
 
 	if nil == this.RequestC {
-		this.RequestC = make(chan interface{}, workers*2)
+		this.RequestC = NewChan[any](workers * 2)
 	}
 
 	this.wg.Add(workers)
@@ -58,7 +54,7 @@ func (this *Workers) Go(workers int, factory func() (work WorkF)) {
 	// the workers
 	//
 	for i := 0; i < workers; i++ {
-		go func(work func(interface{})) {
+		go func(work func(any)) {
 			defer func() {
 				this.wg.Done()
 				if it := recover(); nil != it {
@@ -97,84 +93,66 @@ func (this *Workers) Go(workers int, factory func() (work WorkF)) {
 	}
 }
 
-func (this *Workers) PutWaitRecover(req interface{}, wait time.Duration) (ok bool) {
+func (this *Workers) PutWaitRecover(req any, wait time.Duration) (ok bool) {
 	return this.RequestC.PutWaitRecover(req, wait)
 }
 
-func (this *Workers) Put(req interface{}) {
+func (this *Workers) Put(req any) {
 	this.RequestC <- req
 }
 
-func (this *Workers) PutWait(req interface{}, d time.Duration) (ok bool) {
+func (this *Workers) PutWait(req any, d time.Duration) (ok bool) {
 	return this.RequestC.PutWait(req, d)
 }
 
-//
 // tell workers to pull items from RequestC, but not do any work.
 //
 // this does not close the request chan, so any workers blocked on that chan
 // will remain blocked until Close() is called.
-//
 func (this *Workers) Drain() {
 	this.drain.Set()
 }
 
-//
 // stop the drain
-//
 func (this *Workers) Plug() {
 	this.drain.Clear()
 }
 
-//
 // Return true if drained.  This can only be true if Drain is set.
-//
 func (this *Workers) IsDrained() bool {
 	return this.drain.IsSet() && 0 == len(this.RequestC)
 }
 
-//
 // Return true when drained.  This can only occur if Drain is set.
-//
 func (this *Workers) WaitDrained(deadline time.Duration) bool {
 	return AwaitTrue(deadline, 0, this.IsDrained)
 }
 
-//
 // Return true if requestC currently empty
-//
 func (this *Workers) IsEmpty() bool {
 	return 0 == len(this.RequestC)
 }
 
-//
 // did someone set Drain?
-//
 func (this *Workers) IsDraining() bool {
 	return this.drain.IsSet()
 }
 
-//
 // Wait til all workers done
-//
 func (this *Workers) WaitDone() {
 	this.wg.Wait()
 }
 
-//
 // Tell the pool there's no more work coming
 //
 // There may be still results being worked on after this
-//
 func (this *Workers) Close() {
 	defer IgnorePanic()
 	close(this.RequestC)
 }
 
-//
 // Cease all work as soon as possible and close this down, throwing away
 // any queued requests
-//
 func (this *Workers) Shutdown() {
 	this.Drain()
 	this.Close()
@@ -186,9 +164,7 @@ func (this *Workers) Shutdown() {
 //
 //
 
-//
 // a feeder -> workers -> collector flow
-//
 type WorkGang struct {
 	Pool Workers
 
@@ -201,14 +177,14 @@ type WorkGang struct {
 	//
 	// this will be run from a separate goroutine
 	//
-	OnFeed func() (req interface{}, ok bool)
+	OnFeed func() (req any, ok bool)
 
 	//
 	// Function called by worker goroutines to take requests and produce responses
 	//
 	// resp is passed to OnResponse.  if !ok, then entire operation is aborted.
 	//
-	OnRequest func(req interface{}) (resp interface{}, ok bool)
+	OnRequest func(req any) (resp any, ok bool)
 
 	//
 	// Function called by workers
@@ -217,12 +193,10 @@ type WorkGang struct {
 	//
 	// this runs in the callers goroutine
 	//
-	OnResponse func(resp interface{}) (ok bool)
+	OnResponse func(resp any) (ok bool)
 }
 
-//
 // perform the work, returning when done
-//
 func (this *WorkGang) Work(workers int) {
 
 	if nil == this.OnFeed {
@@ -237,16 +211,16 @@ func (this *WorkGang) Work(workers int) {
 
 	defer this.Pool.Shutdown()
 
-	responseC := NewItChan(workers)
+	responseC := NewChan[any](workers)
 
 	this.Pool.RequestC = nil
-	this.Pool.OnDone = responseC.Close
+	this.Pool.OnDone = func() { close(responseC) }
 	this.Pool.drain.Clear()
 
 	this.Pool.Go(workers,
 
 		func() WorkF {
-			return func(req interface{}) {
+			return func(req any) {
 				resp, ok := this.OnRequest(req)
 				if !ok {
 					this.Pool.Drain()

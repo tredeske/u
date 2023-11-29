@@ -53,9 +53,9 @@ func TestDelay(t *testing.T) {
 		log.Printf("%d: delay=%d", idx, elapsed)
 	}
 
-	it, ok := dc.GetTry()
+	it, ok := dc.TryGet()
 	if ok {
-		t.Fatalf("GetTry should fail!")
+		t.Fatalf("TryGet should fail!")
 	} else if nil != it {
 		t.Fatalf("GetTry should not have returned non-nil value!")
 	}
