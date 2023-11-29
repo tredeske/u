@@ -419,14 +419,17 @@ func (this *Socket) SetOptMtuDiscover(disco MtuDisco, unless ...bool) *Socket {
 // in the kernel.
 //
 // Especially handy after EMSGSIZE.
-func (this *Socket) GetOptMtu(mtu *int) *Socket {
-	level := syscall.IPPROTO_IP
-	opt := syscall.IP_MTU
-	if this.IsIpv6() {
-		level = syscall.IPPROTO_IPV6
-		opt = syscall.IPV6_MTU
+func (this *Socket) GetOptMtu(mtu *int, unless ...bool) *Socket {
+	if this.canDo(unless) {
+		level := syscall.IPPROTO_IP
+		opt := syscall.IP_MTU
+		if this.IsIpv6() {
+			level = syscall.IPPROTO_IPV6
+			opt = syscall.IPV6_MTU
+		}
+		this.GetOptInt(level, opt, mtu)
 	}
-	return this.GetOptInt(level, opt, mtu)
+	return this
 }
 
 func (this *Socket) IpOverhead() (rv int) {
