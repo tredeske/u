@@ -19,7 +19,7 @@ const (
 	MtuMaxJumbo = 9216 // supported by most (all?) equipment, but 9000 common
 
 	//
-	// this one needs explanation
+	// This one needs explanation.
 	//
 	// IPv4 has a 16 bit length field, but that includes the header and options.
 	// The header is 20 bytes, so the payload is a max of 65515 bytes.
@@ -28,12 +28,12 @@ const (
 	// added to that would be 65555!  You probably only see something like this
 	// for loopback, where likely there is no 'real' ipv4 header.
 	//
-	// indeed, loopback often has mtu set at 65536
+	// Indeed, loopback often has mtu set at 65536.
 	//
-	// see also RFC 2675 (jumbograms), which talks about mtu of 65575 for
-	// non-jumbograms!  We don't support the notion of jumbograms here
+	// See also RFC 2675 (jumbograms), which talks about mtu of 65575 for
+	// non-jumbograms!  We don't support the notion of jumbograms here.
 	//
-	// however, with all that in mind, even with loopback mtu of 65536, the highest
+	// However, with all that in mind, even with loopback mtu of 65536, the highest
 	// probed value will be 65535!  This makes sense since largest UDP datagram is
 	// 65535.
 	//
@@ -59,11 +59,14 @@ type MtuProber struct {
 	BeforeSend func(size uint16, space []byte) (pkt []byte, err error)
 
 	//
-	// if set, is called after receving each pkt
+	// if set, is called after receiving each pkt
 	//
 	AfterRecv func(pkt []byte) (err error)
-	sock      *Socket
-	farAddr   Address
+
+	farAddr   Address  // where we're probing to
+	sizes     []uint32 // mtu sizes we're trying (sorted)
+	sock      *Socket  // the socket used for probing
+	closeSock bool     // if we create the socket, we close it
 
 	//
 	// if set, set smallest probe size.  otherwise, smallest compliant will be used
@@ -73,8 +76,7 @@ type MtuProber struct {
 	//
 	// if set, set largest probe size.  otherwise, reasonable max will be used
 	//
-	MtuMax    uint16
-	closeSock bool
+	MtuMax uint16
 
 	//
 	// Result: if non-zero, kernel cached PMTU value
@@ -141,6 +143,8 @@ func (this *MtuProber) Close() {
 	this.sock = nil
 }
 
+// the kernel caches pmtu on a per destination basis as it gets icmp pkts back
+// saying dest unreach due to pkt too large
 func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
 	var cached int
 	err = this.sock.GetOptMtu(&cached).Error
@@ -163,8 +167,12 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	this.LatencyAvg = 0
 	this.LatencyMin = 0
 	this.LatencyMax = 0
+	this.sizes = make([]uint32, 0, 128)
 
-	defer this.Close()
+	defer func() {
+		this.sizes = nil
+		this.Close()
+	}()
 
 	err = this.ensureDefaults()
 	if err != nil {
@@ -221,9 +229,8 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	var hiRx uint32
 	gotHiRx := false
 	addSizes := true
-	sizes := make([]uint32, 0, 128)
 	if 0 != this.CachedPmtu { // use as size hint
-		sizes = this.addSize(uint32(this.CachedPmtu), sizes)
+		this.addSize(uint32(this.CachedPmtu))
 	}
 
 	poller := &SinglePoller{
@@ -237,7 +244,9 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			},
 		*/
 
+		// what to do when we get response datagram
 		OnInput: func(fd int) (ok bool, err error) {
+
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
 			if 0 != len(this.Name) && 0 < nread {
 				ulog.Printf("%s: MTU Probe recv %d (mtu %d)", this.Name, nread,
@@ -313,10 +322,10 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				this.Name, lowest, highest)
 		}
 		if addSizes {
-			sizes = this.addSizes(lowest, highest, sizes)
+			this.addSizes(lowest, highest)
 			addSizes = false
 		}
-		for _, sz := range sizes {
+		for _, sz := range this.sizes {
 			if sz < lowest || sz > highest {
 				continue
 			}
@@ -373,7 +382,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			return
 		}
 		if gotHiRx {
-			if preHiRx == hiRx && 0 != hiRx && this.hasNextSize(hiRx, sizes) {
+			if preHiRx == hiRx && 0 != hiRx && this.hasNextSize(hiRx) {
 
 				times++
 				if times >= 3 {
@@ -439,7 +448,7 @@ func (this *MtuProber) ensureDefaults() (err error) {
 	return
 }
 
-func (this *MtuProber) addSizes(lowest, highest uint32, sizes []uint32) []uint32 {
+func (this *MtuProber) addSizes(lowest, highest uint32) {
 	const PKTS = 8 // pow of 2
 
 	if lowest > highest {
@@ -448,13 +457,14 @@ func (this *MtuProber) addSizes(lowest, highest uint32, sizes []uint32) []uint32
 		panic("lowest out of range")
 	}
 
-	sizes = this.addSize(highest, sizes)
+	this.addSize(highest)
 
-	if idx := slices.Index(sizes, lowest); -1 != idx && len(sizes) > idx+1 {
-		highest = sizes[idx+1]
+	idx := slices.Index(this.sizes, lowest)
+	if -1 != idx && len(this.sizes) > idx+1 {
+		highest = this.sizes[idx+1]
 	}
 	if 1 >= (highest - lowest) {
-		return sizes
+		return
 	}
 	part := (highest - lowest) / PKTS
 	if 0 == part {
@@ -465,25 +475,25 @@ func (this *MtuProber) addSizes(lowest, highest uint32, sizes []uint32) []uint32
 		if PKTS == i { // in case of round off
 			sz = highest
 		}
-		sizes = this.addSize(sz, sizes)
+		this.addSize(sz)
 	}
-	return sizes
+	return
 }
 
-func (this *MtuProber) addSize(sz uint32, sizes []uint32) []uint32 {
+func (this *MtuProber) addSize(sz uint32) {
 	if sz > 65535 {
 		sz = 65535
 	}
-	if !slices.Contains(sizes, sz) {
-		sizes = append(sizes, sz)
-		slices.Sort(sizes)
+	if !slices.Contains(this.sizes, sz) {
+		this.sizes = append(this.sizes, sz)
+		slices.Sort(this.sizes)
 	}
-	return sizes
+	return
 }
 
-func (this *MtuProber) hasNextSize(sz uint32, sizes []uint32) bool {
-	idx := slices.Index(sizes, sz)
-	return -1 != idx && len(sizes) > idx+1 && sz+1 == sizes[idx+1]
+func (this *MtuProber) hasNextSize(sz uint32) bool {
+	idx := slices.Index(this.sizes, sz)
+	return -1 != idx && len(this.sizes) > idx+1 && sz+1 == this.sizes[idx+1]
 }
 
 //
