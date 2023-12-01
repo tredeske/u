@@ -55,6 +55,7 @@ GIVEN default probe parameters
 			}
 			return space[:size], nil
 		},
+		MtuMax: MtuMax,
 	}
 	err = prober.NewSock(srcAddr, dstAddr)
 	if err != nil {

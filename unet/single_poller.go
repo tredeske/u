@@ -120,13 +120,13 @@ func (this *SinglePoller) Poll(millis int) (ok bool, err error) {
 			err = io.EOF
 			return
 		}
-		if 0 != (syscall.EPOLLERR & event.Events) {
+		if 0 != (syscall.EPOLLERR&event.Events) && nil != this.OnErrorQ {
 			ok, err = this.OnErrorQ(this.fd)
 			if !ok || err != nil {
 				return
 			}
 		}
-		if 0 != (syscall.EPOLLIN & event.Events) {
+		if 0 != (syscall.EPOLLIN&event.Events) && nil != this.OnInput {
 			ok, err = this.OnInput(this.fd)
 			if !ok || err != nil {
 				return

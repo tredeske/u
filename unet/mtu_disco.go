@@ -1,13 +1,43 @@
 package unet
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"syscall"
 	"time"
 
+	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/ulog"
+)
+
+const (
+	MtuMinIpv4  = 576  // RFC 791, but RFC 4821 says 1024 is smallest practical
+	MtuMinIpv6  = 1280 // RFC 2460
+	MtuMaxJumbo = 9216 // supported by most (all?) equipment, but 9000 common
+
+	//
+	// this one needs explanation
+	//
+	// IPv4 has a 16 bit length field, but that includes the header and options.
+	// The header is 20 bytes, so the payload is a max of 65515 bytes.
+	//
+	// UDP has a 16 bit length field, so it's max is 65535, but then the IPv4 header
+	// added to that would be 65555!  You probably only see something like this
+	// for loopback, where likely there is no 'real' ipv4 header.
+	//
+	// indeed, loopback often has mtu set at 65536
+	//
+	// see also RFC 2675 (jumbograms), which talks about mtu of 65575 for
+	// non-jumbograms!  We don't support the notion of jumbograms here
+	//
+	// however, with all that in mind, even with loopback mtu of 65536, the highest
+	// probed value will be 65535!  This makes sense since largest UDP datagram is
+	// 65535.
+	//
+	MtuMax = 65535
 )
 
 // client side of MTU discovery - sends UDP probes and sees what happens
@@ -45,6 +75,28 @@ type MtuProber struct {
 	//
 	MtuMax    uint16
 	closeSock bool
+
+	//
+	// Result: if non-zero, kernel cached PMTU value
+	//
+	CachedPmtu uint16
+
+	//
+	// Result: detected PMTU value
+	//
+	Pmtu uint16
+
+	//
+	// Result: overhead of IP and UDP
+	//
+	Overhead uint16
+
+	//
+	// Result: if BeforeSend and AfterRecv not set, this is computed
+	//
+	LatencyAvg time.Duration
+	LatencyMin time.Duration
+	LatencyMax time.Duration
 }
 
 // sock should be connected, constructed similarly as per NewSock
@@ -66,6 +118,10 @@ func (this *MtuProber) NewSock(src, dst Address) (err error) {
 		SetFarAddress(&dst).
 		ConstructUdp().
 		SetOptReuseAddr().
+		//
+		// if not large enough, pkts will be dropped
+		//
+		SetOptRcvBuf(4 * 1024 * 1024).
 		SetOptMtuDiscover(MtuDiscoProbe).
 		Bind().
 		Connect().
@@ -85,8 +141,28 @@ func (this *MtuProber) Close() {
 	this.sock = nil
 }
 
+func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
+	var cached int
+	err = this.sock.GetOptMtu(&cached).Error
+	if nil == err && 0 < cached && 65535 >= cached {
+		this.CachedPmtu = uint16(cached)
+		pmtu = uint16(cached)
+		if 0 != len(this.Name) {
+			ulog.Printf("%s: MTU Probe detected cached PMTU %d", this.Name, pmtu)
+		}
+	}
+	return
+}
+
 // perform probing until PMTU is known
-func (this *MtuProber) Probe() (pmtu int, err error) {
+func (this *MtuProber) Probe() (pmtu uint16, err error) {
+
+	this.CachedPmtu = 0
+	this.Pmtu = 0
+	this.Overhead = 0
+	this.LatencyAvg = 0
+	this.LatencyMin = 0
+	this.LatencyMax = 0
 
 	defer this.Close()
 
@@ -94,19 +170,12 @@ func (this *MtuProber) Probe() (pmtu int, err error) {
 	if err != nil {
 		return
 	}
+	this.Overhead = uint16(this.sock.IpOverhead() + UDP_OVERHEAD)
 
 	//
 	// pre check kernel PMTU cache
 	//
-	/*
-		err = this.sock.GetOptMtu(&pmtu).Error
-		if err != nil {
-			return
-		} else if 0 < pmtu {
-			return
-		}
-		pmtu = -1
-	*/
+	this.getCachedPmtu()
 
 	//
 	// start disco
@@ -122,55 +191,100 @@ func (this *MtuProber) Probe() (pmtu int, err error) {
 		space = make([]byte, this.MtuMax)
 	}
 
+	var totalMics, samples int64
 	if nil == this.BeforeSend {
 		this.BeforeSend = func(size uint16, space []byte) (pkt []byte, err error) {
+			binary.LittleEndian.PutUint64(space, uint64(time.Now().UnixMicro()))
 			return space[:size], nil
+		}
+		if nil == this.AfterRecv {
+			this.AfterRecv = func(pkt []byte) (err error) {
+				samples++
+				mics := time.Now().UnixMicro() -
+					int64(binary.LittleEndian.Uint64(pkt))
+				totalMics += mics
+				latency := time.Duration(1000 * mics)
+				if this.LatencyMax < latency {
+					this.LatencyMax = latency
+				}
+				if this.LatencyMin == 0 || this.LatencyMin > latency {
+					this.LatencyMin = latency
+				}
+				return
+			}
 		}
 	}
 
 	recvBuff := make([]byte, len(space))
-	overhead := uint16(this.sock.IpOverhead() + UDP_OVERHEAD)
-	lowest := uint32(this.MtuMin - overhead)
-	highest := uint32(this.MtuMax - overhead)
+	lowest := uint32(this.MtuMin)
+	highest := uint32(this.MtuMax)
+	var hiRx uint32
+	gotHiRx := false
 	addSizes := true
+	sizes := make([]uint32, 0, 128)
+	if 0 != this.CachedPmtu { // use as size hint
+		sizes = this.addSize(uint32(this.CachedPmtu), sizes)
+	}
 
 	poller := &SinglePoller{
 
-		OnErrorQ: func(fd int) (ok bool, err error) {
-			if 0 != len(this.Name) {
-				ulog.Printf("%s: MTU Probe got error input!", this.Name)
-			}
-			return true, nil
-		},
+		/*
+			OnErrorQ: func(fd int) (ok bool, err error) {
+				if 0 != len(this.Name) {
+					ulog.Printf("%s: MTU Probe detect error input!", this.Name)
+				}
+				return true, nil
+			},
+		*/
 
 		OnInput: func(fd int) (ok bool, err error) {
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
-			if 0 != len(this.Name) {
-				ulog.Printf("%s: MTU Probe recv %d", this.Name, nread)
+			if 0 != len(this.Name) && 0 < nread {
+				ulog.Printf("%s: MTU Probe recv %d (mtu %d)", this.Name, nread,
+					nread+int(this.Overhead))
 			}
 			if err != nil {
-				return false, err
-			}
-			var fromAddr Address
-			fromAddr.FromSockaddr(from)
-			if this.farAddr != fromAddr {
-				if 0 != len(this.Name) {
-					ulog.Printf("%s: MTU Probe got stray pkt from %s",
-						this.Name, fromAddr.String())
+				if errors.Is(err, syscall.EMSGSIZE) { // got ICMP back with MTU
+					var cached uint16
+					cached, err = this.getCachedPmtu()
+					if err != nil {
+						return false, err
+					} else if 0 == cached {
+						return true, nil
+					}
+					err = nil
+					highest = uint32(cached)
+					nread = int(cached)
+				} else {
+					return false, err
 				}
-				return true, nil
+			} else {
+				var fromAddr Address
+				fromAddr.FromSockaddr(from)
+				if this.farAddr != fromAddr {
+					if 0 != len(this.Name) {
+						ulog.Printf("%s: MTU Probe got stray pkt from %s",
+							this.Name, fromAddr.String())
+					}
+					return true, nil
+				}
 			}
-			sz := uint32(nread)
+			addSizes = true
+			sz := uint32(nread) + uint32(this.Overhead)
 			if sz > highest {
 				highest = sz
-				addSizes = true
+			}
+			if sz > hiRx {
+				hiRx = sz
+				gotHiRx = true
+			} else if sz == hiRx {
+				gotHiRx = true
 			}
 			if sz > lowest {
 				lowest = sz
 				if lowest == highest { // converged
 					return false, nil // stop search
 				}
-				addSizes = true
 			}
 			if nil != this.AfterRecv {
 				err = this.AfterRecv(recvBuff[:nread])
@@ -191,7 +305,7 @@ func (this *MtuProber) Probe() (pmtu int, err error) {
 	//
 	// send pkts and collect responses until we have pmtu
 	//
-	sizes := make([]uint32, 0, 128)
+	var times int
 	var pkt []byte
 	for lowest != highest {
 		if 0 != len(this.Name) {
@@ -203,46 +317,80 @@ func (this *MtuProber) Probe() (pmtu int, err error) {
 			addSizes = false
 		}
 		for _, sz := range sizes {
-			pkt, err = this.BeforeSend(uint16(sz), space)
+			if sz < lowest || sz > highest {
+				continue
+			}
+			pktSz := uint16(sz) - this.Overhead
+			pkt, err = this.BeforeSend(pktSz, space)
 			if err != nil {
 				return
-			} else if sz != uint32(len(pkt)) {
+			} else if int(pktSz) != len(pkt) {
 				err = errors.New("BeforeSend must create correct sized packet")
 				return
 			}
 			if 0 != len(this.Name) {
-				ulog.Printf("%s: MTU Probe: sending %d", this.Name, sz)
+				ulog.Printf("%s: MTU Probe: sending %d (mtu %d)",
+					this.Name, pktSz, sz)
 			}
 			err = this.sock.Send(pkt, 0)
 			if err != nil {
 				if errors.Is(err, syscall.EMSGSIZE) { // got ICMP back with MTU
-					err = this.sock.GetOptMtu(&pmtu).Error
+					var cachedPmtu uint16
+					cachedPmtu, err = this.getCachedPmtu()
 					if err != nil {
 						return
-					} else if 0 < pmtu {
-						highest = uint32(pmtu)
+					} else if 0 < cachedPmtu {
+						highest = uint32(cachedPmtu)
 						if lowest == highest {
-							return
+							pmtu = cachedPmtu
+							return //////////////// done
 						}
 					}
+					addSizes = true
 					break
 
 					//
 					// ignore temporary condition where peer not up yet
 					//
 				} else if errors.Is(err, syscall.ECONNREFUSED) {
-					continue
+					err = nil
+					runtime.Gosched()
+					break
 				}
+				err = uerr.Chainf(err, "sending %d pkt", pktSz)
 				return
 			}
 		}
 
+		//
+		// check for responses
+		//
+		gotHiRx = false
+		preHiRx := hiRx
 		_, err = poller.PollFor(120 * time.Millisecond)
 		if err != nil {
+			err = uerr.Chainf(err, "by receiver")
 			return
 		}
+		if gotHiRx {
+			if preHiRx == hiRx && 0 != hiRx && this.hasNextSize(hiRx, sizes) {
+
+				times++
+				if times >= 3 {
+					break // all done
+				}
+			} else {
+				times = 0
+			}
+		}
 	}
-	pmtu = int(highest)
+	if hiRx > 65535 {
+		panic("highest somehow larger than 65535!")
+	}
+	if 0 != samples {
+		this.LatencyAvg = time.Duration((totalMics / samples) * 1000)
+	}
+	pmtu = uint16(hiRx)
 	return
 }
 
@@ -263,14 +411,17 @@ func (this *MtuProber) ensureDefaults() (err error) {
 		return errors.New("Far socket address missing port or IP")
 	}
 
-	minMtu := uint16(576) // ipv4 (RFC 791)
+	minMtu := uint16(MtuMinIpv4)
 	if this.sock.IsIpv6() {
-		minMtu = 1280 // RFC 2460
+		minMtu = MtuMinIpv6
 	}
 	if 0 == this.MtuMax {
-		this.MtuMax = 9000 // convention. most (all?) equipment supports 9216
+		this.MtuMax = MtuMaxJumbo
 	} else if this.MtuMax < minMtu {
 		return fmt.Errorf("MtuMax must be at least %d", minMtu)
+	}
+	if this.MtuMax > MtuMax {
+		return errors.New("MtuMax cannot be greater than 65536")
 	}
 
 	//
@@ -291,11 +442,13 @@ func (this *MtuProber) ensureDefaults() (err error) {
 func (this *MtuProber) addSizes(lowest, highest uint32, sizes []uint32) []uint32 {
 	const PKTS = 8 // pow of 2
 
-	if 65535 < highest {
-		panic("highest out of range")
+	if lowest > highest {
+		panic("highest must be > lowest")
 	} else if 64 > lowest {
 		panic("lowest out of range")
 	}
+
+	sizes = this.addSize(highest, sizes)
 
 	if idx := slices.Index(sizes, lowest); -1 != idx && len(sizes) > idx+1 {
 		highest = sizes[idx+1]
@@ -308,16 +461,29 @@ func (this *MtuProber) addSizes(lowest, highest uint32, sizes []uint32) []uint32
 		part = 1
 	}
 	for i := 0; i < PKTS+1; i++ {
-		sz := lowest + uint32(i)*part
+		sz := uint32(lowest) + uint32(i)*part
 		if PKTS == i { // in case of round off
 			sz = highest
 		}
-		if !slices.Contains(sizes, sz) {
-			sizes = append(sizes, sz)
-			slices.Sort(sizes)
-		}
+		sizes = this.addSize(sz, sizes)
 	}
 	return sizes
+}
+
+func (this *MtuProber) addSize(sz uint32, sizes []uint32) []uint32 {
+	if sz > 65535 {
+		sz = 65535
+	}
+	if !slices.Contains(sizes, sz) {
+		sizes = append(sizes, sz)
+		slices.Sort(sizes)
+	}
+	return sizes
+}
+
+func (this *MtuProber) hasNextSize(sz uint32, sizes []uint32) bool {
+	idx := slices.Index(sizes, sz)
+	return -1 != idx && len(sizes) > idx+1 && sz+1 == sizes[idx+1]
 }
 
 //
@@ -360,7 +526,11 @@ func (this *MtuEchoer) NewSock(near Address) (err error) {
 		SetNearAddress(&near).
 		ConstructUdp().
 		SetOptReuseAddr().
-		SetOptMtuDiscover(MtuDiscoDo).
+		//
+		// if not large enough, pkts will be dropped
+		//
+		SetOptRcvBuf(4 * 1024 * 1024).
+		SetOptMtuDiscover(MtuDiscoProbe).
 		Bind().
 		Error
 	if err != nil {
@@ -392,7 +562,7 @@ func (this *MtuEchoer) Echo(timeout time.Duration) (err error) {
 		}
 	}
 
-	if 0 < timeout {
+	if 0 <= timeout {
 		_, err = this.poller.PollFor(timeout)
 	} else {
 		_, err = this.poller.PollForever()
@@ -413,26 +583,29 @@ func (this *MtuEchoer) setupPoller() (err error) {
 	recvBuff := make([]byte, 65536)
 	poller := &SinglePoller{
 
-		OnErrorQ: func(fd int) (ok bool, err error) {
-			if 0 != len(this.Name) {
-				ulog.Printf("%s: MTU echo got error input!", this.Name)
-			}
-			return true, nil
-		},
+		/*
+			OnErrorQ: func(fd int) (ok bool, err error) {
+				if 0 != len(this.Name) {
+					ulog.Printf("%s: MTU echo detected error input!", this.Name)
+				}
+				return true, nil
+			},
+		*/
 
 		OnInput: func(fd int) (ok bool, err error) {
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
-			if 0 != len(this.Name) {
-				ulog.Printf("%s: MTU echo got %d", this.Name, nread)
-			}
 			if err != nil {
 				return false, err
+			} else if 0 > nread {
+				return false, fmt.Errorf("got negative nread, but no error!")
 			}
 			if nil != this.OnPacket {
 				err = this.OnPacket(recvBuff[:nread], from)
 				if err != nil {
 					return
 				}
+			} else if 0 != len(this.Name) {
+				ulog.Printf("%s: MTU echoing %d", this.Name, nread)
 			}
 
 			//
