@@ -65,7 +65,7 @@ GIVEN default probe parameters
 
 	pmtu, err := prober.Probe()
 	if err != nil {
-		t.Fatalf("prober.Probe: %s", err)
+		t.Fatalf("prober.Probe: %s (%#v)", err, err)
 	} else if 0 >= pmtu {
 		t.Fatalf("pmtu not positive (%d)", pmtu)
 	}

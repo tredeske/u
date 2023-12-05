@@ -51,8 +51,7 @@ func GetSocketFd(conn *net.TCPConn) (fd int, f *os.File) {
 //
 // implements net.Conn, io.Closer, io.Reader, io.Writer
 //
-//	sock := unet.Socket{}
-//	err := sock.
+//	sock, err := NewSocket().
 //	    ResolveFarAddr(host, port).
 //	    ConstructTcp().
 //	    SetTimeout(7*time.Second).
@@ -223,6 +222,10 @@ func (this *Socket) getFamily() (family int) {
 		}
 	}
 	return
+}
+
+func (this *Socket) Shutdown() {
+	this.Fd.ShutdownRead()
 }
 
 func (this *Socket) closeUnconditionally() {
@@ -719,6 +722,7 @@ func (this *Socket) ClearTimeout() *Socket {
 // end chain, clean up, return any error
 func (this *Socket) Done() (s *Socket, err error) {
 	this.CancelDeadline()
+	this.closeIfError()
 	return this, this.Error
 }
 

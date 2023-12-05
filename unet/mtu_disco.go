@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"slices"
 	"syscall"
@@ -233,19 +234,22 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 		this.addSize(uint32(this.CachedPmtu))
 	}
 
-	poller := &SinglePoller{
+	poller := Poller{}
+	err = poller.Open()
+	if err != nil {
+		return
+	}
+	defer poller.Close()
+	poller.Add(&Polled{
 
-		/*
-			OnErrorQ: func(fd int) (ok bool, err error) {
-				if 0 != len(this.Name) {
-					ulog.Printf("%s: MTU Probe detect error input!", this.Name)
-				}
-				return true, nil
-			},
-		*/
+		Sock: this.sock,
+
+		OnHup: func(polled *Polled) (ok bool, err error) {
+			return false, io.EOF
+		},
 
 		// what to do when we get response datagram
-		OnInput: func(fd int) (ok bool, err error) {
+		OnInput: func(polled *Polled) (ok bool, err error) {
 
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
 			if 0 != len(this.Name) && 0 < nread {
@@ -303,13 +307,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			}
 			return true, nil
 		},
-	}
-
-	err = poller.Open(this.sock)
-	if err != nil {
-		return
-	}
-	defer poller.Close()
+	})
 
 	//
 	// send pkts and collect responses until we have pmtu
@@ -514,7 +512,7 @@ type MtuEchoer struct {
 	OnPacket func(pkt []byte, from syscall.Sockaddr) (err error)
 
 	sock      *Socket
-	poller    *SinglePoller
+	poller    Poller
 	closeSock bool
 }
 
@@ -552,9 +550,7 @@ func (this *MtuEchoer) NewSock(near Address) (err error) {
 }
 
 func (this *MtuEchoer) Close() {
-	if nil != this.poller {
-		this.poller.Close()
-	}
+	this.poller.Close()
 	if this.closeSock {
 		this.sock.Close()
 	}
@@ -565,7 +561,7 @@ func (this *MtuEchoer) Echo(timeout time.Duration) (err error) {
 	if nil == this.sock {
 		panic("No sock set!")
 	}
-	if nil == this.poller {
+	if !this.poller.IsStarted() {
 		err = this.setupPoller()
 		if err != nil {
 			return
@@ -591,18 +587,22 @@ func (this *MtuEchoer) setupPoller() (err error) {
 	}
 
 	recvBuff := make([]byte, 65536)
-	poller := &SinglePoller{
 
-		/*
-			OnErrorQ: func(fd int) (ok bool, err error) {
-				if 0 != len(this.Name) {
-					ulog.Printf("%s: MTU echo detected error input!", this.Name)
-				}
-				return true, nil
-			},
-		*/
+	defer func() {
+		if err != nil {
+			this.poller.Close()
+		}
+	}()
 
-		OnInput: func(fd int) (ok bool, err error) {
+	err = this.poller.Open()
+	if err != nil {
+		return
+	}
+
+	err = this.poller.Add(&Polled{
+		Sock: this.sock,
+
+		OnInput: func(p *Polled) (ok bool, err error) {
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
 			if err != nil {
 				return false, err
@@ -628,13 +628,6 @@ func (this *MtuEchoer) setupPoller() (err error) {
 			}
 			return true, nil
 		},
-	}
-
-	err = poller.Open(this.sock)
-	if err != nil {
-		return
-	}
-	this.poller = poller
-
+	})
 	return
 }
