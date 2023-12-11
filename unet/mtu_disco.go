@@ -117,8 +117,8 @@ func (this *MtuProber) NewSock(src, dst Address) (err error) {
 	}
 	sock := &Socket{}
 	err = sock.
-		SetNearAddress(&src).
-		SetFarAddress(&dst).
+		SetNearAddress(src).
+		SetFarAddress(dst).
 		ConstructUdp().
 		SetOptReuseAddr().
 		//
@@ -531,7 +531,7 @@ func (this *MtuEchoer) NewSock(near Address) (err error) {
 	}
 	sock := &Socket{}
 	err = sock.
-		SetNearAddress(&near).
+		SetNearAddress(near).
 		ConstructUdp().
 		SetOptReuseAddr().
 		//

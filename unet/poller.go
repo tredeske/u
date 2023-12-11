@@ -20,8 +20,9 @@ type Poller struct {
 }
 
 type Polled struct {
-	Sock *Socket
-	fd   int
+	NearAddr Address // optional - use as lookup for OnInput
+	Sock     *Socket
+	fd       int
 
 	//
 	// if set, call when socket hangup

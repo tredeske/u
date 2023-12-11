@@ -89,8 +89,11 @@ func (this *Socket) SetFarIpPort(ip net.IP, port int, unless ...bool) *Socket {
 	return this.SetFarAddr(AsSockaddr(ip, port), unless...)
 }
 
-func (this *Socket) SetFarAddress(far *Address, unless ...bool) *Socket {
-	return this.SetFarAddr(far.AsSockaddr(), unless...)
+func (this *Socket) SetFarAddress(far Address, unless ...bool) *Socket {
+	if far.IsSet() {
+		return this.SetFarAddr(far.AsSockaddr(), unless...)
+	}
+	return this
 }
 
 func (this *Socket) SetFarAddr(far syscall.Sockaddr, unless ...bool) *Socket {
@@ -123,8 +126,11 @@ func (this *Socket) SetNearIpPort(ip net.IP, port int, unless ...bool) *Socket {
 	return this.SetNearAddr(AsSockaddr(ip, port), unless...)
 }
 
-func (this *Socket) SetNearAddress(near *Address, unless ...bool) *Socket {
-	return this.SetNearAddr(near.AsSockaddr(), unless...)
+func (this *Socket) SetNearAddress(near Address, unless ...bool) *Socket {
+	if near.IsSet() {
+		return this.SetNearAddr(near.AsSockaddr(), unless...)
+	}
+	return this
 }
 
 func (this *Socket) SetNearAddr(near syscall.Sockaddr, unless ...bool) *Socket {
@@ -224,9 +230,7 @@ func (this *Socket) getFamily() (family int) {
 	return
 }
 
-func (this *Socket) Shutdown() {
-	this.Fd.ShutdownRead()
-}
+func (this *Socket) ShutdownRead() bool { return this.Fd.ShutdownRead() }
 
 func (this *Socket) closeUnconditionally() {
 	_, err := this.Fd.Close()
@@ -851,6 +855,9 @@ func (this *Socket) SendTo(
 ) {
 	fd, good := this.goodFd()
 	if good {
+		if nil == to {
+			to = this.FarAddr
+		}
 		err = syscall.Sendto(fd, buff, flags, to)
 	} else {
 		err = this.Error
