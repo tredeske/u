@@ -126,11 +126,17 @@ func (this *Socket) SetNearIpPort(ip net.IP, port int, unless ...bool) *Socket {
 	return this.SetNearAddr(AsSockaddr(ip, port), unless...)
 }
 
+// if near is set, then set near addr
 func (this *Socket) SetNearAddress(near Address, unless ...bool) *Socket {
 	if near.IsSet() {
 		return this.SetNearAddr(near.AsSockaddr(), unless...)
 	}
 	return this
+}
+
+// set near addr.  if near not set, set near addr to 0.0.0.0:0
+func (this *Socket) SetNearAddressOrAny(near Address) *Socket {
+	return this.SetNearAddr(near.AsSockaddr())
 }
 
 func (this *Socket) SetNearAddr(near syscall.Sockaddr, unless ...bool) *Socket {
@@ -210,6 +216,7 @@ func (this *Socket) Construct(sockType, proto int) *Socket {
 }
 
 func (this *Socket) getFamily() (family int) {
+	const errNotSet = uerr.Const("src or dst addr must be set before construct")
 	var addr syscall.Sockaddr
 	if nil != this.FarAddr {
 		addr = this.FarAddr
@@ -220,7 +227,7 @@ func (this *Socket) getFamily() (family int) {
 		addr = this.NearAddr
 	}
 	if nil == addr {
-		this.Error = errors.New("src or dst addr must be set before construct")
+		this.Error = errNotSet
 	} else {
 		family, this.Error = SockaddrFamily(addr)
 		if this.Error != nil {

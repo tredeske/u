@@ -50,8 +50,10 @@ func (this Address) IsIpv4() bool {
 	return 0 == this.addr1 && 0xffff0000 == (this.addr2&0xffffffff)
 }
 
-func (this Address) IsIpv6() bool    { return !this.IsIpv4() }
-func (this Address) IsSet() bool     { return 0 != this.plus }
+func (this Address) IsIpv6() bool { return this.IsIpSet() && !this.IsIpv4() }
+
+// are both IP and port set?
+func (this Address) IsSet() bool     { return this.IsIpSet() && this.IsPortSet() }
 func (this Address) IsIpSet() bool   { return 0 != (this.plus & addrBit_) }
 func (this Address) IsPortSet() bool { return 0 != (this.plus & portMask_) }
 func (this Address) Port() uint16    { return uint16(this.plus & portMask_) }
