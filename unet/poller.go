@@ -220,6 +220,9 @@ func (this *Poller) Poll(millis int) (ok bool, err error) {
 
 	nevents, err := syscall.EpollWait(this.epfd, this.events[:], millis)
 	if err != nil {
+		if syscall.EINTR == err {
+			return true, nil
+		}
 		return
 	}
 
