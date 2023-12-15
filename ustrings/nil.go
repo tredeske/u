@@ -2,10 +2,8 @@ package ustrings
 
 import "reflect"
 
-//
 // deal with golang nil crazyness for interfaces
-//
-func ItIsNil(it interface{}) bool {
+func ItIsNil(it any) bool {
 	if nil == it {
 		return true
 	}

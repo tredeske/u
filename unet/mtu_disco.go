@@ -50,12 +50,19 @@ type MtuProber struct {
 	Name string
 
 	//
+	// if set, interval between sending probes.  Default 120ms
+	//
+	ProbeInterval time.Duration
+
+	//
 	// set this to create initial buffer, or one will be created w/o your help
 	//
 	OnStart func(size uint16) (space []byte)
 
 	//
-	// if set, is called to create pkt from space prior to each send
+	// if set, is called to create pkt from space prior to each send.
+	//
+	// size is how many bytes pkt should be in length
 	//
 	BeforeSend func(size uint16, space []byte) (pkt []byte, err error)
 
@@ -64,10 +71,12 @@ type MtuProber struct {
 	//
 	AfterRecv func(pkt []byte) (err error)
 
-	farAddr   Address  // where we're probing to
-	sizes     []uint32 // mtu sizes we're trying (sorted)
-	sock      *Socket  // the socket used for probing
-	closeSock bool     // if we create the socket, we close it
+	farAddr    Address  // where we're probing to
+	sizes      []uint32 // mtu sizes we're trying (sorted)
+	sock       *Socket  // the socket used for sending probes
+	checkSock  *Socket  // the socket used for checking kernel pmtu cache
+	closeSock  bool     // if we create the socket, we close it
+	closeCheck bool     // if we create the socket, we close it
 
 	//
 	// if set, set smallest probe size.  otherwise, smallest compliant will be used
@@ -85,7 +94,7 @@ type MtuProber struct {
 	CachedPmtu uint16
 
 	//
-	// Result: detected PMTU value
+	// Result: detected/probed PMTU value
 	//
 	Pmtu uint16
 
@@ -102,21 +111,69 @@ type MtuProber struct {
 	LatencyMax time.Duration
 }
 
+// set external socket to be used to send/recv probes
 // sock should be connected, constructed similarly as per NewSock
-func (this *MtuProber) SetSock(sock *Socket) {
+func (this *MtuProber) SetProbeSock(sock *Socket) {
 	if nil != this.sock {
 		panic("sock already set!")
+	} else if !IsSockaddrValid(sock.FarAddr) ||
+		IsSockaddrPortAndIpNotZero(sock.FarAddr) {
+		panic("probeSock.FarAddr not set!")
+	}
+	var dst Address
+	dst.FromSockaddr(sock.FarAddr)
+	if !dst.IsSet() {
+		panic("sock.FarAddr not set for SetCheckSock")
 	}
 	this.sock = sock
 }
 
-// add a UDP socket, suitable for use to discover MTU
-func (this *MtuProber) NewSock(src, dst Address) (err error) {
-	if nil != this.sock {
-		panic("sock already set!")
+// set external socket to be used to query kernel pmtu
+// must be constructed similarly to NewProbeSock
+// sock.FarAddr must be set
+func (this *MtuProber) SetCheckSock(sock *Socket) {
+	if nil != this.checkSock {
+		panic("checkSock already set!")
+	} else if !IsSockaddrValid(sock.FarAddr) ||
+		IsSockaddrPortAndIpNotZero(sock.FarAddr) {
+		panic("checkSock.FarAddr not set!")
 	}
-	sock := &Socket{}
-	err = sock.
+	this.checkSock = sock
+}
+
+// create a new socket to be the probe socket, used to send/recv probes.
+func (this *MtuProber) NewProbeSock(src, dst Address) (err error) {
+	if nil != this.sock {
+		panic("probe sock already set!")
+	}
+	this.sock, err = this.newSock(src, dst)
+	if err != nil {
+		return
+	}
+	this.closeSock = true
+	return
+}
+
+// Create a new socket to be the check socket, used to query kernel pmtu table.
+// If not set, then the probe socket will be used.
+func (this *MtuProber) NewCheckSock(src, dst Address) (err error) {
+	if nil != this.checkSock {
+		panic("check sock already set!")
+	}
+	this.checkSock, err = this.newSock(src, dst)
+	if err != nil {
+		return
+	}
+	this.closeCheck = true
+	return
+}
+
+func (this *MtuProber) newSock(src, dst Address) (sock *Socket, err error) {
+	const errUnset = uerr.Const("dst address (ip and port) not set")
+	if dst.IsEitherZero() {
+		return nil, errUnset
+	}
+	return NewSocket().
 		SetNearAddress(src).
 		SetFarAddress(dst).
 		ConstructUdp().
@@ -128,13 +185,7 @@ func (this *MtuProber) NewSock(src, dst Address) (err error) {
 		SetOptMtuDiscover(MtuDiscoProbe).
 		Bind().
 		Connect().
-		Error
-	if err != nil {
-		return
-	}
-	this.sock = sock
-	this.closeSock = true
-	return
+		Done()
 }
 
 func (this *MtuProber) Close() {
@@ -142,13 +193,21 @@ func (this *MtuProber) Close() {
 		this.sock.Close()
 	}
 	this.sock = nil
+	if this.closeCheck && nil != this.checkSock {
+		this.checkSock.Close()
+	}
+	this.checkSock = nil
 }
 
 // the kernel caches pmtu on a per destination basis as it gets icmp pkts back
 // saying dest unreach due to pkt too large
 func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
 	var cached int
-	err = this.sock.GetOptMtu(&cached).Error
+	sock := this.checkSock
+	if nil == sock {
+		sock = this.sock
+	}
+	err = sock.GetOptMtu(&cached).Error
 	if nil == err && 0 < cached && 65535 >= cached {
 		this.CachedPmtu = uint16(cached)
 		pmtu = uint16(cached)
@@ -169,6 +228,9 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	this.LatencyMin = 0
 	this.LatencyMax = 0
 	this.sizes = make([]uint32, 0, 128)
+	if 20*time.Millisecond >= this.ProbeInterval {
+		this.ProbeInterval = 120 * time.Millisecond
+	}
 
 	defer func() {
 		this.sizes = nil
@@ -374,7 +436,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 		//
 		gotHiRx = false
 		preHiRx := hiRx
-		_, err = poller.PollFor(120 * time.Millisecond)
+		_, err = poller.PollFor(this.ProbeInterval)
 		if err != nil {
 			err = uerr.Chainf(err, "by receiver")
 			return
@@ -388,6 +450,20 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				}
 			} else {
 				times = 0
+			}
+		}
+
+		//
+		// if we have separate check sock, check it periodically
+		//
+		if nil != this.checkSock {
+			var cached uint16
+			cached, err = this.getCachedPmtu()
+			if err != nil {
+				return
+			} else if 0 != cached {
+				highest = uint32(cached)
+				this.addSize(highest)
 			}
 		}
 	}

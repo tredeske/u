@@ -78,7 +78,7 @@ func (this *Socket) Reset() *Socket {
 	return this
 }
 
-func (this *Socket) Log(msg string, args ...interface{}) *Socket {
+func (this *Socket) Log(msg string, args ...any) *Socket {
 	if nil == this.Error {
 		ulog.Printf(msg, args...)
 	}
@@ -90,18 +90,14 @@ func (this *Socket) SetFarIpPort(ip net.IP, port int, unless ...bool) *Socket {
 }
 
 func (this *Socket) SetFarAddress(far Address, unless ...bool) *Socket {
-	if far.IsSet() {
+	if this.canDo(unless) && !far.IsEitherZero() {
 		return this.SetFarAddr(far.AsSockaddr(), unless...)
 	}
 	return this
 }
 
 func (this *Socket) SetFarAddr(far syscall.Sockaddr, unless ...bool) *Socket {
-	if nil == far {
-		this.Error = errors.New("No far provided")
-		return this
-	}
-	if this.canDo(unless) {
+	if this.canDo(unless) && IsSockaddrPortAndIpNotZero(far) {
 		this.FarAddr = far
 	}
 	return this
@@ -126,17 +122,9 @@ func (this *Socket) SetNearIpPort(ip net.IP, port int, unless ...bool) *Socket {
 	return this.SetNearAddr(AsSockaddr(ip, port), unless...)
 }
 
-// if near is set, then set near addr
+// if near is not set, then will be set to 0.0.0.0:0
 func (this *Socket) SetNearAddress(near Address, unless ...bool) *Socket {
-	if near.IsSet() {
-		return this.SetNearAddr(near.AsSockaddr(), unless...)
-	}
-	return this
-}
-
-// set near addr.  if near not set, set near addr to 0.0.0.0:0
-func (this *Socket) SetNearAddressOrAny(near Address) *Socket {
-	return this.SetNearAddr(near.AsSockaddr())
+	return this.SetNearAddr(near.AsSockaddr(), unless...)
 }
 
 func (this *Socket) SetNearAddr(near syscall.Sockaddr, unless ...bool) *Socket {

@@ -15,6 +15,8 @@ const (
 
 // a struct that can hold either ipv4 or ipv6 address, plus port
 //
+// suitable for using as a map key
+//
 // the net.IP type is a slice, so cannot be used as a key in a map, etc.
 //
 // When net.IP stores an ipv4 addr, it either does it in a 4 byte slice (uncommon)
@@ -35,8 +37,11 @@ type Address struct {
 }
 
 const (
-	addrBit_  uint64 = 1 << 63
+	addrBit_  uint64 = 1 << 17
+	portBit_  uint64 = 1 << 16
 	portMask_ uint64 = 0xffff
+	ipv4Mask_ uint64 = 0xffffffff
+	ipv4Bits_ uint64 = 0xffff0000
 )
 
 func (this *Address) Clear() {
@@ -47,7 +52,7 @@ func (this *Address) Clear() {
 
 func (this Address) IsIpv4() bool {
 	// addr1 must be 0, while addr2 must be 0xffff0000 in low 32 bits
-	return 0 == this.addr1 && 0xffff0000 == (this.addr2&0xffffffff)
+	return 0 == this.addr1 && ipv4Bits_ == (this.addr2&ipv4Mask_)
 }
 
 func (this Address) IsIpv6() bool { return this.IsIpSet() && !this.IsIpv4() }
@@ -55,29 +60,81 @@ func (this Address) IsIpv6() bool { return this.IsIpSet() && !this.IsIpv4() }
 // are both IP and port set?
 func (this Address) IsSet() bool     { return this.IsIpSet() && this.IsPortSet() }
 func (this Address) IsIpSet() bool   { return 0 != (this.plus & addrBit_) }
-func (this Address) IsPortSet() bool { return 0 != (this.plus & portMask_) }
+func (this Address) IsPortSet() bool { return 0 != (this.plus & portBit_) }
 func (this Address) Port() uint16    { return uint16(this.plus & portMask_) }
+
+// are both ip and port set as zeros?
+// we also accept unset port as part of zero port
+// this is not the same as unset!
+func (this Address) IsZero() bool { return this.IsIpZero() && 0 == this.Port() }
+
+// is either ip or port set as zeros?
+// this is not the same as unset!
+func (this Address) IsEitherZero() bool {
+	return this.IsIpZero() || 0 == this.Port()
+}
+
+// is ip set to 0.0.0.0 or ::?
+func (this Address) IsIpZero() bool {
+	return 0 != (this.plus&addrBit_) && 0 == this.addr1 &&
+		// see IsIpv4()
+		(0 == this.addr2 || ipv4Bits_ == this.addr2)
+}
+
+// is ip set to 0.0.0.0?
+func (this Address) IsIpv4Zero() bool {
+	return 0 != (this.plus&addrBit_) && 0 == this.addr1 &&
+		// see IsIpv4()
+		ipv4Bits_ == this.addr2
+}
+
+// is ip set to ::?
+func (this Address) IsIpv6Zero() bool {
+	return 0 != (this.plus&addrBit_) && 0 == this.addr1 && 0 == this.addr2
+}
+
+// set ip to '0.0.0.0'
+func (this *Address) SetIpv4Zero() {
+	this.addr1 = 0
+	this.addr2 = ipv4Bits_
+	this.plus |= addrBit_
+}
+
+// set ip to '::'
+func (this *Address) SetIpv6Zero() {
+	this.addr1 = 0
+	this.addr2 = 0
+	this.plus |= addrBit_
+}
 
 func (this *Address) AsIp() (rv net.IP) {
 	return (*[16]byte)(unsafe.Pointer(this))[:16:16]
 }
 
-func (this *Address) AsIpV4() (rv net.IP) {
+func (this *Address) AsIpv4() (rv net.IP) {
 	return (*[16]byte)(unsafe.Pointer(this))[12:16:16]
+}
+
+// populate provided sockaddr based on this
+func (this *Address) ToSockaddr4(sa *syscall.SockaddrInet4) {
+	sa.Port = int(this.Port())
+	copy(sa.Addr[:], this.AsIpv4())
+}
+
+// populate provided sockaddr based on this
+func (this *Address) ToSockaddr6(sa *syscall.SockaddrInet6) {
+	sa.Port = int(this.Port())
+	copy(sa.Addr[:], this.AsIp())
 }
 
 // allocate and populate a sockaddr based on this
 func (this *Address) AsSockaddr() (rv syscall.Sockaddr) {
 	if this.IsIpv4() || !this.IsIpSet() {
-		sa := &syscall.SockaddrInet4{
-			Port: int(this.Port()),
-		}
-		copy(sa.Addr[:], this.AsIpV4())
+		sa := &syscall.SockaddrInet4{Port: int(this.Port())}
+		copy(sa.Addr[:], this.AsIpv4())
 		rv = sa
 	} else {
-		sa := &syscall.SockaddrInet6{
-			Port: int(this.Port()),
-		}
+		sa := &syscall.SockaddrInet6{Port: int(this.Port())}
 		copy(sa.Addr[:], this.AsIp())
 		rv = sa
 	}
@@ -99,7 +156,7 @@ func (this *Address) AsNameBytes(space []byte) (name *byte, namelen uint32) {
 		namelen = syscall.SizeofSockaddrInet4
 		rsa.Family = syscall.AF_INET
 		rsa.Port = Htons(this.Port())
-		copy(rsa.Addr[:], this.AsIpV4())
+		copy(rsa.Addr[:], this.AsIpv4())
 	} else {
 		if len(space) < syscall.SizeofSockaddrInet6 {
 			panic("not enough space for IPv6 sockaddr")
@@ -113,7 +170,7 @@ func (this *Address) AsNameBytes(space []byte) (name *byte, namelen uint32) {
 	return
 }
 
-// return a copy of the ip
+// return an allocated copy of the ip
 func (this *Address) Ip() (rv net.IP) {
 	rv = make(net.IP, 16)
 	copy(rv, this.AsIp())
@@ -129,7 +186,7 @@ func (this Address) String() string {
 }
 
 func (this *Address) SetPort(port uint16) {
-	this.plus = (this.plus & (^portMask_)) | uint64(port)
+	this.plus = (this.plus & (^portMask_)) | portBit_ | uint64(port)
 }
 
 func (this *Address) SetAddrFrom(that Address) {
@@ -220,15 +277,73 @@ func (this *Address) FromNameBytes(name *byte, namelen uint32) {
 	}
 }
 
+func IsSockaddrValid(sa syscall.Sockaddr) bool {
+	switch actual := sa.(type) {
+	case *syscall.SockaddrInet4:
+		return nil != actual
+	case *syscall.SockaddrInet6:
+		return nil != actual
+	}
+	return false
+}
+
+func IsSockaddrZero(sa syscall.Sockaddr) bool {
+	switch actual := sa.(type) {
+	case *syscall.SockaddrInet4:
+		return nil != actual && 0 == actual.Port &&
+			0 == actual.Addr[3] && 0 == actual.Addr[2] &&
+			0 == actual.Addr[1] && 0 == actual.Addr[0]
+	case *syscall.SockaddrInet6:
+		return nil != actual && 0 == actual.Port &&
+			0 == actual.Addr[15] && 0 == actual.Addr[14] &&
+			0 == actual.Addr[13] && 0 == actual.Addr[12] &&
+			0 == actual.Addr[11] && 0 == actual.Addr[10] &&
+			0 == actual.Addr[9] && 0 == actual.Addr[8] &&
+			0 == actual.Addr[7] && 0 == actual.Addr[6] &&
+			0 == actual.Addr[5] && 0 == actual.Addr[4] &&
+			0 == actual.Addr[3] && 0 == actual.Addr[2] &&
+			0 == actual.Addr[1] && 0 == actual.Addr[0]
+	}
+	return false
+}
+
+func IsSockaddrPortAndIpNotZero(sa syscall.Sockaddr) bool {
+	switch actual := sa.(type) {
+	case *syscall.SockaddrInet4:
+		return nil != actual && 0 != actual.Port &&
+			(0 != actual.Addr[3] || 0 != actual.Addr[2] ||
+				0 != actual.Addr[1] || 0 != actual.Addr[0])
+	case *syscall.SockaddrInet6:
+		return nil != actual && 0 != actual.Port &&
+			(0 != actual.Addr[15] || 0 != actual.Addr[14] ||
+				0 != actual.Addr[13] || 0 != actual.Addr[12] ||
+				0 != actual.Addr[11] || 0 != actual.Addr[10] ||
+				0 != actual.Addr[9] || 0 != actual.Addr[8] ||
+				0 != actual.Addr[7] || 0 != actual.Addr[6] ||
+				0 != actual.Addr[5] || 0 != actual.Addr[4] ||
+				0 != actual.Addr[3] || 0 != actual.Addr[2] ||
+				0 != actual.Addr[1] || 0 != actual.Addr[0])
+	}
+	return false
+}
+
 func (this *Address) FromSockaddr(sa syscall.Sockaddr) {
 	switch actual := sa.(type) {
 	case *syscall.SockaddrInet4:
-		this.SetIp(net.IP(actual.Addr[:]))
-		this.SetPort(uint16(actual.Port))
+		if nil == actual {
+			this.Clear()
+		} else {
+			this.SetIp(net.IP(actual.Addr[:]))
+			this.SetPort(uint16(actual.Port))
+		}
 	case *syscall.SockaddrInet6:
-		this.SetIp(net.IP(actual.Addr[:]))
-		this.SetPort(uint16(actual.Port))
+		if nil == actual {
+			this.Clear()
+		} else {
+			this.SetIp(net.IP(actual.Addr[:]))
+			this.SetPort(uint16(actual.Port))
+		}
 	default:
-		panic("should not happen - unknown sockaddr type")
+		this.Clear()
 	}
 }

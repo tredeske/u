@@ -57,7 +57,7 @@ GIVEN default probe parameters
 		},
 		MtuMax: MtuMax,
 	}
-	err = prober.NewSock(srcAddr, dstAddr)
+	err = prober.NewProbeSock(srcAddr, dstAddr)
 	if err != nil {
 		t.Fatalf("prober.NewSock: %s", err)
 	}

@@ -81,6 +81,26 @@ GIVEN %s IP %s
 			addr2.FromSockaddr(sockaddr)
 			if addr != addr2 {
 				t.Fatalf("(sockaddr) should be equal: %#v and %#v", addr, addr2)
+			} else if !IsSockaddrValid(sockaddr) {
+				t.Fatalf("sockaddr not valid!")
+			} else if IsSockaddrZero(sockaddr) { // port always set...
+				t.Fatalf("sockaddr should not be zero!")
+			}
+			if "::" == testCase.addr || "0.0.0.0" == testCase.addr {
+				if IsSockaddrPortAndIpNotZero(sockaddr) {
+					t.Fatalf("sockaddr port and ip should NOT be set! %#v", sockaddr)
+				}
+				if !addr.IsIpZero() {
+					t.Fatalf("addr should be zero! %#v", addr)
+				}
+			} else {
+				if !IsSockaddrPortAndIpNotZero(sockaddr) {
+					t.Fatalf("sockaddr port and ip should be set! %#v", sockaddr)
+				}
+				if addr.IsIpZero() {
+					t.Fatalf("addr should NOT be zero! %#v %t", addr,
+						ipv4Bits_ == (addr.addr2&ipv4Mask_))
+				}
 			}
 
 			fmt.Printf(`
@@ -143,4 +163,29 @@ GIVEN %s IP %s
 				t.Fatalf("equal: %#v and %#v", ip, addr)
 			}
 	*/
+}
+
+func TestSockaddrZero(t *testing.T) {
+	if IsSockaddrZero(nil) {
+		t.Fatalf("nil should not be detected as sockaddr zero!")
+	}
+
+	var sa syscall.Sockaddr
+
+	if IsSockaddrZero(sa) {
+		t.Fatalf("unset sockaddr should not be zero!")
+	}
+
+	var sa4 *syscall.SockaddrInet4
+	sa = sa4
+	if IsSockaddrZero(sa) {
+		t.Fatalf("nil sockaddr should not be zero!")
+	}
+
+	var saZero syscall.SockaddrInet4
+	sa = &saZero
+	if !IsSockaddrZero(sa) {
+		t.Fatalf("zero sockaddr should be detected!")
+	}
+
 }
