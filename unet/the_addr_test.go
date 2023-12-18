@@ -87,14 +87,14 @@ GIVEN %s IP %s
 				t.Fatalf("sockaddr should not be zero!")
 			}
 			if "::" == testCase.addr || "0.0.0.0" == testCase.addr {
-				if IsSockaddrPortAndIpNotZero(sockaddr) {
+				if IsSockaddrZero(sockaddr) {
 					t.Fatalf("sockaddr port and ip should NOT be set! %#v", sockaddr)
 				}
 				if !addr.IsIpZero() {
 					t.Fatalf("addr should be zero! %#v", addr)
 				}
 			} else {
-				if !IsSockaddrPortAndIpNotZero(sockaddr) {
+				if IsSockaddrPortOrIpZero(sockaddr) {
 					t.Fatalf("sockaddr port and ip should be set! %#v", sockaddr)
 				}
 				if addr.IsIpZero() {
@@ -166,26 +166,52 @@ GIVEN %s IP %s
 }
 
 func TestSockaddrZero(t *testing.T) {
-	if IsSockaddrZero(nil) {
-		t.Fatalf("nil should not be detected as sockaddr zero!")
+	if !IsSockaddrZero(nil) {
+		t.Fatalf("nil should be detected as sockaddr zero!")
+	} else if !IsSockaddrPortOrIpZero(nil) {
+		t.Fatalf("nil should be detected as sockaddr either zero!")
+	} else if IsSockaddrValid(nil) {
+		t.Fatalf("nil sockaddr should be invalid")
 	}
 
 	var sa syscall.Sockaddr
 
-	if IsSockaddrZero(sa) {
-		t.Fatalf("unset sockaddr should not be zero!")
+	if !IsSockaddrZero(sa) {
+		t.Fatalf("unset sockaddr should be zero!")
+	} else if !IsSockaddrPortOrIpZero(sa) {
+		t.Fatalf("unset should be detected as sockaddr either zero!")
+	} else if IsSockaddrValid(sa) {
+		t.Fatalf("unset sockaddr should be invalid")
 	}
 
 	var sa4 *syscall.SockaddrInet4
 	sa = sa4
-	if IsSockaddrZero(sa) {
+	if !IsSockaddrZero(sa) {
 		t.Fatalf("nil sockaddr should not be zero!")
+	} else if !IsSockaddrPortOrIpZero(sa) {
+		t.Fatalf("nil sockaddr should be detected as sockaddr either zero!")
+	} else if IsSockaddrValid(sa) {
+		t.Fatalf("nil sockaddr should be invalid")
 	}
 
 	var saZero syscall.SockaddrInet4
 	sa = &saZero
 	if !IsSockaddrZero(sa) {
 		t.Fatalf("zero sockaddr should be detected!")
+	} else if !IsSockaddrPortOrIpZero(sa) {
+		t.Fatalf("zero sockaddr should be detected as sockaddr either zero!")
+	} else if !IsSockaddrValid(sa) {
+		t.Fatalf("zero sockaddr should be valid")
+	}
+
+	var saZero6 syscall.SockaddrInet6
+	sa = &saZero6
+	if !IsSockaddrZero(sa) {
+		t.Fatalf("zero6 sockaddr should be detected!")
+	} else if !IsSockaddrPortOrIpZero(sa) {
+		t.Fatalf("zero6 sockaddr should be detected as sockaddr either zero!")
+	} else if !IsSockaddrValid(sa) {
+		t.Fatalf("zero6 sockaddr should be valid")
 	}
 
 }

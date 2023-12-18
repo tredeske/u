@@ -97,7 +97,7 @@ func (this *Socket) SetFarAddress(far Address, unless ...bool) *Socket {
 }
 
 func (this *Socket) SetFarAddr(far syscall.Sockaddr, unless ...bool) *Socket {
-	if this.canDo(unless) && IsSockaddrPortAndIpNotZero(far) {
+	if this.canDo(unless) && !IsSockaddrPortOrIpZero(far) {
 		this.FarAddr = far
 	}
 	return this

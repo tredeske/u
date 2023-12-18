@@ -116,14 +116,8 @@ type MtuProber struct {
 func (this *MtuProber) SetProbeSock(sock *Socket) {
 	if nil != this.sock {
 		panic("sock already set!")
-	} else if !IsSockaddrValid(sock.FarAddr) ||
-		IsSockaddrPortAndIpNotZero(sock.FarAddr) {
-		panic("probeSock.FarAddr not set!")
-	}
-	var dst Address
-	dst.FromSockaddr(sock.FarAddr)
-	if !dst.IsSet() {
-		panic("sock.FarAddr not set for SetCheckSock")
+	} else if IsSockaddrPortOrIpZero(sock.FarAddr) {
+		panic(fmt.Sprintf("probeSock.FarAddr not set! (%#v)", sock.FarAddr))
 	}
 	this.sock = sock
 }
@@ -134,9 +128,8 @@ func (this *MtuProber) SetProbeSock(sock *Socket) {
 func (this *MtuProber) SetCheckSock(sock *Socket) {
 	if nil != this.checkSock {
 		panic("checkSock already set!")
-	} else if !IsSockaddrValid(sock.FarAddr) ||
-		IsSockaddrPortAndIpNotZero(sock.FarAddr) {
-		panic("checkSock.FarAddr not set!")
+	} else if IsSockaddrPortOrIpZero(sock.FarAddr) {
+		panic(fmt.Sprintf("checkSock.FarAddr not set! (%#v)", sock.FarAddr))
 	}
 	this.checkSock = sock
 }

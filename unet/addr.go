@@ -290,11 +290,11 @@ func IsSockaddrValid(sa syscall.Sockaddr) bool {
 func IsSockaddrZero(sa syscall.Sockaddr) bool {
 	switch actual := sa.(type) {
 	case *syscall.SockaddrInet4:
-		return nil != actual && 0 == actual.Port &&
+		return nil == actual || (0 == actual.Port &&
 			0 == actual.Addr[3] && 0 == actual.Addr[2] &&
-			0 == actual.Addr[1] && 0 == actual.Addr[0]
+			0 == actual.Addr[1] && 0 == actual.Addr[0])
 	case *syscall.SockaddrInet6:
-		return nil != actual && 0 == actual.Port &&
+		return nil == actual || (0 == actual.Port &&
 			0 == actual.Addr[15] && 0 == actual.Addr[14] &&
 			0 == actual.Addr[13] && 0 == actual.Addr[12] &&
 			0 == actual.Addr[11] && 0 == actual.Addr[10] &&
@@ -302,29 +302,29 @@ func IsSockaddrZero(sa syscall.Sockaddr) bool {
 			0 == actual.Addr[7] && 0 == actual.Addr[6] &&
 			0 == actual.Addr[5] && 0 == actual.Addr[4] &&
 			0 == actual.Addr[3] && 0 == actual.Addr[2] &&
-			0 == actual.Addr[1] && 0 == actual.Addr[0]
+			0 == actual.Addr[1] && 0 == actual.Addr[0])
 	}
-	return false
+	return true
 }
 
-func IsSockaddrPortAndIpNotZero(sa syscall.Sockaddr) bool {
+func IsSockaddrPortOrIpZero(sa syscall.Sockaddr) bool {
 	switch actual := sa.(type) {
 	case *syscall.SockaddrInet4:
-		return nil != actual && 0 != actual.Port &&
-			(0 != actual.Addr[3] || 0 != actual.Addr[2] ||
-				0 != actual.Addr[1] || 0 != actual.Addr[0])
+		return nil == actual || 0 == actual.Port ||
+			(0 == actual.Addr[3] && 0 == actual.Addr[2] &&
+				0 == actual.Addr[1] && 0 == actual.Addr[0])
 	case *syscall.SockaddrInet6:
-		return nil != actual && 0 != actual.Port &&
-			(0 != actual.Addr[15] || 0 != actual.Addr[14] ||
-				0 != actual.Addr[13] || 0 != actual.Addr[12] ||
-				0 != actual.Addr[11] || 0 != actual.Addr[10] ||
-				0 != actual.Addr[9] || 0 != actual.Addr[8] ||
-				0 != actual.Addr[7] || 0 != actual.Addr[6] ||
-				0 != actual.Addr[5] || 0 != actual.Addr[4] ||
-				0 != actual.Addr[3] || 0 != actual.Addr[2] ||
-				0 != actual.Addr[1] || 0 != actual.Addr[0])
+		return nil == actual || 0 == actual.Port ||
+			(0 == actual.Addr[15] && 0 == actual.Addr[14] &&
+				0 == actual.Addr[13] && 0 == actual.Addr[12] &&
+				0 == actual.Addr[11] && 0 == actual.Addr[10] &&
+				0 == actual.Addr[9] && 0 == actual.Addr[8] &&
+				0 == actual.Addr[7] && 0 == actual.Addr[6] &&
+				0 == actual.Addr[5] && 0 == actual.Addr[4] &&
+				0 == actual.Addr[3] && 0 == actual.Addr[2] &&
+				0 == actual.Addr[1] && 0 == actual.Addr[0])
 	}
-	return false
+	return true
 }
 
 func (this *Address) FromSockaddr(sa syscall.Sockaddr) {
