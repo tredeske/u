@@ -252,7 +252,7 @@ func (this *Socket) GetOptInt(layer, key int, value *int) *Socket {
 	if good {
 		v, err := syscall.GetsockoptInt(fd, layer, key)
 		if err != nil {
-			this.Error = uerr.Chainf(err, "syscall.Getsockopt")
+			this.Error = uerr.Chainf(err, "syscall.Getsockopt errno=%x", err)
 		} else {
 			*value = v
 		}
@@ -266,7 +266,7 @@ func (this *Socket) SetOptInt(layer, key, value int, unless ...bool) *Socket {
 	if good && this.canDo(unless) {
 		err := syscall.SetsockoptInt(fd, layer, key, value)
 		if err != nil {
-			this.Error = uerr.Chainf(err, "syscall.Setsockopt")
+			this.Error = uerr.Chainf(err, "syscall.Setsockopt errno=%x", err)
 		}
 		this.closeIfError()
 	}

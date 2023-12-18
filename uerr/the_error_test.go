@@ -3,6 +3,7 @@ package uerr
 import (
 	"errors"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -47,6 +48,14 @@ func TestError(t *testing.T) {
 	if !matches {
 		t.Fatal("no match!")
 	}
+
+	err = syscall.ENOTCONN
+	err = Chainf(err, "chain from syscall.Errno %x", err)
+	err = Chainf(err, "and another layer")
+	if !errors.Is(err, syscall.ENOTCONN) {
+		t.Fatalf("did not detect syscall error")
+	}
+
 }
 
 func TestCode(t *testing.T) {

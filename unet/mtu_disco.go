@@ -201,11 +201,19 @@ func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
 		sock = this.sock
 	}
 	err = sock.GetOptMtu(&cached).Error
-	if nil == err && 0 < cached && 65535 >= cached {
+	if err != nil {
+		//ulog.Printf("get opt mtu: %s %#v", err, err)
+		if errors.Is(err, syscall.ENOTCONN) {
+			err = nil
+		}
+		return
+	}
+	if 0 < cached && 65535 >= cached {
+		this.addSize(uint32(cached))
 		this.CachedPmtu = uint16(cached)
 		pmtu = uint16(cached)
 		if 0 != len(this.Name) {
-			ulog.Printf("%s: MTU Probe detected cached PMTU %d", this.Name, pmtu)
+			ulog.Printf("%s: MTU Probe: detected cached PMTU %d", this.Name, pmtu)
 		}
 	}
 	return
@@ -225,16 +233,23 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 		this.ProbeInterval = 120 * time.Millisecond
 	}
 
-	defer func() {
-		this.sizes = nil
-		this.Close()
-	}()
-
 	err = this.ensureDefaults()
 	if err != nil {
 		return
 	}
 	this.Overhead = uint16(this.sock.IpOverhead() + UDP_OVERHEAD)
+	lowest := uint32(this.MtuMin)
+	highest := uint32(this.MtuMax)
+	var hiRx uint32
+
+	defer func() {
+		this.sizes = nil
+		if nil == err {
+			this.Pmtu = pmtu
+			ulog.Printf("%s: MTU Probe: done.  pmtu=%d, highest=%d, lowest=%d, hiRx=%d", this.Name, pmtu, highest, lowest, hiRx)
+		}
+		this.Close()
+	}()
 
 	//
 	// pre check kernel PMTU cache
@@ -280,14 +295,8 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	}
 
 	recvBuff := make([]byte, len(space))
-	lowest := uint32(this.MtuMin)
-	highest := uint32(this.MtuMax)
-	var hiRx uint32
 	gotHiRx := false
 	addSizes := true
-	if 0 != this.CachedPmtu { // use as size hint
-		this.addSize(uint32(this.CachedPmtu))
-	}
 
 	poller := Poller{}
 	err = poller.Open()
@@ -308,21 +317,28 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
 			if 0 != len(this.Name) && 0 < nread {
-				ulog.Printf("%s: MTU Probe recv %d (mtu %d)", this.Name, nread,
+				ulog.Printf("%s: MTU Probe: recv %d (mtu %d)", this.Name, nread,
 					nread+int(this.Overhead))
 			}
 			if err != nil {
 				if errors.Is(err, syscall.EMSGSIZE) { // got ICMP back with MTU
+					if 0 != len(this.Name) {
+						ulog.Printf("%s: MTU Probe: recv got EMSGSIZE", this.Name)
+					}
 					var cached uint16
 					cached, err = this.getCachedPmtu()
 					if err != nil {
 						return false, err
 					} else if 0 == cached {
-						return true, nil
+						return false, nil // stop polling this round
 					}
 					err = nil
 					highest = uint32(cached)
-					nread = int(cached)
+					if highest >= hiRx {
+						hiRx = highest
+						gotHiRx = true
+					}
+					return false, nil // stop polling this round
 				} else {
 					return false, err
 				}
@@ -331,7 +347,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				fromAddr.FromSockaddr(from)
 				if this.farAddr != fromAddr {
 					if 0 != len(this.Name) {
-						ulog.Printf("%s: MTU Probe got stray pkt from %s",
+						ulog.Printf("%s: MTU Probe: got stray pkt from %s",
 							this.Name, fromAddr.String())
 					}
 					return true, nil
@@ -342,16 +358,14 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			if sz > highest {
 				highest = sz
 			}
-			if sz > hiRx {
+			if sz >= hiRx {
 				hiRx = sz
-				gotHiRx = true
-			} else if sz == hiRx {
 				gotHiRx = true
 			}
 			if sz > lowest {
 				lowest = sz
 				if lowest == highest { // converged
-					return false, nil // stop search
+					return false, nil // stop polling this round
 				}
 			}
 			if nil != this.AfterRecv {
@@ -394,9 +408,12 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				ulog.Printf("%s: MTU Probe: sending %d (mtu %d)",
 					this.Name, pktSz, sz)
 			}
-			err = this.sock.Send(pkt, 0)
+			err = this.sock.SendTo(pkt, 0, nil)
 			if err != nil {
 				if errors.Is(err, syscall.EMSGSIZE) { // got ICMP back with MTU
+					if 0 != len(this.Name) {
+						ulog.Printf("%s: MTU Probe: send got EMSGSIZE", this.Name)
+					}
 					var cachedPmtu uint16
 					cachedPmtu, err = this.getCachedPmtu()
 					if err != nil {
@@ -405,7 +422,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 						highest = uint32(cachedPmtu)
 						if lowest == highest {
 							pmtu = cachedPmtu
-							return //////////////// done
+							return //////////////////////// done
 						}
 					}
 					addSizes = true
@@ -456,7 +473,6 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				return
 			} else if 0 != cached {
 				highest = uint32(cached)
-				this.addSize(highest)
 			}
 		}
 	}
