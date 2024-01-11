@@ -210,11 +210,11 @@ func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
 	}
 	if 0 < cached && 65535 >= cached {
 		this.addSize(uint32(cached))
-		this.CachedPmtu = uint16(cached)
 		pmtu = uint16(cached)
-		if 0 != len(this.Name) {
+		if 0 != len(this.Name) && this.CachedPmtu != pmtu {
 			ulog.Printf("%s: MTU Probe: detected cached PMTU %d", this.Name, pmtu)
 		}
+		this.CachedPmtu = pmtu
 	}
 	return
 }
@@ -240,7 +240,8 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	this.Overhead = uint16(this.sock.IpOverhead() + UDP_OVERHEAD)
 	lowest := uint32(this.MtuMin)
 	highest := uint32(this.MtuMax)
-	var hiRx uint32
+	var lastLow, lastHi, responses, hiRx uint32
+	var probeBackoff time.Duration
 
 	defer func() {
 		this.sizes = nil
@@ -353,6 +354,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 					return true, nil
 				}
 			}
+			responses++
 			addSizes = true
 			sz := uint32(nread) + uint32(this.Overhead)
 			if sz > highest {
@@ -388,6 +390,9 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			ulog.Printf("%s: MTU Probe: lowest = %d, highest = %d",
 				this.Name, lowest, highest)
 		}
+		logSend := lowest != lastLow || highest != lastHi
+		lastLow = lowest
+		lastHi = highest
 		if addSizes {
 			this.addSizes(lowest, highest)
 			addSizes = false
@@ -404,7 +409,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				err = errors.New("BeforeSend must create correct sized packet")
 				return
 			}
-			if 0 != len(this.Name) {
+			if 0 != len(this.Name) && logSend {
 				ulog.Printf("%s: MTU Probe: sending %d (mtu %d)",
 					this.Name, pktSz, sz)
 			}
@@ -446,7 +451,15 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 		//
 		gotHiRx = false
 		preHiRx := hiRx
-		_, err = poller.PollFor(this.ProbeInterval)
+		if 0 == responses {
+			if 60*time.Second > probeBackoff {
+				probeBackoff += this.ProbeInterval
+			}
+		} else {
+			probeBackoff = 0
+			responses = 0
+		}
+		_, err = poller.PollFor(this.ProbeInterval + probeBackoff)
 		if err != nil {
 			err = uerr.Chainf(err, "by receiver")
 			return
