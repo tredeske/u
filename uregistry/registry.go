@@ -1,4 +1,3 @@
-//
 // Package uregistry is a simple lookup service that allows objects to be
 // registered and later looked up.
 //
@@ -6,18 +5,17 @@
 //
 // It is particularly helpful to break up cyclic dependencies.
 //
-//     value := "a string"
-//     var thing *Thing = ...
-//     registry.Put( "name", value)
-//     registry.Put( "thing", thing)
+//	value := "a string"
+//	var thing *Thing = ...
+//	registry.Put( "name", value)
+//	registry.Put( "thing", thing)
 //
-//     var rv string
-//     var aThing *Thing
-//     err := registry.Get( "name", &rv )
-//     err := registry.Get( "thing", &aThing )
-//     err := registry.GetValid( "thing", &aThing )
-//     registry.MustGet( "thing", &aThing )
-//
+//	var rv string
+//	var aThing *Thing
+//	err := registry.Get( "name", &rv )
+//	err := registry.Get( "thing", &aThing )
+//	err := registry.GetValid( "thing", &aThing )
+//	registry.MustGet( "thing", &aThing )
 package uregistry
 
 import (
@@ -29,21 +27,17 @@ import (
 
 var (
 	lock_ sync.RWMutex
-	map_  = make(map[string]interface{})
+	map_  = make(map[string]any)
 )
 
-//
 // some unit test situations require this between tests.
-//
 func TestClearAll() {
 	lock_.Lock()
-	map_ = make(map[string]interface{})
+	map_ = make(map[string]any)
 	lock_.Unlock()
 }
 
-//
 // does the specified value exist in the registry?
-//
 func Exists(key string) (exists bool) {
 	lock_.RLock()
 	_, exists = map_[key]
@@ -51,15 +45,13 @@ func Exists(key string) (exists bool) {
 	return
 }
 
-//
 // Same as GetValid(), but panic instead of returning an error
 //
 // rv is the address of a variable you want to set to the result
 //
-//     var thing *Thing
-//     uregistry.MustGet("thing", &thing)
-//
-func MustGet(key string, rv interface{}) {
+//	var thing *Thing
+//	uregistry.MustGet("thing", &thing)
+func MustGet(key string, rv any) {
 	err := GetValid(key, rv)
 	if err != nil {
 		panic(err)
@@ -67,39 +59,33 @@ func MustGet(key string, rv interface{}) {
 	return
 }
 
-//
 // Get item matching key, setting rv to item if found
 //
 // rv is the address of a variable you want to set to the result
 //
-//     var thing *Thing
-//     err = uregistry.Get("thing", &thing)
-//
-func Get(key string, rv interface{}) (err error) {
+//	var thing *Thing
+//	err = uregistry.Get("thing", &thing)
+func Get(key string, rv any) (err error) {
 	_, err = GetOk(key, rv)
 	return
 }
 
-//
 // Simplest/fastest get.  Its on you to convert received thing.
-//
-func GetIt(key string) (rv interface{}) {
+func GetIt(key string) (rv any) {
 	lock_.RLock()
 	rv = map_[key]
 	lock_.RUnlock()
 	return
 }
 
-//
 // Same as Get(), but also returns whether value was found or not
 //
 // rv is the address of a variable you want to set to the result
 //
-//     var thing *Thing
-//     ok, err = uregistry.GetOk("thing", &thing)
-//
-func GetOk(key string, rv interface{}) (found bool, err error) {
-	var it interface{}
+//	var thing *Thing
+//	ok, err = uregistry.GetOk("thing", &thing)
+func GetOk(key string, rv any) (found bool, err error) {
+	var it any
 	lock_.RLock()
 	it, found = map_[key]
 	lock_.RUnlock()
@@ -109,15 +95,13 @@ func GetOk(key string, rv interface{}) (found bool, err error) {
 	return
 }
 
-//
 // Same as Get(), but fails if not found
 //
 // rv is the address of a variable you want to set to the result
 //
-//     var thing *Thing
-//     err = uregistry.GetValid("thing", &thing)
-//
-func GetValid(key string, rv interface{}) (err error) {
+//	var thing *Thing
+//	err = uregistry.GetValid("thing", &thing)
+func GetValid(key string, rv any) (err error) {
 	found := false
 	found, err = GetOk(key, rv)
 	if nil == err && !found {
@@ -126,22 +110,18 @@ func GetValid(key string, rv interface{}) (err error) {
 	return
 }
 
-//
 // put value into registry, overwriting any existing entry
 //
-//    var thing *Thing
-//    uregistry.Put("thing", thing)
-//
-func Put(key string, value interface{}) {
+//	var thing *Thing
+//	uregistry.Put("thing", thing)
+func Put(key string, value any) {
 	lock_.Lock()
 	map_[key] = value
 	lock_.Unlock()
 }
 
-//
 // put value into registry unless there is already a value there.
-//
-func PutSingletonOk(key string, value interface{}) (ok bool) {
+func PutSingletonOk(key string, value any) (ok bool) {
 	lock_.Lock()
 	_, found := map_[key]
 	if !found {
@@ -152,10 +132,8 @@ func PutSingletonOk(key string, value interface{}) (ok bool) {
 	return
 }
 
-//
 // put value into registry unless there is already a value there.
-//
-func PutSingleton(key string, value interface{}) (err error) {
+func PutSingleton(key string, value any) (err error) {
 	ok := PutSingletonOk(key, value)
 	if !ok {
 		err = fmt.Errorf("Registry already contains '%s'", key)
@@ -163,22 +141,18 @@ func PutSingleton(key string, value interface{}) (err error) {
 	return
 }
 
-//
 // put value into registry unless there is already a value there.
 // panic if unable
-//
-func MustPutSingleton(key string, value interface{}) {
+func MustPutSingleton(key string, value any) {
 	err := PutSingleton(key, value)
 	if err != nil {
 		panic(err)
 	}
 }
 
-//
 // remove something from the registry
 // if rv specified, set rv to what was there (if anything)
-//
-func Remove(key string, rv ...interface{}) (err error) {
+func Remove(key string, rv ...any) (err error) {
 	lock_.Lock()
 	it, ok := map_[key]
 	if ok {
