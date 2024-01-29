@@ -61,7 +61,7 @@ func InitEnv() (err error) {
 	for _, ip := range ips {
 		names, errLookup := unet.ResolveNames(ip, 100*time.Millisecond)
 		if errLookup != nil {
-			log.Printf("WARN: unable to lookup %s."+
+			log.Printf("NOTE: unable to lookup %s."+
 				"  Consider adding it to /etc/hosts.  Err: %s", ip, errLookup)
 		}
 		LocalAddrs[ip.String()] = true
