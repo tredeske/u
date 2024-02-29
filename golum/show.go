@@ -21,21 +21,21 @@ The YAML config file structure has 2 main sections.  The properties provides
 key/value pairs that can be substituted throughout the rest of the config.
 
 properties:
-  key:      value			 # associate key to value
-  key2:     7				 # associate key2 to numeric value
+  key:      value            # associate key to value
+  key2:     7                # associate key2 to numeric value
   key3:     "${ENV_VAR}"     # pull in an environment variable
   key4:     "foo-{{.key2}}"  # use value of key2 as part of this value
 
-components:					 # a list of components to enable
+components:                  # a list of components to enable
 - name:     NAME             # unique name of component
   type:     TYPE             # component type (see below)
   disabled: false            # (opt) is component disabled?
   timeout:  2s               # (opt) how long to wait for component to start
   hosts:    []               # (opt) hosts this component is valid for
   note:     words about this # (opt) a note
-  config: 					 # configuration for this component (see below)
+  config:                    # configuration for this component (see below)
     foo:    bar              # a simple config setting
-	blah:   "{{.key}}"       # substitution from properties
+    blah:   "{{.key}}"       # substitution from properties
     ...
 - name:     NAME2            # 2nd component
     ...
