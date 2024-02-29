@@ -69,7 +69,7 @@ array:
 - include_:     array_include.yml
 - Z:            Z_VAL
 noEscapeCheck:  "{{.noEscape}}"
-strings:        ["one", 2, "three"]
+strings:        ["one", 2, "three", "{{.one}}"]
 ints:           [1, 5, 7]
 csvRange:       "1, 5-7,9"
 int:            1
@@ -208,10 +208,12 @@ int:            1
 	err = config.GetStrings("strings", &strings)
 	if err != nil {
 		t.Fatal(err)
-	} else if 3 != len(strings) {
+	} else if 4 != len(strings) {
 		t.Fatalf("strings: 3 != len(%v)", strings)
 	} else if "2" != strings[1] {
 		t.Fatalf("strings: '2' != '%s'", strings[1])
+	} else if "oneVal" != strings[3] {
+		t.Fatalf("strings: 'oneVal' != '%s'", strings[3])
 	}
 
 	//

@@ -963,20 +963,70 @@ func (this *Section) validInt(
 	return
 }
 
-// if found, update result with integral value
+// if found, update result with bit rate
 //
-// result must be the address of some sort of signed int
+// SI suffixes such as K, M, G are supported, but Ki, Mi, etc are not.
+//
+// result must be the address of some sort of signed int.
 //
 // zero or more validators may be supplied.  they take the converted
 // value as an int64.  this func will perform basic range checking
 // based on the size of the int after validators are run
 //
 // handles strings with 0x (hex) or 0 (octal) prefixes
-// handles strings with SI suffixes (G, M, K, Gi, Mi, Ki, ...)
+func (this *Section) GetBitRate(
+	key string,
+	result any,
+	validators ...IntValidator,
+) (err error) {
+	return this.getInt(key, result, mkRate_, validators)
+}
+
+// if found, update result with byte size.
+//
+// SI suffixes such as K, M, G will be interpreted the same as Ki, Mi, Gi.
+//
+// result must be the address of some sort of signed int.
+//
+// zero or more validators may be supplied.  they take the converted
+// value as an int64.  this func will perform basic range checking
+// based on the size of the int after validators are run
+//
+// handles strings with 0x (hex) or 0 (octal) prefixes
+func (this *Section) GetByteSize(
+	key string,
+	result any,
+	validators ...IntValidator,
+) (err error) {
+	return this.getInt(key, result, mkSize_, validators)
+}
+
+// if found, update result with integral value.
+//
+// result must be the address of some sort of signed int.
+//
+// SI suffixes of K, M, G, T are base 1000 multipliers.
+//
+// SI suffixes of Ki, Mi, Gi, Ti are base 1024 multipliers.
+//
+// zero or more validators may be supplied.  they take the converted
+// value as an int64.  this func will perform basic range checking
+// based on the size of the int after validators are run
+//
+// handles strings with 0x (hex) or 0 (octal) prefixes
 func (this *Section) GetInt(
 	key string,
 	result any,
 	validators ...IntValidator,
+) (err error) {
+	return this.getInt(key, result, mkAny_, validators)
+}
+
+func (this *Section) getInt(
+	key string,
+	result any,
+	kind multKind_,
+	validators []IntValidator,
 ) (err error) {
 
 	this.track(key)
@@ -998,14 +1048,14 @@ func (this *Section) GetInt(
 		}
 		return // leave val unset (default val)
 	}
-	return this.asInt(key, it, result, validators)
-
+	return this.asInt(key, it, result, kind, validators)
 }
 
 func (this *Section) asInt(
 	key string,
 	it any,
 	result any,
+	kind multKind_,
 	validators []IntValidator,
 ) (err error) {
 
@@ -1018,7 +1068,7 @@ func (this *Section) asInt(
 	case float64:
 		val = int64(typed)
 	case string:
-		val, err = Int64FromSiString(this.expander.expand(typed))
+		val, err = int64FromSiString(this.expander.expand(typed), kind)
 		if err != nil {
 			err = uerr.Chainf(err, this.ctx(key))
 			return
@@ -1262,7 +1312,7 @@ func (this *Section) toInts(
 	case []any:
 		rv = make([]int, len(raw))
 		for i, v := range raw {
-			err = this.asInt(key, v, &rv[i], validators)
+			err = this.asInt(key, v, &rv[i], mkAny_, validators)
 			if err != nil {
 				rv = nil
 				return
@@ -1282,7 +1332,7 @@ func (this *Section) toInts(
 			m := rangeExpr.FindStringSubmatch(strings.TrimSpace(s))
 			if nil == m { // a single value
 				var result int
-				err = this.asInt(key, s, &result, validators)
+				err = this.asInt(key, s, &result, mkAny_, validators)
 				if err != nil {
 					rv = nil
 					return
@@ -1291,12 +1341,12 @@ func (this *Section) toInts(
 
 			} else { // a range
 				var start, end int
-				err = this.asInt(key, m[1], &start, validators)
+				err = this.asInt(key, m[1], &start, mkAny_, validators)
 				if err != nil {
 					rv = nil
 					return
 				}
-				err = this.asInt(key, m[2], &end, validators)
+				err = this.asInt(key, m[2], &end, mkAny_, validators)
 				if err != nil {
 					rv = nil
 					return
@@ -1318,7 +1368,7 @@ func (this *Section) toInts(
 		}
 	default: // a single value
 		rv = make([]int, 1)
-		err = this.asInt(key, it, &rv[0], validators)
+		err = this.asInt(key, it, &rv[0], mkAny_, validators)
 		if err != nil {
 			rv = nil
 			return

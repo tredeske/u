@@ -209,6 +209,30 @@ func (this *Chain) GetFloat64(
 	return this
 }
 
+func (this *Chain) GetBitRate(
+	key string,
+	result any,
+	validators ...IntValidator,
+) *Chain {
+
+	if nil == this.Error {
+		this.Error = this.Section.GetBitRate(key, result, validators...)
+	}
+	return this
+}
+
+func (this *Chain) GetByteSize(
+	key string,
+	result any,
+	validators ...IntValidator,
+) *Chain {
+
+	if nil == this.Error {
+		this.Error = this.Section.GetByteSize(key, result, validators...)
+	}
+	return this
+}
+
 func (this *Chain) GetInt(
 	key string,
 	result any,

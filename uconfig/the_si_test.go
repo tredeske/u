@@ -20,12 +20,42 @@ func TestSI(t *testing.T) {
 		t.Fatalf("value is %d, should be 1000", sv)
 	}
 
+	s = "1k"
+	sv, err = Int64FromBitRateString(s)
+	if err != nil {
+		t.Fatal(err)
+	} else if 1000 != sv {
+		t.Fatalf("value is %d, should be 1000", sv)
+	}
+
+	s = "1k"
+	sv, err = Int64FromByteSizeString(s)
+	if err != nil {
+		t.Fatal(err)
+	} else if 1024 != sv { // note
+		t.Fatalf("value is %d, should be 1024", sv)
+	}
+
 	s = "1ki"
 	sv, err = Int64FromSiString(s)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1024 != sv {
 		t.Fatalf("value is %d, should be 1024", sv)
+	}
+
+	s = "1ki"
+	sv, err = Int64FromByteSizeString(s)
+	if err != nil {
+		t.Fatal(err)
+	} else if 1024 != sv {
+		t.Fatalf("value is %d, should be 1024", sv)
+	}
+
+	s = "1ki"
+	sv, err = Int64FromBitRateString(s)
+	if nil == err {
+		t.Fatalf("Expected failure")
 	}
 
 	s = "1i"
