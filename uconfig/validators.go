@@ -89,7 +89,7 @@ const (
 // return a range validator for GetInt
 func FloatRange(min, max float64) FloatValidator {
 	if max < min {
-		panic("max cannot be less than min")
+		panic(fmt.Sprintf("max (%f) cannot be less than min (%f)", max, min))
 	}
 	return func(v float64) (err error) {
 		if v < min {
@@ -104,7 +104,7 @@ func FloatRange(min, max float64) FloatValidator {
 // return a range validator for GetInt
 func IntRange(min, max int64) IntValidator {
 	if max < min {
-		panic("max cannot be less than min")
+		panic(fmt.Sprintf("max (%d) cannot be less than min (%d)", max, min))
 	}
 	return func(v int64) (err error) {
 		if v < min {
@@ -119,7 +119,7 @@ func IntRange(min, max int64) IntValidator {
 // return a range validator for GetUInt
 func UIntRange(min, max uint64) UIntValidator {
 	if max < min {
-		panic("max cannot be less than min")
+		panic(fmt.Sprintf("max (%d) cannot be less than min (%d)", max, min))
 	}
 	return func(v uint64) (err error) {
 		if v < min {
