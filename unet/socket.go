@@ -442,6 +442,12 @@ func (this *Socket) IpOverhead() (rv int) {
 	return
 }
 
+// default to 'on'.  if specified, values are 0 (off), 1 (on) - any other value
+// is 'no change'
+func (this *Socket) SetOptKeepalive(tristate ...int) *Socket {
+	return this.SetOptTristate(syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, tristate)
+}
+
 // must be before bind
 //
 // default to 'on'.  if specified, values are 0 (off), 1 (on) - any other value
