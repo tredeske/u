@@ -206,6 +206,22 @@ retry:
 	return
 }
 
+// If the fd is open, eject it.  Preserve disabled state.  Clear the open bit.
+func (this *ManagedFd) Eject() (fd int, ok bool) {
+retry:
+	v := this.load()
+	if 0 != (v & openBit_) {
+		// try to clear the fd and open bit, but preserve the disable bit and refs
+		if this.cas(v, v&(disableBit_|refsMask_)) {
+			fd = int(v & fdMask_)
+			ok = true
+		} else {
+			goto retry
+		}
+	}
+	return
+}
+
 // disable the fd, returning true if this caused a shutdown
 //
 // this is commonly used when a goroutine may be blocking on an fd, and another
