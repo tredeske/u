@@ -49,6 +49,41 @@ func ResolveIps(hostOrIp string, timeout ...time.Duration) (rv []net.IP, err err
 	return
 }
 
+func ResolveAddrs(
+	hostOrIp string,
+	timeout ...time.Duration,
+) (
+	rv []Address,
+	err error,
+) {
+	ip := net.ParseIP(hostOrIp)
+	if nil != ip {
+		rv = make([]Address, 1)
+		rv[0].SetIp(ip)
+		return // success
+	}
+
+	til := 7 * time.Second
+	if 0 != len(timeout) {
+		til = timeout[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), til)
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostOrIp)
+	cancel()
+	if err != nil {
+		return
+	} else if 0 == len(ips) {
+		err = fmt.Errorf("No addresses found for host %s", hostOrIp)
+		return
+	}
+	rv = make([]Address, len(ips))
+	for i, ip := range ips {
+		rv[i].SetIp(ip)
+	}
+	return
+}
+
 func ResolveNames(ip net.IP, timeout ...time.Duration) (rv []string, err error) {
 	til := 7 * time.Second
 	if 0 != len(timeout) {
