@@ -452,7 +452,7 @@ func (this *Socket) SetOptKeepalive(tristate ...int) *Socket {
 // default to 'on'.  if specified, values are 0 (off), 1 (on) - any other value
 // is 'no change'
 func (this *Socket) SetOptNoDelay(tristate ...int) *Socket {
-	return this.SetOptTristate(syscall.SOL_SOCKET, syscall.TCP_NODELAY, tristate)
+	return this.SetOptTristate(syscall.IPPROTO_TCP, syscall.TCP_NODELAY, tristate)
 }
 
 // must be before bind
