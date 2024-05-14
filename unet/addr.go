@@ -3,6 +3,7 @@ package unet
 import (
 	"encoding/hex"
 	"net"
+	"net/netip"
 	"strconv"
 	"syscall"
 	"unsafe"
@@ -44,6 +45,14 @@ const (
 	ipv4Bits_ uint64 = 0xffff0000
 )
 
+func (this *Address) ClearIp() {
+	this.addr1 = 0
+	this.addr2 = 0
+	this.plus &= ^addrBit_
+}
+func (this *Address) ClearPort() {
+	this.plus &= ^(portBit_ | portMask_)
+}
 func (this *Address) Clear() {
 	this.addr1 = 0
 	this.addr2 = 0
@@ -105,6 +114,25 @@ func (this *Address) SetIpv6Zero() {
 	this.addr1 = 0
 	this.addr2 = 0
 	this.plus |= addrBit_
+}
+
+func (this *Address) IsLoopback() bool {
+	return this.IsIpSet() && this.AsIp().IsLoopback()
+}
+func (this *Address) IsGlobalUnicast() bool {
+	return this.IsIpSet() && this.AsIp().IsGlobalUnicast()
+}
+func (this *Address) IsPrivate() bool {
+	return this.IsIpSet() && this.AsIp().IsPrivate()
+}
+func (this *Address) IsAny() bool {
+	return this.IsIpSet() && this.AsIp().IsUnspecified()
+}
+func (this *Address) IsUnspecified() bool {
+	return this.IsIpSet() && this.AsIp().IsUnspecified()
+}
+func (this *Address) IsMulticast() bool {
+	return this.IsIpSet() && this.AsIp().IsMulticast()
 }
 
 func (this *Address) AsIp() (rv net.IP) {
@@ -205,6 +233,33 @@ func (this *Address) ResolveIp(hostOrIp string) (err error) {
 	return
 }
 
+// if s represents an IP address, set from that
+func (this *Address) SetIpFromString(s string) (ok bool) {
+	parsed, err := netip.ParseAddr(s)
+	if err != nil {
+		return false
+	}
+	this.SetIpFromNetIp(parsed)
+	return true
+}
+
+func (this *Address) SetIpFromNetIp(ip netip.Addr) {
+	this.plus |= addrBit_
+	if ip.Is4() {
+		slice := ip.As4()
+		this.addr1 = 0
+		this.addr2 = (0xffff << 16) |
+			(uint64(slice[3]) << 56) | (uint64(slice[2]) << 48) |
+			(uint64(slice[1]) << 40) | (uint64(slice[0]) << 32)
+	} else {
+		slice := ip.As16()
+		if len(slice) != 16 {
+			panic("ip must be either 4 or 16 in length!")
+		}
+		copy((*[16]byte)(unsafe.Pointer(this))[:16:16], slice[:])
+	}
+}
+
 func (this *Address) SetIp(ip net.IP) {
 	this.plus |= addrBit_
 	if 4 == len(ip) { // ipv4: store as ipv4-in-ipv6
@@ -216,8 +271,7 @@ func (this *Address) SetIp(ip net.IP) {
 		if len(ip) != 16 {
 			panic("ip must be either 4 or 16 in length!")
 		}
-		to := (*[16]byte)(unsafe.Pointer(this))[:16:16]
-		copy(to, ip)
+		copy((*[16]byte)(unsafe.Pointer(this))[:16:16], ip)
 	}
 }
 
