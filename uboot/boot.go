@@ -195,7 +195,7 @@ func (this *Boot) Boot() (err error) {
 			this.LogF = path.Join(this.InstallD, "log", this.Name+".log")
 		}
 		if 0 != len(logSzStr) {
-			this.LogSize, err = uconfig.Int64FromSiString(logSzStr)
+			err = uconfig.IntFromSiString(logSzStr, &this.LogSize)
 			if err != nil {
 				return
 			}

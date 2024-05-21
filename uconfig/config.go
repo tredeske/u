@@ -1068,7 +1068,7 @@ func (this *Section) asInt(
 	case float64:
 		val = int64(typed)
 	case string:
-		val, err = int64FromSiString(this.expander.expand(typed), kind)
+		err = intFromSiString(this.expander.expand(typed), &val, kind)
 		if err != nil {
 			err = uerr.Chainf(err, this.ctx(key))
 			return
@@ -1206,7 +1206,7 @@ func (this *Section) GetUInt(
 	case float64:
 		val = uint64(typed)
 	case string:
-		val, err = UInt64FromSiString(this.expander.expand(typed))
+		err = UIntFromSiString(this.expander.expand(typed), &val)
 		if err != nil {
 			err = uerr.Chainf(err, this.ctx(key))
 			return

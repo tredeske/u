@@ -5,6 +5,17 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unsafe"
+)
+
+type (
+	Int interface {
+		int | int64 | int32 | int16 | int8
+	}
+
+	UInt interface { // and also byte, but we can't list that
+		uint | uint64 | uint32 | uint16 | uint8 | uintptr
+	}
 )
 
 // convert a string to an int64, taking into account SI prefixes:
@@ -14,8 +25,8 @@ import (
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func Int64FromSiString(s string) (rv int64, err error) {
-	return int64FromSiString(s, mkAny_)
+func IntFromSiString[I Int](s string, rv *I) (err error) {
+	return intFromSiString(s, rv, mkAny_)
 }
 
 // convert a string to an int64 byte size, taking into account SI prefixes:
@@ -25,8 +36,8 @@ func Int64FromSiString(s string) (rv int64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func Int64FromByteSizeString(s string) (rv int64, err error) {
-	return int64FromSiString(s, mkSize_)
+func IntFromByteSizeString[I Int](s string, rv *I) (err error) {
+	return intFromSiString(s, rv, mkSize_)
 }
 
 // convert a string to an int64 bit rate, taking into account SI prefixes:
@@ -35,8 +46,8 @@ func Int64FromByteSizeString(s string) (rv int64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func Int64FromBitRateString(s string) (rv int64, err error) {
-	return int64FromSiString(s, mkRate_)
+func IntFromBitRateString[I Int](s string, rv *I) (err error) {
+	return intFromSiString(s, rv, mkRate_)
 }
 
 // convert a string to an int64, taking into account SI prefixes:
@@ -46,8 +57,11 @@ func Int64FromBitRateString(s string) (rv int64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func int64FromSiString(s string, kind multKind_) (rv int64, err error) {
+func intFromSiString[I Int](s string, rv *I, kind multKind_) (err error) {
 	var mult int64
+	bits := int(unsafe.Sizeof(rv) * 8)
+	hi := int64(1<<(bits-1) - 1)  // from math.MaxInt
+	lo := int64(-1 << (bits - 1)) // from math.MinInt
 	mult, s, err = multiplier(s, kind)
 	if err != nil {
 		return
@@ -58,14 +72,23 @@ func int64FromSiString(s string, kind multKind_) (rv int64, err error) {
 		if err != nil {
 			return
 		}
-		rv = int64(f * float64(mult))
-
-	} else {
-		rv, err = strconv.ParseInt(s, 0, 64)
-		if err != nil {
+		f *= float64(mult)
+		if f > float64(hi) || f < float64(lo) {
+			err = fmt.Errorf("%T cannot hold %s", *rv, s)
 			return
 		}
-		rv *= mult
+		*rv = I(f)
+
+	} else {
+		var i int64
+		i, err = strconv.ParseInt(s, 0, bits)
+		if err != nil {
+			return
+		} else if (i > 0 && hi/mult < i) || i < 0 && lo/mult > i {
+			err = fmt.Errorf("%T cannot hold %s", *rv, s)
+			return
+		}
+		*rv = I(i * mult)
 	}
 	return
 }
@@ -76,8 +99,8 @@ func int64FromSiString(s string, kind multKind_) (rv int64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func UInt64FromBitRateString(s string) (rv uint64, err error) {
-	return uint64FromSiString(s, mkRate_)
+func UIntFromBitRateString[U UInt](s string, rv *U) (err error) {
+	return uintFromSiString(s, rv, mkRate_)
 }
 
 // convert a string to an uint64 byte size, taking into account SI prefixes:
@@ -87,8 +110,8 @@ func UInt64FromBitRateString(s string) (rv uint64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func UInt64FromByteSizeString(s string) (rv uint64, err error) {
-	return uint64FromSiString(s, mkSize_)
+func UIntFromByteSizeString[U UInt](s string, rv *U) (err error) {
+	return uintFromSiString(s, rv, mkSize_)
 }
 
 // convert a string to an uint64, taking into account SI prefixes:
@@ -98,8 +121,8 @@ func UInt64FromByteSizeString(s string) (rv uint64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func UInt64FromSiString(s string) (rv uint64, err error) {
-	return uint64FromSiString(s, mkAny_)
+func UIntFromSiString[U UInt](s string, rv *U) (err error) {
+	return uintFromSiString(s, rv, mkAny_)
 }
 
 // convert a string to an uint64, taking into account SI prefixes:
@@ -109,10 +132,15 @@ func UInt64FromSiString(s string) (rv uint64, err error) {
 // also handled:
 // - if string begins with "0x", then it is hex
 // - if string begins with "0", then it is octal
-func uint64FromSiString(s string, kind multKind_) (rv uint64, err error) {
+func uintFromSiString[U UInt](s string, rv *U, kind multKind_) (err error) {
 	var mult int64
+	bits := int(unsafe.Sizeof(rv) * 8)
+	hi := uint64(1<<bits - 1)
 	mult, s, err = multiplier(s, kind)
 	if err != nil {
+		return
+	} else if s[0] == '-' {
+		err = fmt.Errorf("Cannot parse negative number to %T", *rv)
 		return
 	}
 	if strings.Contains(s, ".") {
@@ -120,15 +148,27 @@ func uint64FromSiString(s string, kind multKind_) (rv uint64, err error) {
 		f, err = strconv.ParseFloat(s, 64)
 		if err != nil {
 			return
-		}
-		rv = uint64(f * float64(mult))
-
-	} else {
-		rv, err = strconv.ParseUint(s, 0, 64)
-		if err != nil {
+		} else if 0. > f {
+			err = fmt.Errorf("Cannot parse negative number to %T", *rv)
 			return
 		}
-		rv *= uint64(mult)
+		f *= float64(mult)
+		if f > float64(hi) {
+			err = fmt.Errorf("%T cannot contain %s", *rv, s)
+			return
+		}
+		*rv = U(f)
+
+	} else {
+		var u uint64
+		u, err = strconv.ParseUint(s, 0, bits)
+		if err != nil {
+			return
+		} else if hi/uint64(mult) < u {
+			err = fmt.Errorf("%T cannot contain %s", *rv, s)
+			return
+		}
+		*rv = U(u * uint64(mult))
 	}
 	return
 }

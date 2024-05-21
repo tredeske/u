@@ -5,7 +5,8 @@ import "testing"
 func TestSI(t *testing.T) {
 	s := "1000"
 
-	sv, err := Int64FromSiString(s)
+	var sv int64
+	err := IntFromSiString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1000 != sv {
@@ -13,7 +14,7 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1k"
-	sv, err = Int64FromSiString(s)
+	err = IntFromSiString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1000 != sv {
@@ -21,7 +22,7 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1k"
-	sv, err = Int64FromBitRateString(s)
+	err = IntFromBitRateString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1000 != sv {
@@ -29,7 +30,7 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1k"
-	sv, err = Int64FromByteSizeString(s)
+	err = IntFromByteSizeString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1024 != sv { // note
@@ -37,7 +38,7 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1ki"
-	sv, err = Int64FromSiString(s)
+	err = IntFromSiString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1024 != sv {
@@ -45,7 +46,7 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1ki"
-	sv, err = Int64FromByteSizeString(s)
+	err = IntFromByteSizeString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1024 != sv {
@@ -53,19 +54,19 @@ func TestSI(t *testing.T) {
 	}
 
 	s = "1ki"
-	sv, err = Int64FromBitRateString(s)
+	err = IntFromBitRateString(s, &sv)
 	if nil == err {
 		t.Fatalf("Expected failure")
 	}
 
 	s = "1i"
-	_, err = Int64FromSiString(s)
+	err = IntFromSiString(s, &sv)
 	if nil == err {
 		t.Fatal("should have errored when converting '1i'")
 	}
 
 	s = "1.1k"
-	sv, err = Int64FromSiString(s)
+	err = IntFromSiString(s, &sv)
 	if err != nil {
 		t.Fatal(err)
 	} else if 1100 != sv {
