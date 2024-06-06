@@ -30,7 +30,9 @@ type Polled struct {
 	OnHup func(p *Polled) (ok bool, err error)
 
 	//
-	// if set, call when input is ready on socket
+	// if set, call when input is ready on socket during Poll().
+	//
+	// stop polling if !ok
 	//
 	OnInput func(p *Polled) (ok bool, err error)
 

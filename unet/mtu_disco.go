@@ -71,12 +71,13 @@ type MtuProber struct {
 	//
 	AfterRecv func(pkt []byte) (err error)
 
-	farAddr    Address  // where we're probing to
-	sizes      []uint32 // mtu sizes we're trying (sorted)
-	sock       *Socket  // the socket used for sending probes
-	checkSock  *Socket  // the socket used for checking kernel pmtu cache
-	closeSock  bool     // if we create the socket, we close it
-	closeCheck bool     // if we create the socket, we close it
+	farAddr    Address        // where we're probing to
+	sizes      []uint32       // mtu sizes we're trying (sorted)
+	hits       map[uint32]int // number of successful probes at each size
+	sock       *Socket        // the socket used for sending probes
+	checkSock  *Socket        // the socket used for checking kernel pmtu cache
+	closeSock  bool           // if we create the socket, we close it
+	closeCheck bool           // if we create the socket, we close it
 
 	//
 	// if set, set smallest probe size.  otherwise, smallest compliant will be used
@@ -194,6 +195,14 @@ func (this *MtuProber) Close() {
 
 // the kernel caches pmtu on a per destination basis as it gets icmp pkts back
 // saying dest unreach due to pkt too large
+//
+// we can get this value from the kernel with a socket that is connected to the
+// destination.
+//
+// the value returned may be:
+// - the mtu of the interface
+// - the cached mtu from mtu discovery
+// - a lie (if some device sent back an untruthful ICMP)
 func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
 	var cached int
 	sock := this.checkSock
@@ -222,6 +231,7 @@ func (this *MtuProber) getCachedPmtu() (pmtu uint16, err error) {
 // perform probing until PMTU is known
 func (this *MtuProber) Probe() (pmtu uint16, err error) {
 
+	verbose := 0 != len(this.Name)
 	this.CachedPmtu = 0
 	this.Pmtu = 0
 	this.Overhead = 0
@@ -229,6 +239,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	this.LatencyMin = 0
 	this.LatencyMax = 0
 	this.sizes = make([]uint32, 0, 128)
+	this.hits = make(map[uint32]int, 128)
 	if 20*time.Millisecond >= this.ProbeInterval {
 		this.ProbeInterval = 120 * time.Millisecond
 	}
@@ -245,7 +256,14 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 
 	defer func() {
 		this.sizes = nil
+		this.hits = nil
 		if nil == err {
+			if nil != this.checkSock {
+				cached, errCheck := this.getCachedPmtu()
+				if nil == errCheck {
+					pmtu = cached
+				}
+			}
 			this.Pmtu = pmtu
 			ulog.Printf("%s: MTU Probe: done.  pmtu=%d, highest=%d, lowest=%d, hiRx=%d", this.Name, pmtu, highest, lowest, hiRx)
 		}
@@ -313,41 +331,48 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			return false, io.EOF
 		},
 
-		// what to do when we get response datagram
+		//
+		// what to do when we get response datagram during Poll() (PollFor, ...)
+		//
+		// !ok means to break out of Poll()
+		//
 		OnInput: func(polled *Polled) (ok bool, err error) {
 
 			nread, from, err := this.sock.RecvFrom(recvBuff, syscall.MSG_DONTWAIT)
-			if 0 != len(this.Name) && 0 < nread {
+			if verbose && 0 < nread {
 				ulog.Printf("%s: MTU Probe: recv %d (mtu %d)", this.Name, nread,
 					nread+int(this.Overhead))
 			}
 			if err != nil {
-				if errors.Is(err, syscall.EMSGSIZE) { // got ICMP back with MTU
-					if 0 != len(this.Name) {
-						ulog.Printf("%s: MTU Probe: recv got EMSGSIZE", this.Name)
-					}
-					var cached uint16
-					cached, err = this.getCachedPmtu()
-					if err != nil {
-						return false, err
-					} else if 0 == cached {
-						return false, nil // stop polling this round
-					}
-					err = nil
-					highest = uint32(cached)
-					if highest >= hiRx {
-						hiRx = highest
-						gotHiRx = true
-					}
-					return false, nil // stop polling this round
-				} else {
+				if !errors.Is(err, syscall.EMSGSIZE) {
 					return false, err
 				}
+				//
+				// some device sent us back ICMP with MTU we should use.
+				//
+				// we can read this from the kernel with a connected socket,
+				// but we've learned from hard experience that the device
+				// sending the ICMP may be lying to us, so we ought to press
+				// on.
+				//
+				var cached uint16
+				cached, err = this.getCachedPmtu()
+				if err != nil {
+					return false, uerr.Chainf(err, "getting EMSGSIZE mtu")
+				}
+				if verbose {
+					ulog.Printf("%s: MTU Probe: recv got EMSGSIZE %d",
+						this.Name, cached)
+				}
+				responses++
+				addSizes = true
+				return true, nil
+
 			} else {
 				var fromAddr Address
 				fromAddr.FromSockaddr(from)
 				if this.farAddr != fromAddr {
-					if 0 != len(this.Name) {
+					if verbose {
 						ulog.Printf("%s: MTU Probe: got stray pkt from %s",
 							this.Name, fromAddr.String())
 					}
@@ -360,6 +385,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 			if sz > highest {
 				highest = sz
 			}
+			this.hits[sz] = this.hits[sz] + 1
 			if sz >= hiRx {
 				hiRx = sz
 				gotHiRx = true
@@ -386,7 +412,7 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 	var times int
 	var pkt []byte
 	for lowest != highest {
-		if 0 != len(this.Name) {
+		if verbose {
 			ulog.Printf("%s: MTU Probe: lowest = %d, highest = %d",
 				this.Name, lowest, highest)
 		}
@@ -409,40 +435,57 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				err = errors.New("BeforeSend must create correct sized packet")
 				return
 			}
-			if 0 != len(this.Name) && logSend {
+			if verbose && logSend {
 				ulog.Printf("%s: MTU Probe: sending %d (mtu %d)",
 					this.Name, pktSz, sz)
 			}
 			err = this.sock.SendTo(pkt, 0, nil)
 			if err != nil {
-				if errors.Is(err, syscall.EMSGSIZE) { // got ICMP back with MTU
-					if 0 != len(this.Name) {
-						ulog.Printf("%s: MTU Probe: send got EMSGSIZE", this.Name)
-					}
-					var cachedPmtu uint16
-					cachedPmtu, err = this.getCachedPmtu()
-					if err != nil {
-						return
-					} else if 0 < cachedPmtu {
-						highest = uint32(cachedPmtu)
-						if lowest == highest {
-							pmtu = cachedPmtu
-							return //////////////////////// done
-						}
-					}
-					addSizes = true
-					break
-
+				if errors.Is(err, syscall.ECONNREFUSED) {
 					//
 					// ignore temporary condition where peer not up yet
 					//
-				} else if errors.Is(err, syscall.ECONNREFUSED) {
 					err = nil
 					runtime.Gosched()
 					break
+				} else if !errors.Is(err, syscall.EMSGSIZE) {
+					err = uerr.Chainf(err, "sending %d pkt", pktSz)
+					return
 				}
-				err = uerr.Chainf(err, "sending %d pkt", pktSz)
-				return
+				//
+				// EMSGSIZE
+				//
+				// before we sent, an ICMP came back from a device saying a
+				// previous pkt was too big, and the kernel cached the
+				// value provided in the ICMP as the PMTU.
+				//
+				// we are sending with MtuDiscoProbe, so kernel should ignore
+				// any cached PMTU, but we may be hitting the interface MTU.
+				//
+				// we can read the cached PMTU from the kernel with a connected
+				// socket, but the device may have lied to us, so we should
+				// positively validate this with actual pkts.
+				//
+				// in any case, the pkt we just sent is too big, so take it off
+				// the list.
+				//
+				var cachedPmtu uint16
+				cachedPmtu, err = this.getCachedPmtu()
+				if err != nil {
+					return
+				}
+				if verbose {
+					ulog.Printf(
+						"%s: MTU Probe: send %d (mtu %d) got EMSGSIZE %d",
+						this.Name, pktSz, sz, cachedPmtu)
+				}
+				highest = sz - 1
+				if lowest >= highest {
+					pmtu = cachedPmtu
+					return //////////////////////// done
+				}
+				addSizes = true
+				break
 			}
 		}
 
@@ -473,19 +516,6 @@ func (this *MtuProber) Probe() (pmtu uint16, err error) {
 				}
 			} else {
 				times = 0
-			}
-		}
-
-		//
-		// if we have separate check sock, check it periodically
-		//
-		if nil != this.checkSock {
-			var cached uint16
-			cached, err = this.getCachedPmtu()
-			if err != nil {
-				return
-			} else if 0 != cached {
-				highest = uint32(cached)
 			}
 		}
 	}
@@ -554,6 +584,14 @@ func (this *MtuProber) addSizes(lowest, highest uint32) {
 	}
 
 	this.addSize(highest)
+	if 0 != this.hits[lowest] {
+		//
+		// we already successfully got a response with lowest, so we should try
+		// one higher - this really cuts down on probing since lowest of last
+		// round is likely to be the highest possible
+		//
+		this.addSize(lowest + 1)
+	}
 
 	idx := slices.Index(this.sizes, lowest)
 	if -1 != idx && len(this.sizes) > idx+1 {
