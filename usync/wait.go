@@ -7,10 +7,8 @@ import (
 
 var ErrTimeout = errors.New("Operation timed out")
 
-//
 // invoke done until it returns true or error, or the timeout occurs.
 // return error if done errors or timeout occurs
-//
 func Await(timeout, interval time.Duration, done func() (bool, error)) error {
 
 	var deadline time.Time
@@ -27,10 +25,8 @@ func Await(timeout, interval time.Duration, done func() (bool, error)) error {
 	return ErrTimeout
 }
 
-//
 // invoke done() until it returns true, or the timeout occurs.
 // return true iff done() returns true before timeout
-//
 func AwaitTrue(timeout, interval time.Duration, done func() bool) (rv bool) {
 
 	var deadline time.Time
@@ -38,11 +34,10 @@ func AwaitTrue(timeout, interval time.Duration, done func() bool) (rv bool) {
 	for {
 		rv = done()
 		if rv || !deadline.After(time.Now()) {
-			break
+			return
 		}
 		time.Sleep(interval)
 	}
-	return
 }
 
 func setDeadline(timeout, i time.Duration,

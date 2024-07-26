@@ -928,6 +928,33 @@ func (this *Socket) RecvMsg(
 	return
 }
 
+// same as recvmsg, but also gets the address that pkt was received on via cmsg
+//
+// SetOptRecvPktInfo must be set to on for the cmsg info to be there!
+func (this *Socket) RecvMsgCmsgDest(
+	msghdr *syscall.Msghdr,
+	addr *Address,
+	flags int,
+) (
+	nread int, ok bool, err error,
+) {
+	cmsgB := [48]byte{} // 48 bytes appears to be minimum
+	msghdr.Control = &cmsgB[0]
+	msghdr.Controllen = uint64(len(cmsgB))
+
+	nread, err = this.RecvMsg(msghdr, flags)
+	if err != nil {
+		return
+	}
+	lens := CmsgLens{}
+	if !lens.First(msghdr) {
+		err = errors.New("No cmsghdr detected")
+		return
+	}
+	ok, err = addr.FromCmsgHdr(&lens)
+	return
+}
+
 // set a zero deadline to cancel deadline
 func (this *Socket) SetDeadline(t time.Time) error {
 	if this.goodToGo() {

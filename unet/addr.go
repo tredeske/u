@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"syscall"
 	"unsafe"
+
+	"github.com/tredeske/u/uerr"
 )
 
 const (
@@ -214,7 +216,11 @@ func (this Address) String() string {
 }
 
 func (this *Address) SetPort(port uint16) {
-	this.plus = (this.plus & (^portMask_)) | portBit_ | uint64(port)
+	if 0 == port {
+		this.ClearPort()
+	} else {
+		this.plus = (this.plus & (^portMask_)) | portBit_ | uint64(port)
+	}
 }
 
 func (this *Address) SetAddrFrom(that Address) {
@@ -289,17 +295,42 @@ func (this *Address) FromHostPort(hostOrIp string, port uint16) (err error) {
 	return
 }
 
-/*
-func (this *Address) FromCmsghdr(cmsgB []byte) (err error) {
-	space := [16]byte{}
-	ip, err := CmsghdrAsIp(cmsgB, net.IP(space[:]))
-	if err != nil {
-		return
+// If current cmsghdr is IP_PKTINFO, then populate ip, otherwise return false
+func (this *Address) FromCmsgHdr(cmsg *CmsgLens) (ok bool, err error) {
+	const errTooSmall = uerr.Const("cmsghdr buffer too small")
+	cmsgB := cmsg.Msg()
+	if cmsg.cmsgLevel == syscall.IPPROTO_IP { // IPv4
+
+		if cmsg.cmsgType != syscall.IP_PKTINFO {
+			return
+		} else if 12 > len(cmsgB) {
+			err = errTooSmall
+			return
+		}
+		// starts 8 bytes into in_pktinfo
+		this.addr1 = 0
+		this.addr2 = (0xffff << 16) |
+			(uint64(cmsgB[11]) << 56) | (uint64(cmsgB[10]) << 48) |
+			(uint64(cmsgB[9]) << 40) | (uint64(cmsgB[8]) << 32)
+		this.plus |= addrBit_
+		ok = true
+
+	} else if cmsg.cmsgLevel == syscall.IPPROTO_IPV6 {
+
+		if cmsg.cmsgType != syscall.IPV6_PKTINFO {
+			return
+		} else if 16 > len(cmsgB) {
+			err = errTooSmall
+			return
+		}
+		// it's just the 16 byte ipv6 address
+		to := (*[16]byte)(unsafe.Pointer(this))[:16:16]
+		copy(to, cmsgB[:16])
+		this.plus |= addrBit_
+		ok = true
 	}
-	this.SetIp(ip)
 	return
 }
-*/
 
 // see syscall.Msghdr (Name and Namelen fields)
 func (this *Address) FromNameBytes(name *byte, namelen uint32) {

@@ -331,7 +331,21 @@ func recvWithPktinfo(
 	} else if !ok {
 		err = errors.New("Didn't get a pktinfo cmsg")
 		return
-	} else if lens.Next() {
+	}
+
+	var addr Address
+	ok, err = addr.FromCmsgHdr(&lens)
+	if err != nil {
+		return
+	} else if !ok {
+		err = errors.New("Didn't get a pktinfo cmsg")
+		return
+	} else if !to.Equal(addr.AsIp()) {
+		err = fmt.Errorf("%s != %s", to, addr.AsIp())
+		return
+	}
+
+	if lens.Next() {
 		err = errors.New("Should not be a next cmsghdr")
 		return
 	}
