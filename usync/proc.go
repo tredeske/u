@@ -39,20 +39,26 @@ package usync
 //		return
 //	}
 type Proc struct {
-	ProcC chan func() error // queue of closures to invoke
+	ProcC chan ProcF // queue of closures to invoke
 }
 
+// a closure to invoke on a service.  any error returned is for the service to
+// handle
+type ProcF func() (svcError error)
+
 func NewProc(backlog int) *Proc {
-	return &Proc{ProcC: make(chan func() error, backlog)}
+	return &Proc{ProcC: make(chan ProcF, backlog)}
 }
 
 func (this *Proc) Construct(backlog int) {
-	this.ProcC = make(chan func() error, backlog)
+	this.ProcC = make(chan ProcF, backlog)
 }
 
-func (this *Proc) Async(closure func() (svcErr error)) { this.ProcC <- closure }
+// fire and forget call
+func (this *Proc) Async(closure ProcF) { this.ProcC <- closure }
 
-func (this *Proc) Call(closure func() (svcErr error)) (err error) {
+// wait for service to invoke
+func (this *Proc) Call(closure ProcF) (err error) {
 	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
 		defer func() { doneC <- struct{}{} }()
@@ -84,9 +90,9 @@ type ProcAny struct {
 
 func (this *ProcAny) Construct(c chan any) { this.ProcC = c }
 
-func (this *ProcAny) Async(closure func() (svcErr error)) { this.ProcC <- closure }
+func (this *ProcAny) Async(closure ProcF) { this.ProcC <- closure }
 
-func (this *ProcAny) Call(closure func() (svcErr error)) (err error) {
+func (this *ProcAny) Call(closure ProcF) (err error) {
 	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
 		defer func() { doneC <- struct{}{} }()
