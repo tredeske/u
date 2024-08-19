@@ -42,14 +42,11 @@ func (ps *procSvc_) AsyncAdd(amount int) {
 }
 
 func (ps *procSvc_) SyncAddGet(amount int) (rv int) {
-	err := ps.proc.Call(func() (callErr, svcErr error) {
+	ps.proc.Call(func() (svcErr error) {
 		ps.result += amount
 		rv = ps.result
-		return nil, nil
+		return nil
 	})
-	if err != nil {
-		panic("should not get an error!")
-	}
 	return
 }
 

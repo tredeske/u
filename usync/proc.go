@@ -9,13 +9,13 @@ package usync
 // operating within the service thread context.
 //
 // When a closure is invoked by the service, an error may be passed to the
-// service that there's a problem.
+// service that there's a problem.  This error is not passed to the caller
+// unless the caller capture the error in a different arror variable.
 //
-// Async calls do not return immediately to the caller, and only have a svcErr
-// return.
+// Async calls are fire and forget.  They will be executed in the future by the
+// service.
 //
-// Sync calls wait for the service to perform the invocation, and return a callErr
-// in addition to svcErr.  The callErr is passed to the caller.
+// Sync calls wait for the service to perform the invocation before returning.
 //
 //	type Svc struct {
 //		proc: usync.Proc
@@ -29,11 +29,12 @@ package usync
 //		})
 //	}
 //	func(svc *Svc) SyncSvcCall(arg string) (err error) {
-//		err = proc.Call(func() (callErr, svcErr error) {
+//		// this call will not return until service done invoking it
+//		proc.Call(func() (svcErr error) {
 //			// ... do something with arg in Svc context
 //			// ... do something with state in Svc context
-//			return callErr,  // tell caller invoke succeeded or failed
-//				svcErr       // tell service call succeeded or failed
+//			// ... set err if needed
+//			return svcErr       // tell service call succeeded or failed
 //		})
 //		return
 //	}
@@ -51,17 +52,14 @@ func (this *Proc) Construct(backlog int) {
 
 func (this *Proc) Async(closure func() (svcErr error)) { this.ProcC <- closure }
 
-func (this *Proc) Call(closure func() (callErr, svcErr error)) (err error) {
-	respC := make(chan error, 1)
+func (this *Proc) Call(closure func() (svcErr error)) (err error) {
+	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
-		var callErr, svcErr error
-		defer func() {
-			respC <- callErr
-		}()
-		callErr, svcErr = closure()
-		return svcErr
+		defer func() { doneC <- struct{}{} }()
+		return closure()
 	}
-	return <-respC
+	<-doneC
+	return
 }
 
 func (this *Proc) Close() { close(this.ProcC) }
@@ -88,15 +86,12 @@ func (this *ProcAny) Construct(c chan any) { this.ProcC = c }
 
 func (this *ProcAny) Async(closure func() (svcErr error)) { this.ProcC <- closure }
 
-func (this *ProcAny) Call(closure func() (callErr, svcErr error)) (err error) {
-	respC := make(chan error, 1)
+func (this *ProcAny) Call(closure func() (svcErr error)) (err error) {
+	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
-		var callErr, svcErr error
-		defer func() {
-			respC <- callErr
-		}()
-		callErr, svcErr = closure()
-		return svcErr
+		defer func() { doneC <- struct{}{} }()
+		return closure()
 	}
-	return <-respC
+	<-doneC
+	return
 }
