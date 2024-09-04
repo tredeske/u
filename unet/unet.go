@@ -29,14 +29,14 @@ func MMsghdrsAsString(hdrs []MMsghdr) string {
 	b := strings.Builder{}
 	b.Grow(256)
 	b.WriteString("[]MMsghdr{ len=")
-	b.Write(strconv.AppendInt(strBuff[:], int64(len(hdrs)), 10))
+	b.Write(strconv.AppendInt(strBuff[:0], int64(len(hdrs)), 10))
 	for i := range hdrs {
 		hdr := &hdrs[i]
 		b.WriteString("\n\t")
-		b.Write(strconv.AppendInt(strBuff[:], int64(i), 10))
+		b.Write(strconv.AppendInt(strBuff[:0], int64(i), 10))
 		b.WriteString(": iovlen=")
 		iovlen := int(hdr.Iovlen)
-		b.Write(strconv.AppendInt(strBuff[:], int64(iovlen), 10))
+		b.Write(strconv.AppendInt(strBuff[:0], int64(iovlen), 10))
 		b.WriteString(", name=")
 		b.WriteString(NameBytesAsString(hdr.Name, hdr.Namelen))
 		b.WriteString(" {")
@@ -47,10 +47,10 @@ func MMsghdrsAsString(hdrs []MMsghdr) string {
 				b.WriteString(", ")
 			}
 			bytes += int(iov.Len)
-			b.Write(strconv.AppendInt(strBuff[:], int64(iov.Len), 10))
+			b.Write(strconv.AppendInt(strBuff[:0], int64(iov.Len), 10))
 		}
 		b.WriteString("}, bytes=")
-		b.Write(strconv.AppendInt(strBuff[:], int64(bytes), 10))
+		b.Write(strconv.AppendInt(strBuff[:0], int64(bytes), 10))
 	}
 	b.WriteString("\n}")
 	return b.String()
