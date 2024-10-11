@@ -171,6 +171,8 @@ func SockaddrFamily(sa syscall.Sockaddr) (rv int, err error) {
 		rv = syscall.AF_INET
 	case *syscall.SockaddrInet6:
 		rv = syscall.AF_INET6
+	case *syscall.SockaddrUnix:
+		rv = syscall.AF_UNIX
 	default:
 		rv = -1
 		err = errors.New("Invalid/unknown sockaddr type")
@@ -192,7 +194,8 @@ func Htonl(v uint32) (rv uint32) {
 //
 // space is necessary to reserve space for the sockaddr type.  you must
 // ensure that space is allocated on the heap and is sized appropriately
-// (syscall.SizeofSockaddrInet6)
+// (syscall.SizeofSockaddrInet6),
+// or, if UNIX domain sockets: (syscall.SizeofSockaddrUnix),
 func RawSockaddrAsNameBytes(
 	sa syscall.Sockaddr,
 	//space *syscall.RawSockaddrAny,
@@ -238,6 +241,13 @@ func RawSockaddrAsNameBytes(
 
 		ulog.TODO("IPv6 Flowinfo and Scope_id")
 
+	case *syscall.SockaddrUnix:
+		rsa := (*syscall.RawSockaddrUnix)(unsafe.Pointer(&space[0]))
+		rsa.Family = syscall.AF_UNIX
+		for i, b := range actual.Name {
+			rsa.Path[i] = int8(b)
+		}
+
 	default:
 		name = nil
 		err = errors.New("Invalid/unknown sockaddr type (not ipv4 or ipv6)")
@@ -251,6 +261,8 @@ func SockaddrIP(sa syscall.Sockaddr) net.IP {
 		return net.IP(actual.Addr[:])
 	case *syscall.SockaddrInet6:
 		return net.IP(actual.Addr[:])
+	case *syscall.SockaddrUnix:
+		return net.IP{}
 	}
 	panic("should not happen - unknown sockaddr type")
 }
@@ -261,6 +273,8 @@ func SockaddrPort(sa syscall.Sockaddr) int {
 		return actual.Port
 	case *syscall.SockaddrInet6:
 		return actual.Port
+	case *syscall.SockaddrUnix:
+		return 0
 	}
 	panic("should not happen - unknown sockaddr type")
 }
@@ -271,6 +285,8 @@ func SockaddrHostPort(sa syscall.Sockaddr) string {
 		return fmt.Sprintf("%s:%d", net.IP(actual.Addr[:]), actual.Port)
 	case *syscall.SockaddrInet6:
 		return fmt.Sprintf("[%s]:%d", net.IP(actual.Addr[:]), actual.Port)
+	case *syscall.SockaddrUnix:
+		return "0.0.0.0:0"
 	}
 	panic("should not happen - unknown sockaddr type")
 }
@@ -285,6 +301,16 @@ func NameBytesAsString(name *byte, namelen uint32) (rv string) {
 	} else if syscall.SizeofSockaddrInet6 == namelen {
 		actual := (*syscall.RawSockaddrInet6)(unsafe.Pointer(name))
 		rv = fmt.Sprintf("[%s]:%d", net.IP(actual.Addr[:]), Htons(actual.Port))
+	} else if syscall.SizeofSockaddrUnix == namelen {
+		actual := (*syscall.RawSockaddrUnix)(unsafe.Pointer(name))
+		buf := make([]byte, 0, len(actual.Path))
+		for i := 0; i < len(actual.Path); i++ {
+			if 0 == actual.Path[i] {
+				break
+			}
+			buf = append(buf, byte(actual.Path[i]))
+		}
+		rv = string(buf)
 	} else {
 		const SZ = syscall.SizeofSockaddrAny
 		slice := (*[SZ]byte)(unsafe.Pointer(name))[:namelen:namelen]
@@ -312,6 +338,13 @@ func NameBytesAsIpAndPort(name *byte, namelen uint32, ip *net.IP) (port int) {
 		actual := (*syscall.RawSockaddrInet6)(unsafe.Pointer(name))
 		port = int(Htons(actual.Port))
 		*ip = actual.Addr[:]
+	} else if syscall.AF_UNIX == family {
+		//if syscall.SizeofSockaddrUnix > namelen {
+		//	panic("expecting sockaddr for UNIX, but it is too small")
+		//}
+		//actual := (*syscall.RawSockaddrUnix)(unsafe.Pointer(name))
+		port = 0
+		*ip = net.IP{}
 	} else {
 		slice := (*[1024]byte)(unsafe.Pointer(name))[0:namelen:namelen]
 		panic("should not happen - not ipv4 nor ipv6 addr: " + hex.Dump(slice))
@@ -320,7 +353,11 @@ func NameBytesAsIpAndPort(name *byte, namelen uint32, ip *net.IP) (port int) {
 }
 
 // Suitable for decoding Name and Namelen of syscall.Msghdr
-func NameBytesAsSockaddr(name *byte, namelen uint32) (rv syscall.Sockaddr, err error) {
+func NameBytesAsSockaddr(
+	name *byte, namelen uint32,
+) (
+	rv syscall.Sockaddr, err error,
+) {
 	if nil == name || 0 == namelen {
 		err = fmt.Errorf("nil sockaddr: %p, %d", name, namelen)
 	} else if syscall.SizeofSockaddrInet4 == namelen {
@@ -337,6 +374,16 @@ func NameBytesAsSockaddr(name *byte, namelen uint32) (rv syscall.Sockaddr, err e
 		}
 		copy(ip6.Addr[:], actual.Addr[:])
 		rv = &ip6
+	} else if syscall.SizeofSockaddrUnix == namelen {
+		actual := (*syscall.RawSockaddrUnix)(unsafe.Pointer(name))
+		buf := make([]byte, 0, len(actual.Path))
+		for i := 0; i < len(actual.Path); i++ {
+			if 0 == actual.Path[i] {
+				break
+			}
+			buf = append(buf, byte(actual.Path[i]))
+		}
+		rv = &syscall.SockaddrUnix{Name: string(buf)}
 	} else {
 		const SZ = syscall.SizeofSockaddrAny
 		slice := (*[SZ]byte)(unsafe.Pointer(name))[:namelen:namelen]

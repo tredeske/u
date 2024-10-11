@@ -65,6 +65,19 @@ type Socket struct {
 	deadliner *deadliner_
 }
 
+// create a pair of UNIX domain sockets
+func NewSocketPair() (rv [2]*Socket, err error) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return
+	}
+	one := &Socket{}
+	one.Fd.Set(fds[0])
+	two := &Socket{}
+	two.Fd.Set(fds[1])
+	return [2]*Socket{one, two}, nil
+}
+
 func NewSocket() *Socket { return &Socket{} }
 
 type SockOpt func(s *Socket) (err error)
@@ -116,6 +129,10 @@ func (this *Socket) ResolveFarAddr(host string, port int, unless ...bool) *Socke
 		this.closeIfError()
 	}
 	return this
+}
+
+func (this *Socket) SetNearUnix(path string, unless ...bool) *Socket {
+	return this.SetNearAddr(&syscall.SockaddrUnix{Name: path}, unless...)
 }
 
 func (this *Socket) SetNearIpPort(ip net.IP, port int, unless ...bool) *Socket {
@@ -172,6 +189,10 @@ func (this *Socket) Temp(mfd ManagedFd) *Socket {
 		this.Fd = mfd
 	}
 	return this
+}
+
+func (this *Socket) ConstructUnix() *Socket {
+	return this.Construct(syscall.SOCK_STREAM, 0)
 }
 
 func (this *Socket) ConstructTcp() *Socket {
