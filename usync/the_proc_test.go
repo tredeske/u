@@ -7,7 +7,7 @@ import (
 )
 
 func TestProc(t *testing.T) {
-	ps := newProcSvc()
+	ps := newProcSvc(5, time.Second)
 
 	fmt.Printf(`
 GIVEN: simple proc service running
@@ -23,13 +23,16 @@ GIVEN: simple proc service running
 }
 
 type procSvc_ struct { // a test service to add numbers
-	proc   Proc
-	result int
+	proc    Proc
+	result  int
+	timeout time.Duration
 }
 
-func newProcSvc() (rv *procSvc_) {
-	rv = &procSvc_{}
-	rv.proc.Construct(5)
+func newProcSvc(depth int, timeout time.Duration) (rv *procSvc_) {
+	rv = &procSvc_{
+		timeout: timeout,
+	}
+	rv.proc.Construct(depth)
 	go rv.run()
 	return
 }
@@ -50,8 +53,12 @@ func (ps *procSvc_) SyncAddGet(amount int) (rv int) {
 	return
 }
 
+func (ps *procSvc_) Close() {
+	close(ps.proc.ProcC)
+}
+
 func (ps *procSvc_) run() {
-	t := time.NewTimer(time.Second)
+	t := time.NewTimer(ps.timeout)
 	defer t.Stop()
 	for { // sample service loop doing important things
 		select {
@@ -68,4 +75,25 @@ func (ps *procSvc_) run() {
 		}
 	}
 
+}
+
+func BenchmarkProcSync(b *testing.B) {
+	ps := newProcSvc(256, 15*time.Second)
+	defer ps.Close()
+
+	total := 0
+	for i := 0; i < b.N; i++ {
+		total += ps.SyncAddGet(8)
+	}
+	if 0 == total {
+		b.Fatalf("got %d!", total)
+	}
+}
+func BenchmarkProcAsync(b *testing.B) {
+	ps := newProcSvc(256, 15*time.Second)
+	defer ps.Close()
+
+	for i := 0; i < b.N; i++ {
+		ps.AsyncAdd(8)
+	}
 }

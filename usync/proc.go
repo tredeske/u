@@ -46,8 +46,10 @@ type Proc struct {
 // handle
 type ProcF func() (svcError error)
 
-func NewProc(backlog int) *Proc {
-	return &Proc{ProcC: make(chan ProcF, backlog)}
+func NewProc(backlog int) (this *Proc) {
+	this = &Proc{}
+	this.Construct(backlog)
+	return this
 }
 
 func (this *Proc) Construct(backlog int) {
@@ -55,10 +57,12 @@ func (this *Proc) Construct(backlog int) {
 }
 
 // fire and forget call
+// this is approx 5x faster than Sync
 func (this *Proc) Async(closure ProcF) { this.ProcC <- closure }
 
 // wait for service to invoke
 func (this *Proc) Call(closure ProcF) (err error) {
+	// benchmarked with a sync.Pool, and pool was slightly slower
 	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
 		defer func() { doneC <- struct{}{} }()
