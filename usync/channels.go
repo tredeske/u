@@ -14,7 +14,7 @@ func NewDeathChan() (rv DeathChan) {
 
 // writer: signal to any reader it's time to die
 func (this DeathChan) Close() {
-	defer IgnorePanic()
+	defer BareIgnoreClosedChanPanic()
 	close(this)
 }
 

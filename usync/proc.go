@@ -56,12 +56,26 @@ func (this *Proc) Construct(backlog int) {
 	this.ProcC = make(chan ProcF, backlog)
 }
 
-// fire and forget call
+// fire and forget call.
+//
 // this is approx 5x faster than Sync
-func (this *Proc) Async(closure ProcF) { this.ProcC <- closure }
+//
+// return true if backend accepted the call (it's not dead)
+func (this *Proc) Async(closure ProcF) (ok bool) {
+	defer func() {
+		ok = !IgnoreClosedChanPanic(recover())
+	}()
+	this.ProcC <- closure
+	return true
+}
 
 // wait for service to invoke
-func (this *Proc) Call(closure ProcF) (err error) {
+//
+// return true if backend accepted the call (it's not dead)
+func (this *Proc) Call(closure ProcF) (ok bool, err error) {
+	defer func() {
+		ok = !IgnoreClosedChanPanic(recover())
+	}()
 	// benchmarked with a sync.Pool, and pool was slightly slower
 	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
@@ -72,7 +86,10 @@ func (this *Proc) Call(closure ProcF) (err error) {
 	return
 }
 
-func (this *Proc) Close() { close(this.ProcC) }
+func (this *Proc) Close() {
+	defer BareIgnoreClosedChanPanic()
+	close(this.ProcC)
+}
 
 // semi-example of a possible use
 func (this *Proc) InvokeUntilError() (err error) {
@@ -94,9 +111,18 @@ type ProcAny struct {
 
 func (this *ProcAny) Construct(c chan any) { this.ProcC = c }
 
-func (this *ProcAny) Async(closure ProcF) { this.ProcC <- closure }
+func (this *ProcAny) Async(closure ProcF) (ok bool) {
+	defer func() {
+		ok = !IgnoreClosedChanPanic(recover())
+	}()
+	this.ProcC <- closure
+	return true
+}
 
-func (this *ProcAny) Call(closure ProcF) (err error) {
+func (this *ProcAny) Call(closure ProcF) (ok bool, err error) {
+	defer func() {
+		ok = !IgnoreClosedChanPanic(recover())
+	}()
 	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {
 		defer func() { doneC <- struct{}{} }()

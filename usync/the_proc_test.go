@@ -7,7 +7,7 @@ import (
 )
 
 func TestProc(t *testing.T) {
-	ps := newProcSvc(5, time.Second)
+	ps := newProcSvc(t, 5, time.Second)
 
 	fmt.Printf(`
 GIVEN: simple proc service running
@@ -23,12 +23,13 @@ GIVEN: simple proc service running
 }
 
 type procSvc_ struct { // a test service to add numbers
+	t       testing.TB
 	proc    Proc
 	result  int
 	timeout time.Duration
 }
 
-func newProcSvc(depth int, timeout time.Duration) (rv *procSvc_) {
+func newProcSvc(t testing.TB, depth int, timeout time.Duration) (rv *procSvc_) {
 	rv = &procSvc_{
 		timeout: timeout,
 	}
@@ -38,18 +39,26 @@ func newProcSvc(depth int, timeout time.Duration) (rv *procSvc_) {
 }
 
 func (ps *procSvc_) AsyncAdd(amount int) {
-	ps.proc.Async(func() (svcErr error) {
+	ok := ps.proc.Async(func() (svcErr error) {
 		ps.result += amount
 		return nil
 	})
+	if !ok {
+		ps.t.Fatalf("async call not accepted!")
+	}
 }
 
 func (ps *procSvc_) SyncAddGet(amount int) (rv int) {
-	ps.proc.Call(func() (svcErr error) {
+	ok, err := ps.proc.Call(func() (svcErr error) {
 		ps.result += amount
 		rv = ps.result
 		return nil
 	})
+	if err != nil {
+		ps.t.Fatalf("sync call failed! %s", err)
+	} else if !ok {
+		ps.t.Fatalf("sync call not accepted!")
+	}
 	return
 }
 
@@ -78,7 +87,7 @@ func (ps *procSvc_) run() {
 }
 
 func BenchmarkProcSync(b *testing.B) {
-	ps := newProcSvc(256, 15*time.Second)
+	ps := newProcSvc(b, 256, 15*time.Second)
 	defer ps.Close()
 
 	total := 0
@@ -90,7 +99,7 @@ func BenchmarkProcSync(b *testing.B) {
 	}
 }
 func BenchmarkProcAsync(b *testing.B) {
-	ps := newProcSvc(256, 15*time.Second)
+	ps := newProcSvc(b, 256, 15*time.Second)
 	defer ps.Close()
 
 	for i := 0; i < b.N; i++ {

@@ -64,7 +64,7 @@ func (this Delayer) Close() {
 //
 // All items will be discarded and all delays cancelled
 func (this Delayer) Shutdown() {
-	defer LogPanic("shutting down sync.Delayer")
+	defer LogPanic(recover(), "shutting down sync.Delayer")
 	close(this.shutdownC)
 	close(this.InC)
 }

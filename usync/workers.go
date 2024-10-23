@@ -147,7 +147,7 @@ func (this *Workers) WaitDone() {
 //
 // There may be still results being worked on after this
 func (this *Workers) Close() {
-	defer IgnorePanic()
+	defer BareIgnoreClosedChanPanic()
 	close(this.RequestC)
 }
 
