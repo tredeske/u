@@ -749,10 +749,9 @@ func TestStringValidators(t *testing.T) {
 		t.Fatalf("should NOT have matched")
 	}
 	err = hostMatch("a")
-	if nil == err {
-		t.Fatalf("should NOT have matched")
+	if err != nil {
+		t.Fatalf("should have matched")
 	}
-
 }
 
 func TestPath(t *testing.T) {
