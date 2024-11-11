@@ -72,8 +72,12 @@ func NewSocketPair() (rv [2]*Socket, err error) {
 		return
 	}
 	one := &Socket{}
+	one.SetNearUnix("")
+	one.SetFarUnix("")
 	one.Fd.Set(fds[0])
 	two := &Socket{}
+	two.SetNearUnix("")
+	two.SetFarUnix("")
 	two.Fd.Set(fds[1])
 	return [2]*Socket{one, two}, nil
 }
@@ -129,6 +133,10 @@ func (this *Socket) ResolveFarAddr(host string, port int, unless ...bool) *Socke
 		this.closeIfError()
 	}
 	return this
+}
+
+func (this *Socket) SetFarUnix(path string, unless ...bool) *Socket {
+	return this.SetFarAddr(&syscall.SockaddrUnix{Name: path}, unless...)
 }
 
 func (this *Socket) SetNearUnix(path string, unless ...bool) *Socket {

@@ -100,7 +100,7 @@ func (this Chan[T]) Put(it T) {
 // in general, the writer should 'know' the chan is closed because they
 // closed it, but there are sometimes cases where this is not true
 func (this Chan[T]) PutRecover(it T) (ok bool) {
-	defer recover()
+	defer func() { ok = ok || !IgnoreClosedChanPanic(recover()) }()
 	this <- it
 	ok = true
 	return
@@ -132,6 +132,6 @@ func (this Chan[T]) PutWait(it T, d time.Duration) (ok bool) {
 // in general, the writer should 'know' the chan is closed because they
 // closed it, but there are sometimes cases where this is not true
 func (this Chan[T]) PutWaitRecover(it T, d time.Duration) (ok bool) {
-	defer recover()
+	defer func() { ok = ok || !IgnoreClosedChanPanic(recover()) }()
 	return this.PutWait(it, d)
 }

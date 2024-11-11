@@ -212,7 +212,27 @@ func (this Address) Network() string { return "" }
 
 // implement net.Addr
 func (this Address) String() string {
-	return this.AsIp().String() + ":" + strconv.Itoa(int(this.plus&portMask_))
+	portS := strconv.Itoa(int(this.plus & portMask_))
+	var b []byte
+	if this.IsIpSet() {
+		ipS := this.AsIp().String()
+		if this.IsIpv4() {
+			b = make([]byte, 0, len(ipS)+len(portS)+1)
+			b = append(b, ipS...)
+		} else {
+			b = make([]byte, 0, len(ipS)+len(portS)+3)
+			b = append(b, '[')
+			b = append(b, ipS...)
+			b = append(b, ']')
+		}
+	} else {
+		ipS := "0.0.0.0"
+		b = make([]byte, 0, len(ipS)+len(portS)+1)
+		b = append(b, ipS...)
+	}
+	b = append(b, ':')
+	b = append(b, portS...)
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
 func (this *Address) SetPort(port uint16) {
