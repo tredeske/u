@@ -214,7 +214,7 @@ func (this Address) Network() string { return "" }
 func (this Address) String() string {
 	portS := strconv.Itoa(int(this.plus & portMask_))
 	var b []byte
-	if this.IsIpSet() {
+	if this.IsIpSet() && !this.IsIpZero() {
 		ipS := this.AsIp().String()
 		if this.IsIpv4() {
 			b = make([]byte, 0, len(ipS)+len(portS)+1)
