@@ -56,30 +56,30 @@ func newClientReq(
 	return
 }
 
-func (c *clientConn_) Close() error {
-	c.closeConn()
+func (conn *clientConn_) Close() error {
+	conn.closeConn()
 	return nil
 }
 
-func (c *clientConn_) closeConn() (wasClosed bool) {
-	if c.closed.CompareAndSwap(false, true) {
-		close(c.wC)
+func (conn *clientConn_) closeConn() (wasClosed bool) {
+	if conn.closed.CompareAndSwap(false, true) {
+		close(conn.wC)
 		return false
 	}
 	return true
 }
 
-func (c *clientConn_) Construct(r io.Reader, w io.WriteCloser, maxPkt int) {
-	c.r = r
-	c.w = w
-	c.rC = make(chan *clientReq_, 512)
-	c.wC = make(chan *clientReq_, 512)
-	c.backing = make([]byte, maxPkt)
-	c.buff = c.backing[:0]
-	c.closed.Store(true)
+func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, maxPkt int) {
+	conn.r = r
+	conn.w = w
+	conn.rC = make(chan *clientReq_, 2048)
+	conn.wC = make(chan *clientReq_, 2048)
+	conn.backing = make([]byte, maxPkt)
+	conn.buff = conn.backing[:0]
+	conn.closed.Store(true)
 }
 
-func (c *clientConn_) Start() (exts map[string]string, err error) {
+func (conn *clientConn_) Start() (exts map[string]string, err error) {
 	// initial exchange has no pkt ids
 	// - send init
 	// - get back version and extensions
@@ -88,16 +88,16 @@ func (c *clientConn_) Start() (exts map[string]string, err error) {
 	initPkt := &sshFxInitPacket{
 		Version: sftpProtocolVersion,
 	}
-	err = sendPacket(c.w, initPkt)
+	err = sendPacket(conn.w, initPkt)
 	if err != nil {
 		return
 	}
 
-	length, typ, err := c.readHeader()
+	length, typ, err := conn.readHeader()
 	if err != nil {
 		return
 	}
-	if err = c.ensure(int(length)); err != nil {
+	if err = conn.ensure(int(length)); err != nil {
 		return
 	}
 	if typ != sshFxpVersion {
@@ -105,11 +105,11 @@ func (c *clientConn_) Start() (exts map[string]string, err error) {
 		return
 	}
 
-	version, _, err := unmarshalUint32Safe(c.buff)
+	version, _, err := unmarshalUint32Safe(conn.buff)
 	if err != nil {
 		return
 	}
-	c.bump(4)
+	conn.bump(4)
 	length -= 4
 
 	if version != sftpProtocolVersion {
@@ -123,27 +123,27 @@ func (c *clientConn_) Start() (exts map[string]string, err error) {
 	for 0 != length {
 		var ext extensionPair
 		var data []byte
-		ext, data, err = unmarshalExtensionPair(c.buff)
+		ext, data, err = unmarshalExtensionPair(conn.buff)
 		if err != nil {
 			return
 		}
 		exts[ext.Name] = ext.Data
-		amount := len(c.buff) - len(data)
-		c.bump(amount)
+		amount := len(conn.buff) - len(data)
+		conn.bump(amount)
 		length -= uint32(amount)
 	}
 
 	//
 	// now we can start the reader and writer as all other pkts are idAware
 	//
-	c.closed.Store(false)
-	go c.writer()
-	go c.reader()
+	conn.closed.Store(false)
+	go conn.writer()
+	go conn.reader()
 
 	return
 }
 
-func (c *clientConn_) RequestSingle(
+func (conn *clientConn_) RequestSingle(
 	pkt idAwarePkt_,
 	expectType uint8,
 	noAutoResp bool,
@@ -152,24 +152,24 @@ func (c *clientConn_) RequestSingle(
 ) (
 	err error,
 ) {
-	return c.Request(newClientReq(pkt, expectType, noAutoResp, onResp, onError))
+	return conn.Request(newClientReq(pkt, expectType, noAutoResp, onResp, onError))
 }
 
-func (c *clientConn_) Request(req *clientReq_) (err error) {
+func (conn *clientConn_) Request(req *clientReq_) (err error) {
 	defer usync.BareIgnoreClosedChanPanic()
 	err = errClosed
-	c.wC <- req
+	conn.wC <- req
 	err = nil
 	return
 }
 
-func (c *clientConn_) writer() {
+func (conn *clientConn_) writer() {
 	var err error
 	idGen := uint32(1) // generate req ids
 
 	defer func() {
-		wasClosed := c.closeConn()
-		close(c.rC)
+		wasClosed := conn.closeConn()
+		close(conn.rC)
 		if !wasClosed && err != nil {
 			// TODO
 
@@ -177,16 +177,16 @@ func (c *clientConn_) writer() {
 		}
 	}()
 
-	for req := range c.wC {
+	for req := range conn.wC {
 		req.id = idGen
 
 		for _, pkt := range req.pkts {
 			pkt.setId(idGen)
 			idGen++
 		}
-		c.rC <- req
+		conn.rC <- req
 		for _, pkt := range req.pkts {
-			err = sendPacket(c.w, pkt)
+			err = sendPacket(conn.w, pkt)
 			if err != nil {
 				if nil != req.onError {
 					req.onError(err)
@@ -197,7 +197,7 @@ func (c *clientConn_) writer() {
 	}
 }
 
-func (c *clientConn_) reader() {
+func (conn *clientConn_) reader() {
 	const errUnexpected = uerr.Const("Unexpected SFTP req ID in response")
 	var err error
 	var length uint32
@@ -209,7 +209,7 @@ func (c *clientConn_) reader() {
 	reqs := make(map[uint32]*clientReq_, 1024)
 
 	defer func() {
-		wasClosed := c.closeConn()
+		wasClosed := conn.closeConn()
 
 		if !wasClosed && err != nil {
 			if nil != req && nil != req.onError {
@@ -227,18 +227,18 @@ func (c *clientConn_) reader() {
 		// followed by 1 byte type
 		// followed by 4 byte req id
 		//
-		if err = c.ensure(9); err != nil {
+		if err = conn.ensure(9); err != nil {
 			return
 		}
-		length, typ, err = c.readHeader()
+		length, typ, err = conn.readHeader()
 		if err != nil {
 			return
 		} else if length < 4 {
 			err = errShortPacket
 			return
 		}
-		id, _ := unmarshalUint32(c.buff)
-		c.bump(4)
+		id, _ := unmarshalUint32(conn.buff)
+		conn.bump(4)
 		length -= 4
 
 		//
@@ -247,7 +247,7 @@ func (c *clientConn_) reader() {
 		req, found = reqs[id]
 		for !found {
 			select {
-			case req, alive = <-c.rC:
+			case req, alive = <-conn.rC:
 				if !alive {
 					return
 				}
@@ -281,21 +281,21 @@ func (c *clientConn_) reader() {
 		//	ulog.Printf("XXX: onResp %s", err)
 		//	return
 		//}
-		if int(length) > len(c.buff) {
-			c.pos = 0
-			c.buff = c.backing[:0]
+		if int(length) > len(conn.buff) {
+			conn.pos = 0
+			conn.buff = conn.backing[:0]
 		} else {
-			c.bump(int(length))
+			conn.bump(int(length))
 		}
 	}
 }
 
-func (c *clientConn_) readHeader() (length uint32, typ uint8, err error) {
+func (conn *clientConn_) readHeader() (length uint32, typ uint8, err error) {
 	// packets always start with 4 byte size, followed by 1 byte type
-	if err = c.ensure(5); err != nil {
+	if err = conn.ensure(5); err != nil {
 		return
 	}
-	length, _ = unmarshalUint32(c.buff)
+	length, _ = unmarshalUint32(conn.buff)
 	if length > maxMsgLength {
 		err = errLongPacket
 		return
@@ -304,38 +304,39 @@ func (c *clientConn_) readHeader() (length uint32, typ uint8, err error) {
 		return
 	}
 	length--
-	typ = c.buff[4]
-	c.bump(5)
+	typ = conn.buff[4]
+	conn.bump(5)
 	return
 }
 
-func (c *clientConn_) ensure(amount int) (err error) {
-	if amount <= len(c.buff) {
+func (conn *clientConn_) ensure(amount int) (err error) { // help inline
+	if amount <= len(conn.buff) {
 		return
 	}
-	return c.ensureRead(amount)
+	return conn.ensureRead(amount)
 }
 
 // only call from ensure()
-func (c *clientConn_) ensureRead(amount int) (err error) {
-	if amount <= len(c.buff) { // repeat test
-		return
+func (conn *clientConn_) ensureRead(amount int) (err error) {
+	if 0 != len(conn.buff) {
+		amount -= len(conn.buff)
+		copy(conn.backing, conn.buff)
+		conn.buff = conn.backing[:len(conn.buff)]
 	}
-	if 0 != len(c.buff) {
-		amount -= len(c.buff)
-		copy(c.backing, c.buff)
-		c.buff = c.backing[:len(c.buff)]
+	if amount > len(conn.backing)-len(conn.buff) {
+		return fmt.Errorf("cannot ensure space for %d when remaining backing is %d",
+			amount, len(conn.backing)-len(conn.buff))
 	}
-	nread, err := io.ReadAtLeast(c.r, c.backing[len(c.buff):], amount)
+	nread, err := io.ReadAtLeast(conn.r, conn.backing[len(conn.buff):], amount)
 	if err != nil {
 		return
 	}
-	c.buff = c.backing[:nread+len(c.buff)]
-	c.pos = 0
+	conn.buff = conn.backing[:nread+len(conn.buff)]
+	conn.pos = 0
 	return
 }
 
-func (c *clientConn_) bump(amount int) {
-	c.pos += amount
-	c.buff = c.buff[amount:]
+func (conn *clientConn_) bump(amount int) {
+	conn.pos += amount
+	conn.buff = conn.buff[amount:]
 }

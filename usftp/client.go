@@ -1,33 +1,19 @@
 package usftp
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
-	"regexp"
 	"sync"
 	"time"
 
 	"github.com/tredeske/u/uerr"
 	"golang.org/x/crypto/ssh"
 )
-
-/*
-var (
-	// ErrInternalInconsistency indicates the packets sent and the data queued to be
-	// written to the file don't match up. It is an unusual error and usually is
-	// caused by bad behavior server side or connection issues. The error is
-	// limited in scope to the call where it happened, the client object is still
-	// OK to use as long as the connection is still open.
-	ErrInternalInconsistency = errors.New("internal inconsistency")
-	// InternalInconsistency alias for ErrInternalInconsistency.
-	//
-	// Deprecated: please use ErrInternalInconsistency
-	InternalInconsistency = ErrInternalInconsistency
-)
-*/
 
 // A ClientOption is a function which applies configuration to a Client.
 type ClientOption func(*Client) error
@@ -129,30 +115,6 @@ func UseConcurrentReads(value bool) ClientOption {
 	}
 }
 
-// UseFstat sets whether to use Fstat or Stat when File.WriteTo is called
-// (usually when copying files).
-// Some servers limit the amount of open files and calling Stat after opening
-// the file will throw an error From the server. Setting this flag will call
-// Fstat instead of Stat which is suppose to be called on an open file handle.
-//
-// It has been found that that with IBM Sterling SFTP servers which have
-// "extractability" level set to 1 which means only 1 file can be opened at
-// any given time.
-//
-// If the server you are working with still has an issue with both Stat and
-// Fstat calls you can always open a file and read it until the end.
-//
-// Another reason to read the file until its end and Fstat doesn't work is
-// that in some servers, reading a full file will automatically delete the
-// file as some of these mainframes map the file to a message in a queue.
-// Once the file has been read it will get deleted.
-func UseFstat(value bool) ClientOption {
-	return func(c *Client) error {
-		c.useFstat = value
-		return nil
-	}
-}
-
 // Client represents an SFTP session on a *ssh.ClientConn SSH connection.
 // Multiple Clients can be active on a single SSH connection, and a Client
 // may be called concurrently from multiple Goroutines.
@@ -167,12 +129,10 @@ type Client struct {
 
 	maxPacket             int // max packet size read or written.
 	maxConcurrentRequests int
-	//nextid                uint32
 
 	// write concurrency is… error prone.
 	// Default behavior should be to not use it.
 	useConcurrentWrites    bool
-	useFstat               bool
 	disableConcurrentReads bool
 }
 
@@ -257,7 +217,8 @@ func (c *Client) responder() *errResponder_ {
 	return c.respPool.Get().(*errResponder_)
 }
 
-const sftpProtocolVersion = 3 // https://filezilla-project.org/specs/draft-ietf-secsh-filexfer-02.txt
+// https://filezilla-project.org/specs/draft-ietf-secsh-filexfer-02.txt
+const sftpProtocolVersion = 3
 
 // HasExtension checks whether the server supports a named extension.
 //
@@ -276,24 +237,27 @@ func (c *Client) Close() error {
 //	return fs.WalkFS(root, c)
 //}
 
-// ReadDir reads the directory named by p
-// and returns a list of directory entries.
-//func (c *Client) ReadDir(p string) ([]os.FileInfo, error) {
-//	return c.ReadDirContext(context.Background(), p)
-//}
+type ReadDirFilter func(fileN string, attrs *FileStat) (allow, stop bool)
 
-// ReadDir get a list of
-// and returns a list of directory entries.
-// The passed context can be used to cancel the operation
-// returning all entries listed up to the cancellation.
+type ReadDirLimit struct {
+	N int
+}
+
+func (rdl *ReadDirLimit) Filter(fileN string, attrs *FileStat) (allow, stop bool) {
+	if 0 != rdl.N {
+		rdl.N--
+		return true, false
+	}
+	return false, true
+}
+
+// ReadDir get a list of Files in dirN.
 func (c *Client) ReadDir(
 	dirN string,
 	timeout time.Duration, // if positive, limit time to read dir
-	maxEntries int, // if positive, limit entries to collect
-	filesOnly bool, // only interested in regular files
-	ignore *regexp.Regexp, // if non-nil, ignore any files that match
+	filter ReadDirFilter, // if not nil, filter entries
 ) (
-	entries []os.FileInfo,
+	entries []*File,
 	err error,
 ) {
 	var deadline time.Time
@@ -305,7 +269,7 @@ func (c *Client) ReadDir(
 	if err != nil {
 		return
 	}
-	defer c.closeHandle(handle) // async
+	defer c.closeHandleAsync(handle, nil, nil)
 
 	if 0 < timeout && time.Now().After(deadline) {
 		return
@@ -331,30 +295,36 @@ func (c *Client) ReadDir(
 		}()
 		switch typ {
 		case sshFxpName:
+			err = c.conn.ensure(int(length))
+			if err != nil {
+				return
+			}
+			allow := true
 			count, buff := unmarshalUint32(c.conn.buff)
-			for i := uint32(0); i < count; i++ {
+			for i := uint32(0); i < count && !done; i++ {
 				var fileN string
 				fileN, buff = unmarshalString(buff)
 				_, buff = unmarshalString(buff) // discard longname
-				var attr *FileStat
-				attr, buff, err = unmarshalAttrs(buff)
+				var attrs *FileStat
+				attrs, buff, err = unmarshalAttrs(buff)
 				if err != nil {
 					return
 				}
-				if fileN == "." || fileN == ".." ||
-					(filesOnly && !isRegular(attr.Mode)) ||
-					(nil != ignore && ignore.MatchString(fileN)) {
+				if nil != filter {
+					allow, done = filter(fileN, attrs)
+				}
+				if fileN == "." || fileN == ".." || !allow {
 					continue
 				}
-				entries = append(entries, fileInfoFromStat(attr, path.Base(fileN)))
-				if 0 < maxEntries && len(entries) >= maxEntries {
-					done = true
-					return
-				}
+				entries = append(entries, &File{
+					c:     c,
+					pathN: path.Join(dirN, fileN),
+					attrs: *attrs,
+				})
 			}
 		case sshFxpStatus:
 			err = maybeError(c.conn.buff) // may be nil
-			if 0 != len(entries) {
+			if 0 != len(entries) || io.EOF == err {
 				err = nil // ignore any unmarshaled error if we have entries
 			}
 			done = true
@@ -395,6 +365,68 @@ func (c *Client) opendir(
 	return
 }
 
+type AsyncResponse struct {
+	Request any   // request info provided by caller
+	Error   error // result (nil == success), failure (not nil)
+}
+
+// async call expecting a status response
+func (c *Client) asyncExpectStatus(
+	pkt idAwarePkt_,
+	onStatus func(error), // if not nil, call before dispatching to respC
+	request any, // any request data to be returned with response - may be nil
+	respC chan *AsyncResponse, // if nil, then toss any response
+) (err error) {
+	return c.asyncExpect(pkt, 0, nil, onStatus, request, respC)
+}
+
+// async call expecting a single response, either the expectType or status
+func (c *Client) asyncExpect(
+	pkt idAwarePkt_,
+	expectType uint8,
+	onExpect func() (err error),
+	onStatus func(error),
+	request any, // any request data to be returned with response
+	respC chan *AsyncResponse, // if nil, then toss any response
+) error {
+	const errUnexpected = uerr.Const("Unexpected packet type 0")
+
+	resp := &AsyncResponse{Request: request}
+	return c.conn.RequestSingle(
+		pkt, expectType, true,
+		func(id, length uint32, typ uint8) error {
+			defer func() {
+				if nil != onStatus {
+					onStatus(resp.Error)
+				}
+				if nil != respC {
+					respC <- resp
+				}
+			}()
+			resp.Error = c.conn.ensure(int(length))
+			if resp.Error != nil {
+				return nil
+			}
+			switch typ {
+			case expectType:
+				if nil != onExpect {
+					resp.Error = onExpect()
+				} else {
+					resp.Error = errUnexpected
+				}
+			case sshFxpStatus:
+				resp.Error = maybeError(c.conn.buff) // may be nil
+			default:
+				panic("impossible!")
+			}
+			return nil
+		},
+		func(err error) {
+			resp.Error = err
+			respC <- resp
+		})
+}
+
 // perform invocation expecting a single response, either the expectType or status
 func (c *Client) invokeExpect(
 	pkt idAwarePkt_,
@@ -417,7 +449,7 @@ func (c *Client) invokeExpect(
 			default:
 				panic("impossible!")
 			}
-			return
+			return nil
 		},
 		responder.onError)
 	if err != nil {
@@ -443,7 +475,7 @@ func (c *Client) invokeExpectStatus(pkt idAwarePkt_) (err error) {
 			default:
 				panic("impossible!")
 			}
-			return
+			return nil
 		},
 		responder.onError)
 	if err != nil {
@@ -453,76 +485,43 @@ func (c *Client) invokeExpectStatus(pkt idAwarePkt_) (err error) {
 	return
 }
 
-// Stat returns a FileInfo structure describing the file specified by path 'p'.
-// If 'p' is a symbolic link, the returned FileInfo structure describes the referent file.
-func (c *Client) Stat(p string) (os.FileInfo, error) {
-	fs, err := c.stat(p)
-	if err != nil {
-		return nil, err
-	}
-	return fileInfoFromStat(fs, path.Base(p)), nil
+// returns a FileStat describing the file specified by pathN
+// If pathN is a symbolic link, the returned FileStat describes the actual file.
+// FileInfoFromStat can be used to convert this to a go os.FileInfo
+func (c *Client) Stat(pathN string) (fs *FileStat, err error) {
+	return c.stat(pathN)
 }
 
-/*
-// Lstat returns a FileInfo structure describing the file specified by path 'p'.
-// If 'p' is a symbolic link, the returned FileInfo structure describes the symbolic link.
-func (c *Client) Lstat(p string) (os.FileInfo, error) {
-	id := c.nextID()
-	typ, data, err := c.sendPacket(context.Background(), nil, &sshFxpLstatPacket{
-		ID:   id,
-		Path: p,
-	})
-	if err != nil {
-		return nil, err
-	}
-	switch typ {
-	case sshFxpAttrs:
-		sid, data := unmarshalUint32(data)
-		if sid != id {
-			return nil, &unexpectedIDErr{id, sid}
-		}
-		attr, _, err := unmarshalAttrs(data)
-		if err != nil {
-			// avoid returning a valid value from fileInfoFromStats if err != nil.
-			return nil, err
-		}
-		return fileInfoFromStat(attr, path.Base(p)), nil
-	case sshFxpStatus:
-		return nil, maybeError(unmarshalStatus(id, data))
-	default:
-		return nil, unimplementedPacketErr(typ)
-	}
+// returns a FileStat describing the file specified by pathN.
+// If pathN is a symbolic link, the returned FileStat describes the link, not the
+// actual file.
+func (c *Client) Lstat(pathN string) (attrs *FileStat, err error) {
+	err = c.invokeExpect(
+		&sshFxpLstatPacket{Path: pathN},
+		sshFxpAttrs,
+		func() (err error) {
+			attrs, _, err = unmarshalAttrs(c.conn.buff)
+			return
+		})
+	return
 }
 
 // ReadLink reads the target of a symbolic link.
-func (c *Client) ReadLink(p string) (string, error) {
-	id := c.nextID()
-	typ, data, err := c.sendPacket(context.Background(), nil, &sshFxpReadlinkPacket{
-		ID:   id,
-		Path: p,
-	})
-	if err != nil {
-		return "", err
-	}
-	switch typ {
-	case sshFxpName:
-		sid, data := unmarshalUint32(data)
-		if sid != id {
-			return "", &unexpectedIDErr{id, sid}
-		}
-		count, data := unmarshalUint32(data)
-		if count != 1 {
-			return "", unexpectedCount(1, count)
-		}
-		filename, _ := unmarshalString(data) // ignore dummy attributes
-		return filename, nil
-	case sshFxpStatus:
-		return "", maybeError(unmarshalStatus(id, data))
-	default:
-		return "", unimplementedPacketErr(typ)
-	}
+func (c *Client) ReadLink(pathN string) (target string, err error) {
+	err = c.invokeExpect(
+		&sshFxpReadlinkPacket{Path: pathN},
+		sshFxpName,
+		func() (err error) {
+			count, buff := unmarshalUint32(c.conn.buff)
+			if count != 1 {
+				err = unexpectedCount(1, count)
+			} else {
+				target, _ = unmarshalString(buff) // ignore dummy attributes
+			}
+			return
+		})
+	return
 }
-*/
 
 // Link creates a hard link at 'newname', pointing at the same inode as 'oldname'
 func (c *Client) Link(oldname, newname string) error {
@@ -542,64 +541,43 @@ func (c *Client) Symlink(oldname, newname string) error {
 		})
 }
 
-/*
-func (c *Client) fsetstat(handle string, flags uint32, attrs interface{}) error {
-	id := c.nextID()
-	typ, data, err := c.sendPacket(context.Background(), nil, &sshFxpFsetstatPacket{
-		ID:     id,
-		Handle: handle,
-		Flags:  flags,
-		Attrs:  attrs,
-	})
-	if err != nil {
-		return err
-	}
-	switch typ {
-	case sshFxpStatus:
-		return maybeError(unmarshalStatus(id, data))
-	default:
-		return unimplementedPacketErr(typ)
-	}
+func (c *Client) fsetstat(handle string, flags uint32, attrs any) error {
+	return c.invokeExpectStatus(
+		&sshFxpFsetstatPacket{
+			Handle: handle,
+			Flags:  flags,
+			Attrs:  attrs,
+		})
 }
 
-// setstat is a convience wrapper to allow for changing of various parts of the file descriptor.
-func (c *Client) setstat(path string, flags uint32, attrs interface{}) error {
-	id := c.nextID()
-	typ, data, err := c.sendPacket(context.Background(), nil, &sshFxpSetstatPacket{
-		ID:    id,
-		Path:  path,
-		Flags: flags,
-		Attrs: attrs,
-	})
-	if err != nil {
-		return err
-	}
-	switch typ {
-	case sshFxpStatus:
-		return maybeError(unmarshalStatus(id, data))
-	default:
-		return unimplementedPacketErr(typ)
-	}
+// allow for changing of various parts of the file descriptor.
+func (c *Client) setstat(pathN string, flags uint32, attrs any) error {
+	return c.invokeExpectStatus(
+		&sshFxpSetstatPacket{
+			Path:  pathN,
+			Flags: flags,
+			Attrs: attrs,
+		})
 }
 
 // Chtimes changes the access and modification times of the named file.
-func (c *Client) Chtimes(path string, atime time.Time, mtime time.Time) error {
+func (c *Client) Chtimes(pathN string, atime time.Time, mtime time.Time) error {
 	type times struct {
 		Atime uint32
 		Mtime uint32
 	}
 	attrs := times{uint32(atime.Unix()), uint32(mtime.Unix())}
-	return c.setstat(path, sshFileXferAttrACmodTime, attrs)
+	return c.setstat(pathN, sshFileXferAttrACmodTime, attrs)
 }
 
 // Chown changes the user and group owners of the named file.
-func (c *Client) Chown(path string, uid, gid int) error {
+func (c *Client) Chown(pathN string, uid, gid int) error {
 	type owner struct {
 		UID uint32
 		GID uint32
 	}
 	attrs := owner{uint32(uid), uint32(gid)}
-	return c.setstat(path, sshFileXferAttrUIDGID, attrs)
+	return c.setstat(pathN, sshFileXferAttrUIDGID, attrs)
 }
 
 // Chmod changes the permissions of the named file.
@@ -607,8 +585,8 @@ func (c *Client) Chown(path string, uid, gid int) error {
 // Chmod does not apply a umask, because even retrieving the umask is not
 // possible in a portable way without causing a race condition. Callers
 // should mask off umask bits, if desired.
-func (c *Client) Chmod(path string, mode os.FileMode) error {
-	return c.setstat(path, sshFileXferAttrPermissions, toChmodPerm(mode))
+func (c *Client) Chmod(pathN string, mode os.FileMode) error {
+	return c.setstat(pathN, sshFileXferAttrPermissions, toChmodPerm(mode))
 }
 
 // Truncate sets the size of the named file. Although it may be safely assumed
@@ -632,7 +610,6 @@ func (c *Client) SetExtendedData(path string, extended []StatExtended) error {
 	}
 	return c.setstat(path, sshFileXferAttrExtended, attrs)
 }
-*/
 
 // Create creates the named file mode 0666 (before umask), truncating it if it
 // already exists. If successful, methods on the returned File can be used for
@@ -642,60 +619,74 @@ func (c *Client) SetExtendedData(path string, extended []StatExtended) error {
 // Note that some SFTP servers (eg. AWS Transfer) do not support opening files
 // read/write at the same time. For those services you will need to use
 // `client.OpenFile(os.O_WRONLY|os.O_CREATE|os.O_TRUNC)`.
-func (c *Client) Create(path string) (*File, error) {
-	return c.open(path, toPflags(os.O_RDWR|os.O_CREATE|os.O_TRUNC))
+func (c *Client) Create(pathN string) (*File, error) {
+	return c.open(&File{c: c, pathN: pathN},
+		toPflags(os.O_RDWR|os.O_CREATE|os.O_TRUNC))
 }
 
-// Open file at path for reading.
-func (c *Client) OpenRead(path string) (*File, error) {
-	return c.open(path, toPflags(os.O_RDONLY))
+// Open file at pathN for reading.
+func (c *Client) OpenRead(pathN string) (*File, error) {
+	return c.open(&File{c: c, pathN: pathN}, toPflags(os.O_RDONLY))
 }
 
 // Open file at path using the specified flags
-func (c *Client) Open(path string, flags int) (*File, error) {
-	return c.open(path, toPflags(flags))
+func (c *Client) Open(pathN string, flags int) (*File, error) {
+	return c.open(&File{c: c, pathN: pathN}, toPflags(flags))
 }
 
-func (c *Client) open(path string, pflags uint32) (rv *File, err error) {
+func (c *Client) open(f *File, pflags uint32) (rv *File, err error) {
 	err = c.invokeExpect(
 		&sshFxpOpenPacket{
-			Path:   path,
+			Path:   f.pathN,
 			Pflags: pflags,
 		},
 		sshFxpHandle,
 		func() error {
-			handle, _ := unmarshalString(c.conn.buff)
-			rv = &File{c: c, path: path, handle: handle}
+			f.handle, _ = unmarshalString(c.conn.buff)
+			rv = f
 			return nil
 		})
 	if err != nil {
-		err = uerr.Chainf(err, "open %s", path)
+		err = uerr.Chainf(err, "open %s", f.pathN)
 	}
 	return
 }
 
-// close closes a handle handle previously returned in the response
+func (c *Client) openAsync(
+	f *File, pflags uint32, req any, respC chan *AsyncResponse,
+) (
+	err error,
+) {
+	err = c.asyncExpect(
+		&sshFxpOpenPacket{
+			Path:   f.pathN,
+			Pflags: pflags,
+		},
+		sshFxpHandle,
+		func() error {
+			f.handle, _ = unmarshalString(c.conn.buff)
+			return nil
+		}, nil, req, respC)
+	if err != nil {
+		err = uerr.Chainf(err, "openAsync %s", f.pathN)
+	}
+	return
+}
+
+// close a handle handle previously returned in the response
 // to SSH_FXP_OPEN or SSH_FXP_OPENDIR. The handle becomes invalid
 // immediately after this request has been sent.
+func (c *Client) closeHandleAsync(
+	handle string,
+	req any, // may be nil
+	respC chan *AsyncResponse, // my be nil
+) error {
+	return c.asyncExpectStatus(&sshFxpClosePacket{Handle: handle}, nil, req, respC)
+}
+
+// synchronous - waits for any error
 func (c *Client) closeHandle(handle string) error {
-	// async (no wait)
-	return c.conn.RequestSingle(
-		&sshFxpClosePacket{Handle: handle},
-		sshFxpStatus, true,
-		func(id, length uint32, typ uint8) (err error) {
-			err = c.conn.ensure(int(length))
-			if err != nil {
-				return
-			}
-			switch typ {
-			case sshFxpStatus:
-				err = maybeError(c.conn.buff) // may be nil
-			default:
-				panic("impossible!")
-			}
-			return
-		},
-		nil)
+	return c.invokeExpectStatus(&sshFxpClosePacket{Handle: handle})
 }
 
 func (c *Client) stat(path string) (attr *FileStat, err error) {
@@ -720,127 +711,124 @@ func (c *Client) fstat(handle string) (attr *FileStat, err error) {
 	return
 }
 
-/*
-// StatVFS retrieves VFS statistics from a remote host.
+// get VFS (file system) statistics from a remote host.
 //
-// It implements the statvfs@openssh.com SSH_FXP_EXTENDED feature
-// from http://www.opensource.apple.com/source/OpenSSH/OpenSSH-175/openssh/PROTOCOL?txt.
-func (c *Client) StatVFS(path string) (*StatVFS, error) {
-	// send the StatVFS packet to the server
-	id := c.nextID()
-	typ, data, err := c.sendPacket(context.Background(), nil, &sshFxpStatvfsPacket{
-		ID:   id,
-		Path: path,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	switch typ {
-	// server responded with valid data
-	case sshFxpExtendedReply:
-		var response StatVFS
-		err = binary.Read(bytes.NewReader(data), binary.BigEndian, &response)
-		if err != nil {
-			return nil, errors.New("can not parse reply")
-		}
-
-		return &response, nil
-
-	// the resquest failed
-	case sshFxpStatus:
-		return nil, maybeError(unmarshalStatus(id, data))
-
-	default:
-		return nil, unimplementedPacketErr(typ)
-	}
+// Implement the statvfs@openssh.com SSH_FXP_EXTENDED feature from
+// http://www.opensource.apple.com/source/OpenSSH/OpenSSH-175/openssh/PROTOCOL?txt.
+func (c *Client) StatVFS(pathN string) (rv *StatVFS, err error) {
+	err = c.invokeExpect(
+		&sshFxpStatvfsPacket{Path: pathN},
+		sshFxpExtendedReply,
+		func() (err error) {
+			rv = &StatVFS{}
+			err = binary.Read(bytes.NewReader(c.conn.buff), binary.BigEndian, rv)
+			if err != nil {
+				rv = nil
+				err = errors.New("can not parse StatVFS reply")
+			}
+			return
+		})
+	return
 }
-
-// Join joins any number of path elements into a single path, adding a
-// separating slash if necessary. The result is Cleaned; in particular, all
-// empty strings are ignored.
-func (c *Client) Join(elem ...string) string { return path.Join(elem...) }
-*/
 
 // Remove removes the specified file or directory. An error will be returned if no
 // file or directory with the specified path exists, or if the specified directory
 // is not empty.
-func (c *Client) Remove(path string) error {
-	err := c.removeFile(path)
+func (c *Client) Remove(pathN string) error {
+	err := c.removeFile(pathN)
 	// some servers, *cough* osx *cough*, return EPERM, not ENODIR.
 	// serv-u returns ssh_FX_FILE_IS_A_DIRECTORY
 	// EPERM is converted to os.ErrPermission so it is not a StatusError
 	if err, ok := err.(*StatusError); ok {
 		switch err.Code {
 		case sshFxFailure, sshFxFileIsADirectory:
-			return c.RemoveDirectory(path)
+			return c.RemoveDirectory(pathN)
 		}
 	}
 	if os.IsPermission(err) {
-		return c.RemoveDirectory(path)
+		return c.RemoveDirectory(pathN)
 	}
 	return err
 }
 
-func (c *Client) removeFile(path string) error {
-	return c.invokeExpectStatus(&sshFxpRemovePacket{Filename: path})
+func (c *Client) removeFile(pathN string) error {
+	return c.invokeExpectStatus(&sshFxpRemovePacket{Filename: pathN})
+}
+
+func (c *Client) RemoveAsync(
+	pathN string, req any, respC chan *AsyncResponse,
+) error {
+	return c.asyncExpectStatus(
+		&sshFxpRemovePacket{Filename: pathN},
+		nil, req, respC)
 }
 
 // RemoveDirectory removes a directory path.
-func (c *Client) RemoveDirectory(path string) error {
-	return c.invokeExpectStatus(&sshFxpRmdirPacket{Path: path})
+func (c *Client) RemoveDirectory(pathN string) error {
+	return c.invokeExpectStatus(&sshFxpRmdirPacket{Path: pathN})
 }
 
 // Rename renames a file.
-func (c *Client) Rename(oldname, newname string) error {
+func (c *Client) Rename(oldN, newN string) error {
 	return c.invokeExpectStatus(
 		&sshFxpRenamePacket{
-			Oldpath: oldname,
-			Newpath: newname,
+			Oldpath: oldN,
+			Newpath: newN,
+		})
+}
+
+func (c *Client) RenameAsync(
+	oldN, newN string,
+	req any, respC chan *AsyncResponse,
+) (err error) {
+	return c.asyncExpectStatus(
+		&sshFxpRenamePacket{
+			Oldpath: oldN,
+			Newpath: newN,
+		}, nil, req, respC)
+}
+
+// PosixRename renames a file using the posix-rename@openssh.com extension
+// which will replace newname if it already exists.
+func (c *Client) PosixRename(oldN, newN string) error {
+	return c.invokeExpectStatus(
+		&sshFxpPosixRenamePacket{
+			Oldpath: oldN,
+			Newpath: newN,
 		})
 }
 
 // PosixRename renames a file using the posix-rename@openssh.com extension
 // which will replace newname if it already exists.
-func (c *Client) PosixRename(oldname, newname string) error {
-	return c.invokeExpectStatus(
+func (c *Client) PosixRenameAsync(
+	oldN, newN string,
+	req any, respC chan *AsyncResponse,
+) (err error) {
+	return c.asyncExpectStatus(
 		&sshFxpPosixRenamePacket{
-			Oldpath: oldname,
-			Newpath: newname,
-		})
+			Oldpath: oldN,
+			Newpath: newN,
+		}, nil, req, respC)
 }
 
-/*
-// RealPath can be used to have the server canonicalize any given path name to an absolute path.
+// Request server to canonicalize pathN to an absolute path.
 //
 // This is useful for converting path names containing ".." components,
 // or relative pathnames without a leading slash into absolute paths.
-func (c *Client) RealPath(path string) (string, error) {
-	id := c.nextID()
-	typ, data, err := c.sendPacket(context.Background(), nil, &sshFxpRealpathPacket{
-		ID:   id,
-		Path: path,
-	})
-	if err != nil {
-		return "", err
-	}
-	switch typ {
-	case sshFxpName:
-		sid, data := unmarshalUint32(data)
-		if sid != id {
-			return "", &unexpectedIDErr{id, sid}
-		}
-		count, data := unmarshalUint32(data)
-		if count != 1 {
-			return "", unexpectedCount(1, count)
-		}
-		filename, _ := unmarshalString(data) // ignore attributes
-		return filename, nil
-	case sshFxpStatus:
-		return "", maybeError(unmarshalStatus(id, data))
-	default:
-		return "", unimplementedPacketErr(typ)
-	}
+func (c *Client) RealPath(pathN string) (canonN string, err error) {
+	err = c.invokeExpect(
+		&sshFxpRealpathPacket{Path: pathN},
+		sshFxpName,
+		func() (err error) {
+			count, buff := unmarshalUint32(c.conn.buff)
+			if count != 1 {
+				err = unexpectedCount(1, count)
+				return
+			}
+			canonN, _ = unmarshalString(buff) // ignore attributes
+			return
+		})
+	return
 }
 
 // Getwd returns the current working directory of the server. Operations
@@ -848,7 +836,6 @@ func (c *Client) RealPath(path string) (string, error) {
 func (c *Client) Getwd() (string, error) {
 	return c.RealPath(".")
 }
-*/
 
 // Mkdir creates the specified directory. An error will be returned if a file or
 // directory with the specified path already exists, or if the directory's
@@ -948,51 +935,201 @@ func (c *Client) RemoveAll(path string) error {
 
 // File represents a remote file.
 type File struct {
-	c    *Client
-	path string
-
-	fi os.FileInfo
-
-	handle string
-	size   int64
-	offset int64 // current offset within remote file
+	c      *Client
+	pathN  string
+	handle string   // empty if not open
+	offset int64    // current offset within remote file
+	attrs  FileStat // if Mode bits not set, then not populated
 }
 
-func (f *File) SetFileInfo(fi os.FileInfo) {
-	f.fi = fi
-	f.size = fi.Size()
-}
+const ErrOpenned = uerr.Const("file already openned")
 
-// Close closes the File, rendering it unusable for I/O. It returns an
-// error, if any.
-func (f *File) Close() error {
-	if f.handle == "" {
-		return os.ErrClosed
+func (f *File) IsOpen() bool { return 0 != len(f.handle) }
+
+func (f *File) Client() *Client { return f.c }
+
+// if File is not currently open, it is possible to change the Client
+func (f *File) SetClient(c *Client) error {
+	if 0 != len(f.handle) {
+		return ErrOpenned
 	}
+	f.c = c
+	return nil
+}
 
+// return cached FileStat, which may not be populated with file attributes.
+//
+// if Mode bits are zero, then it is not populated.
+//
+// it will be populated after a ReadDir, or a Stat call
+func (f *File) FileStat() FileStat { return f.attrs }
+
+// if attrs are populated, mod time in unix seconds
+//
+// it's only 32 bits, but it's unsigned so will not fail in 2038
+func (f *File) ModTimeUnix() uint32 { return f.attrs.Mtime }
+
+// careful - this creates a time.Time each invocation
+func (f *File) ModTime() time.Time { return time.Unix(int64(f.attrs.Mtime), 0) }
+
+// if attrs are populated, mode bits of file.  otherwise, bits are zero.
+func (f *File) Mode() FileMode { return f.attrs.FileMode() }
+
+// return true if attributes are populated
+func (f *File) AttrsCached() bool { return 0 != f.attrs.Mode }
+
+// if attrs are populated, size of the file
+func (f *File) Size() uint64 { return f.attrs.Size }
+
+// if attrs are populated, check if this is regular file
+func (f *File) IsRegular() bool { return f.attrs.IsRegular() }
+
+// if attrs are populated, check if this is a dir
+func (f *File) IsDir() bool { return f.attrs.IsDir() }
+
+// return the name of the file as presented to Open or Create.
+func (f *File) Name() string { return f.pathN }
+
+// change the name - useful after AsyncRename
+func (f *File) SetName(newN string) { f.pathN = newN }
+
+// return the base name of the file
+func (f *File) BaseName() string { return path.Base(f.pathN) }
+
+// Open the file for read.
+func (f *File) OpenRead() (err error) {
+	if 0 != len(f.handle) {
+		return ErrOpenned
+	}
+	_, err = f.c.open(f, toPflags(os.O_RDONLY))
+	return
+}
+
+// Open the file for read, async.
+func (f *File) OpenReadAsync(request any, respC chan *AsyncResponse) (err error) {
+	if 0 != len(f.handle) {
+		return ErrOpenned
+	}
+	err = f.c.openAsync(f, toPflags(os.O_RDONLY), request, respC)
+	return
+}
+
+// Open file using the specified flags
+func (f *File) Open(flags int) (err error) {
+	if 0 != len(f.handle) {
+		return ErrOpenned
+	}
+	_, err = f.c.open(f, toPflags(flags))
+	return
+}
+
+// Open the file, async.
+func (f *File) OpenAsync(flags int, req any, respC chan *AsyncResponse) (err error) {
+	if 0 != len(f.handle) {
+		return ErrOpenned
+	}
+	err = f.c.openAsync(f, toPflags(flags), req, respC)
+	return
+}
+
+// close the File.
+func (f *File) Close() error {
+	if 0 == len(f.handle) {
+		return nil
+	}
 	handle := f.handle
 	f.handle = ""
-
 	return f.c.closeHandle(handle)
 }
 
-// return the name of the file as presented to Open or Create.
-func (f *File) Name() string {
-	return f.path
+// close the File, async.
+func (f *File) CloseAsync(request any, respC chan *AsyncResponse) error {
+	if 0 == len(f.handle) {
+		return nil
+	}
+	handle := f.handle
+	f.handle = ""
+	return f.c.closeHandleAsync(handle, request, respC)
+}
+
+// remove the file.  it may remain open.
+func (f *File) Remove() (err error) {
+	return f.c.Remove(f.pathN)
+}
+
+// remove the file, async.  it may remain open.
+func (f *File) RemoveAsync(req any, respC chan *AsyncResponse) (err error) {
+	return f.c.RemoveAsync(f.pathN, req, respC)
+}
+
+// rename file.
+func (f *File) Rename(newN string) (err error) {
+	err = f.c.Rename(f.pathN, newN)
+	if err != nil {
+		return
+	}
+	f.pathN = newN
+	return
+}
+
+// Rename file, but only if it doesn't already exist.
+func (f *File) RenameAsync(newN string, req any, respC chan *AsyncResponse) error {
+	return f.c.asyncExpectStatus(
+		&sshFxpRenamePacket{
+			Oldpath: f.pathN,
+			Newpath: newN,
+		},
+		func(status error) {
+			if nil == status { // success
+				f.pathN = newN
+			}
+		},
+		req, respC)
+}
+
+// rename file, even if newN already exists (replacing it).
+//
+// uses the posix-rename@openssh.com extension
+func (f *File) PosixRename(newN string) (err error) {
+	err = f.c.PosixRename(f.pathN, newN)
+	if err != nil {
+		return
+	}
+	f.pathN = newN
+	return
+}
+
+// rename file, async, even if newN already exists (replacing it).
+//
+// uses the posix-rename@openssh.com extension
+func (f *File) PosixRenameAsync(
+	newN string, req any, respC chan *AsyncResponse,
+) error {
+	return f.c.asyncExpectStatus(
+		&sshFxpPosixRenamePacket{
+			Oldpath: f.pathN,
+			Newpath: newN,
+		},
+		func(status error) {
+			if nil == status { // success
+				f.pathN = newN
+			}
+		},
+		req, respC)
 }
 
 // copy contents of file to w
 func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 
-	if nil == f.fi {
+	if 0 == f.attrs.Mode {
 		panic("no file info set!")
-	} else if 0 == f.size {
+	} else if 0 == f.attrs.Size {
 		return
 	}
 
 	chunkSize := f.c.maxPacket
-	expectPkts := int(f.size / int64(chunkSize))
-	if f.size != int64(expectPkts)*int64(chunkSize) {
+	expectPkts := int(f.attrs.Size / uint64(chunkSize))
+	if f.attrs.Size != uint64(expectPkts)*uint64(chunkSize) {
 		expectPkts++
 	}
 
@@ -1114,519 +1251,171 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 	return
 }
 
-// Read reads up to len(b) bytes from the File. It returns the number of bytes
+func (f *File) ReadAt(toBuff []byte, off int64) (nread int, err error) {
+	//func (f *File) WriteTo(w io.Writer) (written int64, err error) {
+
+	if 0 == len(toBuff) {
+		return
+	}
+
+	chunkSize := f.c.maxPacket
+	expectPkts := len(toBuff) / chunkSize
+	if len(toBuff) != expectPkts*chunkSize {
+		expectPkts++
+	}
+
+	req := &clientReq_{
+		pkts:       make([]idAwarePkt_, expectPkts),
+		expectType: sshFxpData,
+	}
+	pkts := make([]sshFxpReadPacket, expectPkts)
+
+	offset := uint64(0)
+	for i := 0; i < expectPkts; i++ {
+		pkts[i].Handle = f.handle
+		pkts[i].Offset = uint64(f.offset)
+		pkts[i].Len = uint32(chunkSize)
+		req.pkts[i] = &pkts[i]
+		offset += uint64(chunkSize)
+	}
+	conn := &f.c.conn
+	offset = 0
+
+	responder := f.c.responder()
+	req.onError = responder.onError
+	req.expectType = sshFxpData
+	req.noAutoResp = true
+
+	first := true
+	var expectId uint32
+	req.onResp = func(id, length uint32, typ uint8) (err error) {
+		defer func() {
+			if err != nil || 0 == expectPkts {
+				responder.onError(err)
+			}
+		}()
+		if 0 == expectPkts {
+			panic("Impossible!")
+		}
+		expectPkts--
+
+		//
+		// detect out of order reads being returned by server
+		//
+		if first {
+			first = false
+			expectId = id + 1
+		} else if id != expectId {
+			err = fmt.Errorf("WriteTo expecting pkt %d, got %d", expectId, id)
+			return
+		}
+		expectId++
+
+		switch typ {
+		case sshFxpData:
+			//
+			// our next chunk of data
+			//
+			err = conn.ensure(4)
+			if err != nil {
+				return
+			}
+			dataSz, buff := unmarshalUint32(conn.buff)
+			length -= 4
+			if dataSz != length {
+				err = fmt.Errorf("dataSz is %d, but remaining is %d!", dataSz,
+					length)
+				return
+			}
+			if 0 == length {
+				return
+			}
+			//
+			// use up any already read by conn
+			//
+			if 0 != len(buff) {
+				if int(length) < len(buff) {
+					buff = buff[:length]
+				}
+				ncopied := copy(toBuff, buff)
+				nread += ncopied
+				if ncopied == len(toBuff) {
+					return // success
+				}
+				toBuff = toBuff[ncopied:]
+				length -= uint32(ncopied)
+			}
+
+			//
+			// copy the rest from the conn to the w
+			//
+			buff = toBuff
+			for 0 != length {
+				if int(length) < len(buff) {
+					buff = buff[:length]
+				}
+				var ncopied int
+				ncopied, err = io.ReadFull(conn.r, buff)
+				nread += ncopied
+				if err != nil || ncopied == len(toBuff) {
+					return
+				}
+				toBuff = toBuff[ncopied:]
+				length -= uint32(ncopied)
+			}
+
+		case sshFxpStatus:
+			err = maybeError(conn.buff) // may be nil
+		default:
+			panic("impossible!")
+		}
+		return
+	}
+
+	err = conn.Request(req)
+	if err != nil {
+		return
+	}
+	err = responder.await()
+	return
+}
+
+// Reads up to len(b) bytes from the File. It returns the number of bytes
 // read and an error, if any. Read follows io.Reader semantics, so when Read
 // encounters an error or EOF condition after successfully reading n > 0 bytes,
 // it returns the number of bytes read.
 //
-// To maximise throughput for transferring the entire file (especially
-// over high latency links) it is recommended to use WriteTo rather
-// than calling Read multiple times. io.Copy will do this
-// automatically.
-func (f *File) Read(b []byte) (int, error) {
-	/*
-		f.mu.Lock()
-		defer f.mu.Unlock()
+// The read will be broken up into chunks supported by the server.
+//
+// If transfering to an ioWriter, use WriteTo for best performance.  io.Copy
+// will do this automatically.
+func (f *File) Read(b []byte) (nread int, err error) {
 
-		n, err := f.readAt(b, f.offset)
-		f.offset += int64(n)
-		return n, err
-	*/
-
-	panic("should not be here")
-
-	return 0, io.EOF
+	n, err := f.ReadAt(b, f.offset)
+	f.offset += int64(n)
+	return n, err
 }
 
-/*
-// readChunkAt attempts to read the whole entire length of the buffer from the file starting at the offset.
-// It will continue progressively reading into the buffer until it fills the whole buffer, or an error occurs.
-func (f *File) readChunkAt(ch chan result, b []byte, off int64) (n int, err error) {
-	for err == nil && n < len(b) {
-		id := f.c.nextID()
-		typ, data, err := f.c.sendPacket(context.Background(), ch, &sshFxpReadPacket{
-			ID:     id,
-			Handle: f.handle,
-			Offset: uint64(off) + uint64(n),
-			Len:    uint32(len(b) - n),
-		})
-		if err != nil {
-			return n, err
-		}
+// Stat returns the attributes about the file.  If the file is open, then fstat
+// is used, otherwise, stat is used.  The attributes cached in this File will
+// be updated.  To avoid a round trip with the server, use the already cached
+// FileStat.
+func (f *File) Stat() (attrs *FileStat, err error) {
 
-		switch typ {
-		case sshFxpStatus:
-			return n, maybeError(unmarshalStatus(id, data))
-
-		case sshFxpData:
-			sid, data := unmarshalUint32(data)
-			if id != sid {
-				return n, &unexpectedIDErr{id, sid}
-			}
-
-			l, data := unmarshalUint32(data)
-			n += copy(b[n:], data[:l])
-
-		default:
-			return n, unimplementedPacketErr(typ)
-		}
+	if 0 == len(f.handle) {
+		attrs, err = f.c.fstat(f.handle)
+	} else {
+		attrs, err = f.c.stat(f.pathN)
 	}
-
+	if err != nil {
+		return
+	}
+	f.attrs = *attrs
 	return
 }
 
-func (f *File) readAtSequential(b []byte, off int64) (read int, err error) {
-	for read < len(b) {
-		rb := b[read:]
-		if len(rb) > f.c.maxPacket {
-			rb = rb[:f.c.maxPacket]
-		}
-		n, err := f.readChunkAt(nil, rb, off+int64(read))
-		if n < 0 {
-			panic("sftp.File: returned negative count from readChunkAt")
-		}
-		if n > 0 {
-			read += n
-		}
-		if err != nil {
-			return read, err
-		}
-	}
-	return read, nil
-}
-
-// ReadAt reads up to len(b) byte from the File at a given offset `off`. It returns
-// the number of bytes read and an error, if any. ReadAt follows io.ReaderAt semantics,
-// so the file offset is not altered during the read.
-func (f *File) ReadAt(b []byte, off int64) (int, error) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-
-	return f.readAt(b, off)
-}
-
-// readAt must be called while holding either the Read or Write mutex in File.
-// This code is concurrent safe with itself, but not with Close.
-func (f *File) readAt(b []byte, off int64) (int, error) {
-	if f.handle == "" {
-		return 0, os.ErrClosed
-	}
-
-	if len(b) <= f.c.maxPacket {
-		// This should be able to be serviced with 1/2 requests.
-		// So, just do it directly.
-		return f.readChunkAt(nil, b, off)
-	}
-
-	if f.c.disableConcurrentReads {
-		return f.readAtSequential(b, off)
-	}
-
-	// Split the read into multiple maxPacket-sized concurrent reads bounded by maxConcurrentRequests.
-	// This allows writes with a suitably large buffer to transfer data at a much faster rate
-	// by overlapping round trip times.
-
-	cancel := make(chan struct{})
-
-	concurrency := len(b)/f.c.maxPacket + 1
-	if concurrency > f.c.maxConcurrentRequests || concurrency < 1 {
-		concurrency = f.c.maxConcurrentRequests
-	}
-
-	resPool := newResChanPool(concurrency)
-
-	type work struct {
-		id  uint32
-		res chan result
-
-		b   []byte
-		off int64
-	}
-	workCh := make(chan work)
-
-	// Slice: cut up the Read into any number of buffers of length <= f.c.maxPacket, and at appropriate offsets.
-	go func() {
-		defer close(workCh)
-
-		b := b
-		offset := off
-		chunkSize := f.c.maxPacket
-
-		for len(b) > 0 {
-			rb := b
-			if len(rb) > chunkSize {
-				rb = rb[:chunkSize]
-			}
-
-			id := f.c.nextID()
-			res := resPool.Get()
-
-			f.c.dispatchRequest(res, &sshFxpReadPacket{
-				ID:     id,
-				Handle: f.handle,
-				Offset: uint64(offset),
-				Len:    uint32(chunkSize),
-			})
-
-			select {
-			case workCh <- work{id, res, rb, offset}:
-			case <-cancel:
-				return
-			}
-
-			offset += int64(len(rb))
-			b = b[len(rb):]
-		}
-	}()
-
-	type rErr struct {
-		off int64
-		err error
-	}
-	errCh := make(chan rErr)
-
-	var wg sync.WaitGroup
-	wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
-		// Map_i: each worker gets work, and then performs the Read into its buffer from its respective offset.
-		go func() {
-			defer wg.Done()
-
-			for packet := range workCh {
-				var n int
-
-				s := <-packet.res
-				resPool.Put(packet.res)
-
-				err := s.err
-				if err == nil {
-					switch s.typ {
-					case sshFxpStatus:
-						err = maybeError(unmarshalStatus(packet.id, s.data))
-
-					case sshFxpData:
-						sid, data := unmarshalUint32(s.data)
-						if packet.id != sid {
-							err = &unexpectedIDErr{packet.id, sid}
-
-						} else {
-							l, data := unmarshalUint32(data)
-							n = copy(packet.b, data[:l])
-
-							// For normal disk files, it is guaranteed that this will read
-							// the specified number of bytes, or up to end of file.
-							// This implies, if we have a short read, that means EOF.
-							if n < len(packet.b) {
-								err = io.EOF
-							}
-						}
-
-					default:
-						err = unimplementedPacketErr(s.typ)
-					}
-				}
-
-				if err != nil {
-					// return the offset as the start + how much we read before the error.
-					errCh <- rErr{packet.off + int64(n), err}
-
-					// DO NOT return.
-					// We want to ensure that workCh is drained before wg.Wait returns.
-				}
-			}
-		}()
-	}
-
-	// Wait for long tail, before closing results.
-	go func() {
-		wg.Wait()
-		close(errCh)
-	}()
-
-	// Reduce: collect all the results into a relevant return: the earliest offset to return an error.
-	firstErr := rErr{math.MaxInt64, nil}
-	for rErr := range errCh {
-		if rErr.off <= firstErr.off {
-			firstErr = rErr
-		}
-
-		select {
-		case <-cancel:
-		default:
-			// stop any more work from being distributed. (Just in case.)
-			close(cancel)
-		}
-	}
-
-	if firstErr.err != nil {
-		// firstErr.err != nil if and only if firstErr.off > our starting offset.
-		return int(firstErr.off - off), firstErr.err
-	}
-
-	// As per spec for io.ReaderAt, we return nil error if and only if we read everything.
-	return len(b), nil
-}
-
-// writeToSequential implements WriteTo, but works sequentially with no parallelism.
-func (f *File) writeToSequential(w io.Writer) (written int64, err error) {
-	b := make([]byte, f.c.maxPacket)
-	ch := make(chan result, 1) // reusable channel
-
-	for {
-		n, err := f.readChunkAt(ch, b, f.offset)
-		if n < 0 {
-			panic("sftp.File: returned negative count from readChunkAt")
-		}
-
-		if n > 0 {
-			f.offset += int64(n)
-
-			m, err := w.Write(b[:n])
-			written += int64(m)
-
-			if err != nil {
-				return written, err
-			}
-		}
-
-		if err != nil {
-			if err == io.EOF {
-				return written, nil // return nil explicitly.
-			}
-
-			return written, err
-		}
-	}
-}
-
-// WriteTo writes the file to the given Writer.
-// The return value is the number of bytes written.
-// Any error encountered during the write is also returned.
-//
-// This method is preferred over calling Read multiple times
-// to maximise throughput for transferring the entire file,
-// especially over high latency links.
-func (f *File) WriteTo(w io.Writer) (written int64, err error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if f.handle == "" {
-		return 0, os.ErrClosed
-	}
-
-	if f.c.disableConcurrentReads {
-		return f.writeToSequential(w)
-	}
-
-	// For concurrency, we want to guess how many concurrent workers we should use.
-	var fileStat *FileStat
-	if f.c.useFstat {
-		fileStat, err = f.c.fstat(f.handle)
-	} else {
-		fileStat, err = f.c.stat(f.path)
-	}
-	if err != nil {
-		return 0, err
-	}
-
-	fileSize := fileStat.Size
-	if fileSize <= uint64(f.c.maxPacket) || !isRegular(fileStat.Mode) {
-		// only regular files are guaranteed to return (full read) xor (partial read, next error)
-		return f.writeToSequential(w)
-	}
-
-	concurrency64 := fileSize/uint64(f.c.maxPacket) + 1 // a bad guess, but better than no guess
-	if concurrency64 > uint64(f.c.maxConcurrentRequests) || concurrency64 < 1 {
-		concurrency64 = uint64(f.c.maxConcurrentRequests)
-	}
-	// Now that concurrency64 is saturated to an int value, we know this assignment cannot possibly overflow.
-	concurrency := int(concurrency64)
-
-	chunkSize := f.c.maxPacket
-	pool := newBufPool(concurrency, chunkSize)
-	resPool := newResChanPool(concurrency)
-
-	cancel := make(chan struct{})
-	var wg sync.WaitGroup
-	defer func() {
-		// Once the writing Reduce phase has ended, all the feed work needs to unconditionally stop.
-		close(cancel)
-
-		// We want to wait until all outstanding goroutines with an `f` or `f.c` reference have completed.
-		// Just to be sure we don’t orphan any goroutines any hanging references.
-		wg.Wait()
-	}()
-
-	type writeWork struct {
-		b   []byte
-		off int64
-		err error
-
-		next chan writeWork
-	}
-	writeCh := make(chan writeWork)
-
-	type readWork struct {
-		id  uint32
-		res chan result
-		off int64
-
-		cur, next chan writeWork
-	}
-	readCh := make(chan readWork)
-
-	// Slice: hand out chunks of work on demand, with a `cur` and `next` channel built-in for sequencing.
-	go func() {
-		defer close(readCh)
-
-		off := f.offset
-
-		cur := writeCh
-		for {
-			id := f.c.nextID()
-			res := resPool.Get()
-
-			next := make(chan writeWork)
-			readWork := readWork{
-				id:  id,
-				res: res,
-				off: off,
-
-				cur:  cur,
-				next: next,
-			}
-
-			f.c.dispatchRequest(res, &sshFxpReadPacket{
-				ID:     id,
-				Handle: f.handle,
-				Offset: uint64(off),
-				Len:    uint32(chunkSize),
-			})
-
-			select {
-			case readCh <- readWork:
-			case <-cancel:
-				return
-			}
-
-			off += int64(chunkSize)
-			cur = next
-		}
-	}()
-
-	wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
-		// Map_i: each worker gets readWork, and does the Read into a buffer at the given offset.
-		go func() {
-			defer wg.Done()
-
-			for readWork := range readCh {
-				var b []byte
-				var n int
-
-				s := <-readWork.res
-				resPool.Put(readWork.res)
-
-				err := s.err
-				if err == nil {
-					switch s.typ {
-					case sshFxpStatus:
-						err = maybeError(unmarshalStatus(readWork.id, s.data))
-
-					case sshFxpData:
-						sid, data := unmarshalUint32(s.data)
-						if readWork.id != sid {
-							err = &unexpectedIDErr{readWork.id, sid}
-
-						} else {
-							l, data := unmarshalUint32(data)
-							b = pool.Get()[:l]
-							n = copy(b, data[:l])
-							b = b[:n]
-						}
-
-					default:
-						err = unimplementedPacketErr(s.typ)
-					}
-				}
-
-				writeWork := writeWork{
-					b:   b,
-					off: readWork.off,
-					err: err,
-
-					next: readWork.next,
-				}
-
-				select {
-				case readWork.cur <- writeWork:
-				case <-cancel:
-				}
-
-				// DO NOT return.
-				// We want to ensure that readCh is drained before wg.Wait returns.
-			}
-		}()
-	}
-
-	// Reduce: serialize the results from the reads into sequential writes.
-	cur := writeCh
-	for {
-		packet, ok := <-cur
-		if !ok {
-			return written, errors.New("sftp.File.WriteTo: unexpectedly closed channel")
-		}
-
-		// Because writes are serialized, this will always be the last successfully read byte.
-		f.offset = packet.off + int64(len(packet.b))
-
-		if len(packet.b) > 0 {
-			n, err := w.Write(packet.b)
-			written += int64(n)
-			if err != nil {
-				return written, err
-			}
-		}
-
-		if packet.err != nil {
-			if packet.err == io.EOF {
-				return written, nil
-			}
-
-			return written, packet.err
-		}
-
-		pool.Put(packet.b)
-		cur = packet.next
-	}
-}
-
-*/
-
-// Stat returns the FileInfo structure describing file. If there is an
-// error.
-func (f *File) Stat() (os.FileInfo, error) {
-
-	if f.handle == "" {
-		return nil, os.ErrClosed
-	}
-
-	return f.stat()
-}
-
-func (f *File) stat() (os.FileInfo, error) {
-	if nil != f.fi {
-		return f.fi, nil
-	}
-
-	fs, err := f.c.fstat(f.handle)
-	if err != nil {
-		return nil, err
-	}
-	return fileInfoFromStat(fs, path.Base(f.path)), nil
-}
-
 /*
+
 // Write writes len(b) bytes to the File. It returns the number of bytes
 // written and an error, if any. Write returns a non-nil error when n !=
 // len(b).
@@ -2139,34 +1928,32 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	f.offset = offset
 	return f.offset, nil
 }
+*/
 
 // Chown changes the uid/gid of the current file.
 func (f *File) Chown(uid, gid int) error {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
 
-	if f.handle == "" {
-		return os.ErrClosed
-	}
-
-	return f.c.fsetstat(f.handle, sshFileXferAttrUIDGID, &FileStat{
+	fs := &FileStat{
 		UID: uint32(uid),
 		GID: uint32(gid),
-	})
+	}
+	if 0 == len(f.handle) {
+		return f.c.setstat(f.pathN, sshFileXferAttrUIDGID, fs)
+	} else {
+		return f.c.fsetstat(f.handle, sshFileXferAttrUIDGID, fs)
+	}
 }
 
 // Chmod changes the permissions of the current file.
 //
 // See Client.Chmod for details.
 func (f *File) Chmod(mode os.FileMode) error {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
 
-	if f.handle == "" {
-		return os.ErrClosed
+	if 0 == len(f.handle) {
+		return f.c.setstat(f.pathN, sshFileXferAttrPermissions, toChmodPerm(mode))
+	} else {
+		return f.c.fsetstat(f.handle, sshFileXferAttrPermissions, toChmodPerm(mode))
 	}
-
-	return f.c.fsetstat(f.handle, sshFileXferAttrPermissions, toChmodPerm(mode))
 }
 
 // SetExtendedData sets extended attributes of the current file. It uses the
@@ -2177,63 +1964,49 @@ func (f *File) Chmod(mode os.FileMode) error {
 // is a valid, registered domain name and "name" identifies the method. Server
 // implementations SHOULD ignore extended data fields that they do not understand.
 func (f *File) SetExtendedData(path string, extended []StatExtended) error {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-
-	if f.handle == "" {
-		return os.ErrClosed
+	attrs := &FileStat{Extended: extended}
+	if 0 == len(f.handle) {
+		return f.c.setstat(f.pathN, sshFileXferAttrExtended, attrs)
+	} else {
+		return f.c.fsetstat(f.handle, sshFileXferAttrExtended, attrs)
 	}
-
-	attrs := &FileStat{
-		Extended: extended,
-	}
-
-	return f.c.fsetstat(f.handle, sshFileXferAttrExtended, attrs)
 }
 
 // Truncate sets the size of the current file. Although it may be safely assumed
 // that if the size is less than its current size it will be truncated to fit,
 // the SFTP protocol does not specify what behavior the server should do when setting
 // size greater than the current size.
-// We send a SSH_FXP_FSETSTAT here since we have a file handle
 func (f *File) Truncate(size int64) error {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
 
-	if f.handle == "" {
-		return os.ErrClosed
+	if 0 == len(f.handle) {
+		return f.c.setstat(f.pathN, sshFileXferAttrSize, uint64(size))
+	} else {
+		return f.c.fsetstat(f.handle, sshFileXferAttrSize, uint64(size))
 	}
-
-	return f.c.fsetstat(f.handle, sshFileXferAttrSize, uint64(size))
 }
 
-// Sync requests a flush of the contents of a File to stable storage.
+// Request a flush of the contents of a File to stable storage.
 //
 // Sync requires the server to support the fsync@openssh.com extension.
 func (f *File) Sync() error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 
-	if f.handle == "" {
+	if 0 == len(f.handle) {
 		return os.ErrClosed
 	}
-
-	id := f.c.nextID()
-	typ, data, err := f.c.sendPacket(context.Background(), nil, &sshFxpFsyncPacket{
-		ID:     id,
-		Handle: f.handle,
-	})
-
-	switch {
-	case err != nil:
-		return err
-	case typ == sshFxpStatus:
-		return maybeError(unmarshalStatus(id, data))
-	default:
-		return &unexpectedPacketErr{want: sshFxpStatus, got: typ}
-	}
+	return f.c.invokeExpectStatus(&sshFxpFsyncPacket{Handle: f.handle})
 }
-*/
+
+// Asynchronously request a flush of the contents of a File to stable storage.
+//
+// Requires the server to support the fsync@openssh.com extension.
+func (f *File) SyncAsync(req any, respC chan *AsyncResponse) error {
+
+	if 0 == len(f.handle) {
+		return os.ErrClosed
+	}
+	return f.c.asyncExpectStatus(
+		&sshFxpFsyncPacket{Handle: f.handle}, nil, req, respC)
+}
 
 // convert ssh/sftp status/errors into stdlib errors, or to nil if not an error
 func maybeError(buff []byte) error {
@@ -2279,7 +2052,6 @@ func toPflags(f int) uint32 {
 	return out
 }
 
-/*
 // toChmodPerm converts Go permission bits to POSIX permission bits.
 //
 // This differs from fromFileMode in that we preserve the POSIX versions of
@@ -2301,4 +2073,3 @@ func toChmodPerm(m os.FileMode) (perm uint32) {
 
 	return perm
 }
-*/

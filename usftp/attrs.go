@@ -32,7 +32,7 @@ func (fi *fileInfo) Name() string { return fi.name }
 func (fi *fileInfo) Size() int64 { return int64(fi.stat.Size) }
 
 // Mode returns file mode bits.
-func (fi *fileInfo) Mode() os.FileMode { return fi.stat.FileMode() }
+func (fi *fileInfo) Mode() os.FileMode { return fi.stat.OsFileMode() }
 
 // ModTime returns the last modification time of the file.
 func (fi *fileInfo) ModTime() time.Time { return fi.stat.ModTime() }
@@ -56,6 +56,26 @@ type FileStat struct {
 	Extended []StatExtended
 }
 
+// returns the FileMode, containing type and permission bits
+func (fs *FileStat) FileMode() FileMode {
+	return FileMode(fs.Mode)
+}
+
+// returns the Type bits of the FileMode
+func (fs *FileStat) FileType() FileMode {
+	return FileMode(fs.Mode) & ModeType
+}
+
+// returns true if the mode describes a regular file.
+func (fs *FileStat) IsRegular() bool {
+	return FileMode(fs.Mode)&ModeType == ModeRegular
+}
+
+// returns true if the mode describes a directory
+func (fs *FileStat) IsDir() bool {
+	return FileMode(fs.Mode)&ModeType == ModeDir
+}
+
 // ModTime returns the Mtime SFTP file attribute converted to a time.Time
 func (fs *FileStat) ModTime() time.Time {
 	return time.Unix(int64(fs.Mtime), 0)
@@ -66,8 +86,8 @@ func (fs *FileStat) AccessTime() time.Time {
 	return time.Unix(int64(fs.Atime), 0)
 }
 
-// FileMode returns the Mode SFTP file attribute converted to an os.FileMode
-func (fs *FileStat) FileMode() os.FileMode {
+// returns the Mode SFTP file attribute converted to an os.FileMode
+func (fs *FileStat) OsFileMode() os.FileMode {
 	return toFileMode(fs.Mode)
 }
 
@@ -77,7 +97,8 @@ type StatExtended struct {
 	ExtData string
 }
 
-func fileInfoFromStat(stat *FileStat, name string) os.FileInfo {
+// convert a FileStat and filename to a go os.FileInfo
+func FileInfoFromStat(stat *FileStat, name string) os.FileInfo {
 	return &fileInfo{
 		name: name,
 		stat: stat,
@@ -133,4 +154,58 @@ func fileStatFromInfo(fi os.FileInfo) (uint32, *FileStat) {
 	}
 
 	return flags, fileStat
+}
+
+// FileMode represents a file’s mode and permission bits.
+// The bits are defined according to POSIX standards,
+// and may not apply to the OS being built for.
+type FileMode uint32
+
+// Permission flags, defined here to avoid potential inconsistencies in individual OS implementations.
+const (
+	ModePerm       FileMode = 0o0777 // S_IRWXU | S_IRWXG | S_IRWXO
+	ModeUserRead   FileMode = 0o0400 // S_IRUSR
+	ModeUserWrite  FileMode = 0o0200 // S_IWUSR
+	ModeUserExec   FileMode = 0o0100 // S_IXUSR
+	ModeGroupRead  FileMode = 0o0040 // S_IRGRP
+	ModeGroupWrite FileMode = 0o0020 // S_IWGRP
+	ModeGroupExec  FileMode = 0o0010 // S_IXGRP
+	ModeOtherRead  FileMode = 0o0004 // S_IROTH
+	ModeOtherWrite FileMode = 0o0002 // S_IWOTH
+	ModeOtherExec  FileMode = 0o0001 // S_IXOTH
+
+	ModeSetUID FileMode = 0o4000 // S_ISUID
+	ModeSetGID FileMode = 0o2000 // S_ISGID
+	ModeSticky FileMode = 0o1000 // S_ISVTX
+
+	ModeType       FileMode = 0xF000 // S_IFMT
+	ModeNamedPipe  FileMode = 0x1000 // S_IFIFO
+	ModeCharDevice FileMode = 0x2000 // S_IFCHR
+	ModeDir        FileMode = 0x4000 // S_IFDIR
+	ModeDevice     FileMode = 0x6000 // S_IFBLK
+	ModeRegular    FileMode = 0x8000 // S_IFREG
+	ModeSymlink    FileMode = 0xA000 // S_IFLNK
+	ModeSocket     FileMode = 0xC000 // S_IFSOCK
+)
+
+// IsDir reports whether m describes a directory.
+// That is, it tests for m.Type() == ModeDir.
+func (m FileMode) IsDir() bool {
+	return (m & ModeType) == ModeDir
+}
+
+// IsRegular reports whether m describes a regular file.
+// That is, it tests for m.Type() == ModeRegular
+func (m FileMode) IsRegular() bool {
+	return (m & ModeType) == ModeRegular
+}
+
+// Perm returns the POSIX permission bits in m (m & ModePerm).
+func (m FileMode) Perm() FileMode {
+	return (m & ModePerm)
+}
+
+// Type returns the type bits in m (m & ModeType).
+func (m FileMode) Type() FileMode {
+	return (m & ModeType)
 }

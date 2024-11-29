@@ -302,47 +302,6 @@ func sendPacket(w io.Writer, m encoding.BinaryMarshaler) error {
 	return nil
 }
 
-/*
-func recvPacket(r io.Reader, alloc *allocator, orderID uint32) (uint8, []byte, error) {
-	var b []byte
-	if alloc != nil {
-		b = alloc.GetPage(orderID)
-	} else {
-		b = make([]byte, 4)
-	}
-	if _, err := io.ReadFull(r, b[:4]); err != nil {
-		return 0, nil, err
-	}
-	length, _ := unmarshalUint32(b)
-	if length > maxMsgLength {
-		debug("recv packet %d bytes too long", length)
-		return 0, nil, errLongPacket
-	}
-	if length == 0 {
-		debug("recv packet of 0 bytes too short")
-		return 0, nil, errShortPacket
-	}
-	if alloc == nil {
-		b = make([]byte, length)
-	}
-	if _, err := io.ReadFull(r, b[:length]); err != nil {
-		// ReadFull only returns EOF if it has read no bytes.
-		// In this case, that means a partial packet, and thus unexpected.
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-		debug("recv packet %d bytes: err %v", length, err)
-		return 0, nil, err
-	}
-	if debugDumpRxPacketBytes {
-		debug("recv packet: %s %d bytes %x", fxp(b[0]), length, b[1:length])
-	} else if debugDumpRxPacket {
-		debug("recv packet: %s %d bytes", fxp(b[0]), length)
-	}
-	return b[0], b[1:length], nil
-}
-*/
-
 type extensionPair struct {
 	Name string
 	Data string

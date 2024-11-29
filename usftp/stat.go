@@ -2,43 +2,36 @@ package usftp
 
 import (
 	"os"
-
-	sshfx "github.com/tredeske/u/usftp/internal/encoding/ssh/filexfer"
 )
-
-// isRegular returns true if the mode describes a regular file.
-func isRegular(mode uint32) bool {
-	return sshfx.FileMode(mode)&sshfx.ModeType == sshfx.ModeRegular
-}
 
 // toFileMode converts sftp filemode bits to the os.FileMode specification
 func toFileMode(mode uint32) os.FileMode {
 	var fm = os.FileMode(mode & 0777)
 
-	switch sshfx.FileMode(mode) & sshfx.ModeType {
-	case sshfx.ModeDevice:
+	switch FileMode(mode) & ModeType {
+	case ModeDevice:
 		fm |= os.ModeDevice
-	case sshfx.ModeCharDevice:
+	case ModeCharDevice:
 		fm |= os.ModeDevice | os.ModeCharDevice
-	case sshfx.ModeDir:
+	case ModeDir:
 		fm |= os.ModeDir
-	case sshfx.ModeNamedPipe:
+	case ModeNamedPipe:
 		fm |= os.ModeNamedPipe
-	case sshfx.ModeSymlink:
+	case ModeSymlink:
 		fm |= os.ModeSymlink
-	case sshfx.ModeRegular:
+	case ModeRegular:
 		// nothing to do
-	case sshfx.ModeSocket:
+	case ModeSocket:
 		fm |= os.ModeSocket
 	}
 
-	if sshfx.FileMode(mode)&sshfx.ModeSetUID != 0 {
+	if FileMode(mode)&ModeSetUID != 0 {
 		fm |= os.ModeSetuid
 	}
-	if sshfx.FileMode(mode)&sshfx.ModeSetGID != 0 {
+	if FileMode(mode)&ModeSetGID != 0 {
 		fm |= os.ModeSetgid
 	}
-	if sshfx.FileMode(mode)&sshfx.ModeSticky != 0 {
+	if FileMode(mode)&ModeSticky != 0 {
 		fm |= os.ModeSticky
 	}
 
@@ -47,42 +40,42 @@ func toFileMode(mode uint32) os.FileMode {
 
 // fromFileMode converts from the os.FileMode specification to sftp filemode bits
 func fromFileMode(mode os.FileMode) uint32 {
-	ret := sshfx.FileMode(mode & os.ModePerm)
+	ret := FileMode(mode & os.ModePerm)
 
 	switch mode & os.ModeType {
 	case os.ModeDevice | os.ModeCharDevice:
-		ret |= sshfx.ModeCharDevice
+		ret |= ModeCharDevice
 	case os.ModeDevice:
-		ret |= sshfx.ModeDevice
+		ret |= ModeDevice
 	case os.ModeDir:
-		ret |= sshfx.ModeDir
+		ret |= ModeDir
 	case os.ModeNamedPipe:
-		ret |= sshfx.ModeNamedPipe
+		ret |= ModeNamedPipe
 	case os.ModeSymlink:
-		ret |= sshfx.ModeSymlink
+		ret |= ModeSymlink
 	case 0:
-		ret |= sshfx.ModeRegular
+		ret |= ModeRegular
 	case os.ModeSocket:
-		ret |= sshfx.ModeSocket
+		ret |= ModeSocket
 	}
 
 	if mode&os.ModeSetuid != 0 {
-		ret |= sshfx.ModeSetUID
+		ret |= ModeSetUID
 	}
 	if mode&os.ModeSetgid != 0 {
-		ret |= sshfx.ModeSetGID
+		ret |= ModeSetGID
 	}
 	if mode&os.ModeSticky != 0 {
-		ret |= sshfx.ModeSticky
+		ret |= ModeSticky
 	}
 
 	return uint32(ret)
 }
 
 const (
-	s_ISUID = uint32(sshfx.ModeSetUID)
-	s_ISGID = uint32(sshfx.ModeSetGID)
-	s_ISVTX = uint32(sshfx.ModeSticky)
+	s_ISUID = uint32(ModeSetUID)
+	s_ISGID = uint32(ModeSetGID)
+	s_ISVTX = uint32(ModeSticky)
 )
 
 // S_IFMT is a legacy export, and was brought in to support GOOS environments whose sysconfig.S_IFMT may be different from the value used internally by SFTP standards.
@@ -91,4 +84,4 @@ const (
 //
 // Deprecated: Remove use of this value, and avoid any future use as well.
 // There is no alternative provided, you should never need to access this value.
-const S_IFMT = uint32(sshfx.ModeType)
+const S_IFMT = uint32(ModeType)
