@@ -46,6 +46,8 @@ func MaxPacketChecked(size int) ClientOption {
 // If you get the error "failed to send packet header: EOF" when copying a
 // large file, try lowering this number.
 //
+// # OpenSsh supports 256KiB
+//
 // The default packet size is 32768 bytes.
 func MaxPacketUnchecked(size int) ClientOption {
 	return func(c *Client) error {
@@ -1119,41 +1121,27 @@ func (f *File) PosixRenameAsync(
 }
 
 // copy contents of file to w
+//
+// If file is not built from ReadDir, then Stat must be called on it before
+// making this call to ensure the size is known.
 func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 
+	const errStat = uerr.Const("file has no attrs - run Stat prior to WriteTo")
+
 	if 0 == f.attrs.Mode {
-		panic("no file info set!")
-	} else if 0 == f.attrs.Size {
+		err = errStat
+		return
+	}
+	amount := int64(f.attrs.Size) - f.offset
+	if amount <= 0 {
 		return
 	}
 
-	chunkSize := f.c.maxPacket
-	expectPkts := int(f.attrs.Size / uint64(chunkSize))
-	if f.attrs.Size != uint64(expectPkts)*uint64(chunkSize) {
-		expectPkts++
-	}
-
-	req := &clientReq_{
-		pkts:       make([]idAwarePkt_, expectPkts),
-		expectType: sshFxpData,
-	}
-	pkts := make([]sshFxpReadPacket, expectPkts)
-
-	offset := uint64(0)
-	for i := 0; i < expectPkts; i++ {
-		pkts[i].Handle = f.handle
-		pkts[i].Offset = uint64(f.offset)
-		pkts[i].Len = uint32(chunkSize)
-		req.pkts[i] = &pkts[i]
-		offset += uint64(chunkSize)
-	}
+	req := f.buildReadRequest(amount, f.offset)
 	conn := &f.c.conn
-	offset = 0
-
 	responder := f.c.responder()
 	req.onError = responder.onError
-	req.expectType = sshFxpData
-	req.noAutoResp = true
+	expectPkts := len(req.pkts)
 
 	first := true
 	var expectId uint32
@@ -1248,43 +1236,62 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 		return
 	}
 	err = responder.await()
+	if err != nil {
+		return
+	}
+	f.offset += amount
 	return
 }
 
-func (f *File) ReadAt(toBuff []byte, off int64) (nread int, err error) {
-	//func (f *File) WriteTo(w io.Writer) (written int64, err error) {
+func (f *File) buildReadRequest(amount, offset int64) (req *clientReq_) {
+	chunkSize := int64(f.c.maxPacket)
+	expectPkts := amount / chunkSize
+	if amount != expectPkts*chunkSize {
+		expectPkts++
+	}
+
+	req = &clientReq_{
+		expectType: sshFxpData,
+		noAutoResp: true,
+	}
+	if 1 == expectPkts {
+		req.pkts = req.single[:]
+		req.single[0] = &sshFxpReadPacket{
+			Handle: f.handle,
+			Offset: uint64(offset),
+			Len:    uint32(chunkSize),
+		}
+
+	} else {
+		req.pkts = make([]idAwarePkt_, expectPkts)
+
+		pkts := make([]sshFxpReadPacket, expectPkts)
+		for i := int64(0); i < expectPkts; i++ {
+			pkts[i].Handle = f.handle
+			pkts[i].Offset = uint64(offset)
+			pkts[i].Len = uint32(chunkSize)
+			req.pkts[i] = &pkts[i]
+			offset += chunkSize
+			amount -= chunkSize
+			if amount < chunkSize {
+				chunkSize = amount
+			}
+		}
+	}
+	return
+}
+
+func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 
 	if 0 == len(toBuff) {
 		return
 	}
 
-	chunkSize := f.c.maxPacket
-	expectPkts := len(toBuff) / chunkSize
-	if len(toBuff) != expectPkts*chunkSize {
-		expectPkts++
-	}
-
-	req := &clientReq_{
-		pkts:       make([]idAwarePkt_, expectPkts),
-		expectType: sshFxpData,
-	}
-	pkts := make([]sshFxpReadPacket, expectPkts)
-
-	offset := uint64(0)
-	for i := 0; i < expectPkts; i++ {
-		pkts[i].Handle = f.handle
-		pkts[i].Offset = uint64(f.offset)
-		pkts[i].Len = uint32(chunkSize)
-		req.pkts[i] = &pkts[i]
-		offset += uint64(chunkSize)
-	}
+	req := f.buildReadRequest(int64(len(toBuff)), offset)
 	conn := &f.c.conn
-	offset = 0
-
 	responder := f.c.responder()
 	req.onError = responder.onError
-	req.expectType = sshFxpData
-	req.noAutoResp = true
+	expectPkts := len(req.pkts)
 
 	first := true
 	var expectId uint32
@@ -1390,10 +1397,9 @@ func (f *File) ReadAt(toBuff []byte, off int64) (nread int, err error) {
 // If transfering to an ioWriter, use WriteTo for best performance.  io.Copy
 // will do this automatically.
 func (f *File) Read(b []byte) (nread int, err error) {
-
-	n, err := f.ReadAt(b, f.offset)
-	f.offset += int64(n)
-	return n, err
+	nread, err = f.ReadAt(b, f.offset)
+	f.offset += int64(nread)
+	return
 }
 
 // Stat returns the attributes about the file.  If the file is open, then fstat
@@ -1403,9 +1409,9 @@ func (f *File) Read(b []byte) (nread int, err error) {
 func (f *File) Stat() (attrs *FileStat, err error) {
 
 	if 0 == len(f.handle) {
-		attrs, err = f.c.fstat(f.handle)
-	} else {
 		attrs, err = f.c.stat(f.pathN)
+	} else {
+		attrs, err = f.c.fstat(f.handle)
 	}
 	if err != nil {
 		return
@@ -1895,15 +1901,15 @@ func (f *File) ReadFrom(r io.Reader) (int64, error) {
 		}
 	}
 }
+*/
 
 // Seek implements io.Seeker by setting the client offset for the next Read or
 // Write. It returns the next offset read. Seeking before or after the end of
-// the file is undefined. Seeking relative to the end calls Stat.
+// the file is undefined. Seeking relative to the end will call Stat if file
+// has no cached attributes, otherwise, it will use the cached attributes.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 
-	if f.handle == "" {
+	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
 	}
 
@@ -1912,11 +1918,13 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		offset += f.offset
 	case io.SeekEnd:
-		fi, err := f.stat()
-		if err != nil {
-			return f.offset, err
+		if 0 == f.attrs.Mode {
+			_, err := f.Stat()
+			if err != nil {
+				return f.offset, err
+			}
 		}
-		offset += fi.Size()
+		offset += int64(f.attrs.Size)
 	default:
 		return f.offset, unimplementedSeekWhence(whence)
 	}
@@ -1928,7 +1936,6 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	f.offset = offset
 	return f.offset, nil
 }
-*/
 
 // Chown changes the uid/gid of the current file.
 func (f *File) Chown(uid, gid int) error {
