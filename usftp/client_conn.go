@@ -27,13 +27,18 @@ type clientConn_ struct {
 }
 
 type clientReq_ struct {
-	id         uint32         // request id filled in by writer
-	expectType uint8          // expected resp type (status always expected)
-	noAutoResp bool           // disable invoke of onError after onResp
-	pkts       []idAwarePkt_  // request packets to send
-	single     [1]idAwarePkt_ // we mostly only ever send one per
-	onResp     func(id, length uint32, typ uint8) error
-	onError    func(error)
+	id         uint32 // request id filled in by writer
+	expectPkts uint32 // pkts to send
+	expectType uint8  // expected resp type (status always expected)
+	noAutoResp bool   // disable invoke of onError after onResp
+	//pkts       []idAwarePkt_  // request packets to send
+	//single     [1]idAwarePkt_ // we mostly only ever send one per
+
+	pkt     idAwarePkt_                 // we mostly ever send one per
+	nextPkt func(id uint32) idAwarePkt_ // when more than 1 pkt
+
+	onResp  func(id, length uint32, typ uint8) error
+	onError func(error)
 }
 
 func newClientReq(
@@ -51,8 +56,10 @@ func newClientReq(
 		onResp:     onResp,
 		onError:    onError,
 	}
-	req.single[0] = pkt
-	req.pkts = req.single[:]
+	req.pkt = pkt
+	req.expectPkts = 1
+	//req.single[0] = pkt
+	//req.pkts = req.single[:]
 	return
 }
 
@@ -74,7 +81,8 @@ func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, maxPkt int) {
 	conn.w = w
 	conn.rC = make(chan *clientReq_, 2048)
 	conn.wC = make(chan *clientReq_, 2048)
-	conn.backing = make([]byte, maxPkt)
+	// we add a little extra since data pkts can be 4+1+4 larger
+	conn.backing = make([]byte, maxPkt+16)
 	conn.buff = conn.backing[:0]
 	conn.closed.Store(true)
 }
@@ -156,6 +164,7 @@ func (conn *clientConn_) RequestSingle(
 }
 
 func (conn *clientConn_) Request(req *clientReq_) (err error) {
+	const errClosed = uerr.Const("sftp conn closed")
 	defer usync.BareIgnoreClosedChanPanic()
 	err = errClosed
 	conn.wC <- req
@@ -180,12 +189,27 @@ func (conn *clientConn_) writer() {
 	for req := range conn.wC {
 		req.id = idGen
 
-		for _, pkt := range req.pkts {
-			pkt.setId(idGen)
-			idGen++
-		}
+		//ulog.Printf("XXX: send idGen %d, expect=%d", req.id, req.expectPkts)
+
 		conn.rC <- req
-		for _, pkt := range req.pkts {
+
+		if 1 == req.expectPkts {
+			req.pkt.setId(idGen)
+			idGen++
+			//ulog.Printf("XXX: send single: %#v", req.pkt)
+			err = sendPacket(conn.w, req.pkt)
+			if err != nil {
+				if nil != req.onError {
+					req.onError(err)
+				}
+				return
+			}
+			continue
+		}
+
+		for i := uint32(0); i < req.expectPkts; i++ {
+			pkt := req.nextPkt(idGen)
+			idGen++
 			err = sendPacket(conn.w, pkt)
 			if err != nil {
 				if nil != req.onError {
@@ -193,6 +217,7 @@ func (conn *clientConn_) writer() {
 				}
 				return
 			}
+			//ulog.Printf("XXX: sent %d", pkt.id())
 		}
 	}
 }
@@ -241,6 +266,8 @@ func (conn *clientConn_) reader() {
 		conn.bump(4)
 		length -= 4
 
+		//ulog.Printf("XXX: recv %d, len=%d", id, length)
+
 		//
 		// match to req
 		//
@@ -252,7 +279,8 @@ func (conn *clientConn_) reader() {
 					return
 				}
 				lo := req.id
-				hi := req.id + uint32(len(req.pkts)) - 1
+				hi := req.id + req.expectPkts - 1
+				//hi := req.id + uint32(len(req.pkts)) - 1
 				found = (id >= lo && id <= hi)
 				for ; lo <= hi; lo++ {
 					reqs[lo] = req
@@ -296,8 +324,9 @@ func (conn *clientConn_) readHeader() (length uint32, typ uint8, err error) {
 		return
 	}
 	length, _ = unmarshalUint32(conn.buff)
-	if length > maxMsgLength {
-		err = errLongPacket
+	if length > uint32(len(conn.backing)) {
+		err = fmt.Errorf("recv pkt: %d bytes, but max is %d", length, len(conn.backing))
+		//err = errLongPacket
 		return
 	} else if length == 0 {
 		err = errShortPacket

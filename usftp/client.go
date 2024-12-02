@@ -18,26 +18,29 @@ import (
 // A ClientOption is a function which applies configuration to a Client.
 type ClientOption func(*Client) error
 
-// MaxPacketChecked sets the maximum size of the payload, measured in bytes.
-// This option only accepts sizes servers should support, ie. <= 32768 bytes.
+// Set the maximum size (bytes) of the payload.
+//
+// The larger the payload, the more efficient the transport.
+//
+// The default is 32768 (32KiB), and that is the smallest size that any compliant
+// SFTP server must support.
+// - OpenSsh supports 256KiB
 //
 // If you get the error "failed to send packet header: EOF" when copying a
 // large file, try lowering this number.
 //
 // The default packet size is 32768 bytes.
-func MaxPacketChecked(size int) ClientOption {
+func WithMaxPacket(size int) ClientOption {
 	return func(c *Client) error {
-		if size < 1 {
-			return errors.New("size must be greater or equal to 1")
-		}
-		if size > 32768 {
-			return errors.New("sizes larger than 32KB might not work with all servers")
+		if size < 8192 {
+			return errors.New("maxPacket must be greater or equal to 8192")
 		}
 		c.maxPacket = size
 		return nil
 	}
 }
 
+/*
 // MaxPacketUnchecked sets the maximum size of the payload, measured in bytes.
 // It accepts sizes larger than the 32768 bytes all servers should support.
 // Only use a setting higher than 32768 if your application always connects to
@@ -116,6 +119,7 @@ func UseConcurrentReads(value bool) ClientOption {
 		return nil
 	}
 }
+*/
 
 // Client represents an SFTP session on a *ssh.ClientConn SSH connection.
 // Multiple Clients can be active on a single SSH connection, and a Client
@@ -347,8 +351,6 @@ func (c *Client) ReadDir(
 	err = responder.await()
 	return
 }
-
-const errClosed = uerr.Const("closed")
 
 func (c *Client) opendir(
 	timeout time.Duration,
@@ -1120,7 +1122,7 @@ func (f *File) PosixRenameAsync(
 		req, respC)
 }
 
-// copy contents of file to w
+// copy contents (from current offset to end) of file to w
 //
 // If file is not built from ReadDir, then Stat must be called on it before
 // making this call to ensure the size is known.
@@ -1137,22 +1139,24 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 		return
 	}
 
-	req := f.buildReadRequest(amount, f.offset)
+	pkt := sshFxpReadPacket{}
+	chunkSz, lastChunkSz, req := f.buildReadReq(amount, f.offset, &pkt)
 	conn := &f.c.conn
 	responder := f.c.responder()
 	req.onError = responder.onError
-	expectPkts := len(req.pkts)
+	expectPkts := req.expectPkts
 
 	first := true
 	var expectId uint32
 	req.onResp = func(id, length uint32, typ uint8) (err error) {
 		defer func() {
 			if err != nil || 0 == expectPkts {
+				expectPkts = 0 // ignore any remaining pkts
 				responder.onError(err)
 			}
 		}()
 		if 0 == expectPkts {
-			panic("Impossible!")
+			return // ignore any pkts after error
 		}
 		expectPkts--
 
@@ -1161,7 +1165,7 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 		//
 		if first {
 			first = false
-			expectId = id + 1
+			expectId = id
 		} else if id != expectId {
 			err = fmt.Errorf("WriteTo expecting pkt %d, got %d", expectId, id)
 			return
@@ -1182,6 +1186,16 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 			if dataSz != length {
 				err = fmt.Errorf("dataSz is %d, but remaining is %d!", dataSz,
 					length)
+				return
+			} else if (0 != expectPkts && length != chunkSz) ||
+				(0 == expectPkts && length != lastChunkSz) {
+				exp := chunkSz
+				if 0 == expectPkts {
+					exp = lastChunkSz
+				}
+				err = fmt.Errorf(
+					"only got %d of %d bytes - may need to adjust MaxPacket",
+					length, exp)
 				return
 			}
 			if 0 == length {
@@ -1243,66 +1257,89 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 	return
 }
 
-func (f *File) buildReadRequest(amount, offset int64) (req *clientReq_) {
-	chunkSize := int64(f.c.maxPacket)
-	expectPkts := amount / chunkSize
-	if amount != expectPkts*chunkSize {
+// when reading from sftp server, we have to obey the maxPacket limit.
+//
+// if we request more bytes that that limit, then it will just return a
+// truncated amount.
+//
+// therefore, we split up requests larger than that into chunks using the
+// nextPkt closure to manufacture reqs as needed by the conn writer.
+func (f *File) buildReadReq(
+	amount, offset int64,
+	single *sshFxpReadPacket,
+) (
+	chunkSz, lastChunkSz uint32,
+	req *clientReq_,
+) {
+	maxPkt := int64(f.c.maxPacket)
+	expectPkts := amount / maxPkt
+	if amount != expectPkts*maxPkt {
+		if 0 == expectPkts {
+			chunkSz = uint32(amount)
+			lastChunkSz = chunkSz
+		} else {
+			chunkSz = uint32(maxPkt)
+			lastChunkSz = uint32(amount - expectPkts*maxPkt)
+		}
 		expectPkts++
 	}
 
 	req = &clientReq_{
 		expectType: sshFxpData,
 		noAutoResp: true,
+		expectPkts: uint32(expectPkts),
 	}
+	single.Handle = f.handle
 	if 1 == expectPkts {
-		req.pkts = req.single[:]
-		req.single[0] = &sshFxpReadPacket{
-			Handle: f.handle,
-			Offset: uint64(offset),
-			Len:    uint32(chunkSize),
-		}
+		single.Offset = uint64(offset)
+		single.Len = chunkSz
+		req.pkt = single
+		req.expectPkts = 1
+		return
+	}
 
-	} else {
-		req.pkts = make([]idAwarePkt_, expectPkts)
-
-		pkts := make([]sshFxpReadPacket, expectPkts)
-		for i := int64(0); i < expectPkts; i++ {
-			pkts[i].Handle = f.handle
-			pkts[i].Offset = uint64(offset)
-			pkts[i].Len = uint32(chunkSize)
-			req.pkts[i] = &pkts[i]
-			offset += chunkSize
-			amount -= chunkSize
-			if amount < chunkSize {
-				chunkSize = amount
-			}
+	req.nextPkt = func(id uint32) idAwarePkt_ {
+		single.ID = id
+		single.Offset = uint64(offset)
+		offset += int64(chunkSz)
+		expectPkts--
+		if 0 == expectPkts {
+			single.Len = lastChunkSz
+		} else {
+			single.Len = chunkSz
 		}
+		return single
 	}
 	return
 }
 
 func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
+	const errMissing = uerr.Const(
+		"previous read was short, but this was not - missing data")
 
 	if 0 == len(toBuff) {
 		return
 	}
 
-	req := f.buildReadRequest(int64(len(toBuff)), offset)
+	pkt := sshFxpReadPacket{}
+	chunkSz, lastChunkSz, req := f.buildReadReq(int64(len(toBuff)), offset, &pkt)
 	conn := &f.c.conn
 	responder := f.c.responder()
 	req.onError = responder.onError
-	expectPkts := len(req.pkts)
+	expectPkts := req.expectPkts //len(req.pkts)
 
 	first := true
 	var expectId uint32
+	lastShort := false
 	req.onResp = func(id, length uint32, typ uint8) (err error) {
 		defer func() {
 			if err != nil || 0 == expectPkts {
+				expectPkts = 0 // ignore any others after error
 				responder.onError(err)
 			}
 		}()
 		if 0 == expectPkts {
-			panic("Impossible!")
+			return // ignore any pkts after error
 		}
 		expectPkts--
 
@@ -1311,7 +1348,7 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 		//
 		if first {
 			first = false
-			expectId = id + 1
+			expectId = id
 		} else if id != expectId {
 			err = fmt.Errorf("WriteTo expecting pkt %d, got %d", expectId, id)
 			return
@@ -1323,6 +1360,8 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 			//
 			// our next chunk of data
 			//
+			// which could be less than requested (even 0) if we're at the EOF
+			//
 			err = conn.ensure(4)
 			if err != nil {
 				return
@@ -1330,8 +1369,30 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 			dataSz, buff := unmarshalUint32(conn.buff)
 			length -= 4
 			if dataSz != length {
-				err = fmt.Errorf("dataSz is %d, but remaining is %d!", dataSz,
-					length)
+				err = fmt.Errorf("dataSz is %d, but remaining is %d!",
+					dataSz, length)
+				return
+			} else if (0 != expectPkts && length != chunkSz) ||
+				(0 == expectPkts && length != lastChunkSz) {
+				if 0 == length {
+					if 0 == nread {
+						err = io.EOF
+					}
+					expectPkts = 0 // ignore any other pkts
+					return
+				} else if lastShort {
+					exp := chunkSz
+					if 0 == expectPkts {
+						exp = lastChunkSz
+					}
+					err = fmt.Errorf(
+						"only got %d of %d bytes - may need to adjust MaxPacket",
+						length, exp)
+					return
+				}
+				lastShort = true
+			} else if lastShort {
+				err = errMissing
 				return
 			}
 			if 0 == length {
@@ -1908,7 +1969,6 @@ func (f *File) ReadFrom(r io.Reader) (int64, error) {
 // the file is undefined. Seeking relative to the end will call Stat if file
 // has no cached attributes, otherwise, it will use the cached attributes.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
-
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
 	}
@@ -1939,7 +1999,6 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 
 // Chown changes the uid/gid of the current file.
 func (f *File) Chown(uid, gid int) error {
-
 	fs := &FileStat{
 		UID: uint32(uid),
 		GID: uint32(gid),
@@ -1955,7 +2014,6 @@ func (f *File) Chown(uid, gid int) error {
 //
 // See Client.Chmod for details.
 func (f *File) Chmod(mode os.FileMode) error {
-
 	if 0 == len(f.handle) {
 		return f.c.setstat(f.pathN, sshFileXferAttrPermissions, toChmodPerm(mode))
 	} else {
@@ -1996,7 +2054,6 @@ func (f *File) Truncate(size int64) error {
 //
 // Sync requires the server to support the fsync@openssh.com extension.
 func (f *File) Sync() error {
-
 	if 0 == len(f.handle) {
 		return os.ErrClosed
 	}
@@ -2007,7 +2064,6 @@ func (f *File) Sync() error {
 //
 // Requires the server to support the fsync@openssh.com extension.
 func (f *File) SyncAsync(req any, respC chan *AsyncResponse) error {
-
 	if 0 == len(f.handle) {
 		return os.ErrClosed
 	}

@@ -272,6 +272,15 @@ func marshalPacket(m encoding.BinaryMarshaler) (header, payload []byte, err erro
 }
 
 // sendPacket marshals p according to RFC 4234.
+//
+// TODO - fix all of this unnecessary allocation
+// TODO - fix all of this unnecessary allocation
+// TODO - fix all of this unnecessary allocation
+// TODO - fix all of this unnecessary allocation
+// TODO - fix all of this unnecessary allocation
+// TODO - fix double write
+// TODO - fix double write
+// TODO - fix double write
 func sendPacket(w io.Writer, m encoding.BinaryMarshaler) error {
 	header, payload, err := marshalPacket(m)
 	if err != nil {
@@ -279,13 +288,11 @@ func sendPacket(w io.Writer, m encoding.BinaryMarshaler) error {
 	}
 
 	length := len(header) + len(payload) - 4 // subtract the uint32(length) from the start
-	/*
-		if debugDumpTxPacketBytes {
-			debug("send packet: %s %d bytes %x%x", fxp(header[4]), length, header[5:], payload)
-		} else if debugDumpTxPacket {
-			debug("send packet: %s %d bytes", fxp(header[4]), length)
-		}
-	*/
+	//if debugDumpTxPacketBytes {
+	//	debug("send packet: %s %d bytes %x%x", fxp(header[4]), length, header[5:], payload)
+	//} else if debugDumpTxPacket {
+	//	debug("send packet: %s %d bytes", fxp(header[4]), length)
+	//}
 
 	binary.BigEndian.PutUint32(header[:4], uint32(length))
 
