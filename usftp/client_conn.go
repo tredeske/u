@@ -96,7 +96,8 @@ func (conn *clientConn_) Start() (exts map[string]string, err error) {
 	initPkt := &sshFxInitPacket{
 		Version: sftpProtocolVersion,
 	}
-	err = sendPacket(conn.w, initPkt)
+	buff := make([]byte, 0, 8192)
+	err = sendPacket(conn.w, buff, initPkt)
 	if err != nil {
 		return
 	}
@@ -175,6 +176,7 @@ func (conn *clientConn_) Request(req *clientReq_) (err error) {
 func (conn *clientConn_) writer() {
 	var err error
 	idGen := uint32(1) // generate req ids
+	buff := make([]byte, 8192)
 
 	defer func() {
 		wasClosed := conn.closeConn()
@@ -197,7 +199,7 @@ func (conn *clientConn_) writer() {
 			req.pkt.setId(idGen)
 			idGen++
 			//ulog.Printf("XXX: send single: %#v", req.pkt)
-			err = sendPacket(conn.w, req.pkt)
+			err = sendPacket(conn.w, buff[:], req.pkt)
 			if err != nil {
 				if nil != req.onError {
 					req.onError(err)
@@ -210,7 +212,7 @@ func (conn *clientConn_) writer() {
 		for i := uint32(0); i < req.expectPkts; i++ {
 			pkt := req.nextPkt(idGen)
 			idGen++
-			err = sendPacket(conn.w, pkt)
+			err = sendPacket(conn.w, buff[:], pkt)
 			if err != nil {
 				if nil != req.onError {
 					req.onError(err)
