@@ -22,14 +22,11 @@ type ClientOption func(*Client) error
 //
 // The larger the payload, the more efficient the transport.
 //
-// The default is 32768 (32KiB), and that is the smallest size that any compliant
-// SFTP server must support.
-// - OpenSsh supports 256KiB
+// The default is 32768 (32KiB), which all compliant SFTP servers must support.
+// - OpenSsh supports 255KiB (version 8.7 was used for the test)
 //
 // If you get the error "failed to send packet header: EOF" when copying a
 // large file, try lowering this number.
-//
-// The default packet size is 32768 bytes.
 func WithMaxPacket(size int) ClientOption {
 	return func(c *Client) error {
 		if size < 8192 {
@@ -40,86 +37,15 @@ func WithMaxPacket(size int) ClientOption {
 	}
 }
 
-/*
-// MaxPacketUnchecked sets the maximum size of the payload, measured in bytes.
-// It accepts sizes larger than the 32768 bytes all servers should support.
-// Only use a setting higher than 32768 if your application always connects to
-// the same server or after sufficiently broad testing.
+// Cause an error if File.ReadFrom would use the slow path.  Default is false.
 //
-// If you get the error "failed to send packet header: EOF" when copying a
-// large file, try lowering this number.
-//
-// # OpenSsh supports 256KiB
-//
-// The default packet size is 32768 bytes.
-func MaxPacketUnchecked(size int) ClientOption {
+// refer to [File.ReadFrom]
+func PreventSlowReadFrom(prevent bool) ClientOption {
 	return func(c *Client) error {
-		if size < 1 {
-			return errors.New("size must be greater or equal to 1")
-		}
-		c.maxPacket = size
+		c.preventSlowReadFrom = prevent
 		return nil
 	}
 }
-
-// MaxPacket sets the maximum size of the payload, measured in bytes.
-// This option only accepts sizes servers should support, ie. <= 32768 bytes.
-// This is a synonym for MaxPacketChecked that provides backward compatibility.
-//
-// If you get the error "failed to send packet header: EOF" when copying a
-// large file, try lowering this number.
-//
-// The default packet size is 32768 bytes.
-func MaxPacket(size int) ClientOption {
-	return MaxPacketChecked(size)
-}
-
-// MaxConcurrentRequestsPerFile sets the maximum concurrent requests allowed for a single file.
-//
-// The default maximum concurrent requests is 64.
-func MaxConcurrentRequestsPerFile(n int) ClientOption {
-	return func(c *Client) error {
-		if n < 1 {
-			return errors.New("n must be greater or equal to 1")
-		}
-		c.maxConcurrentRequests = n
-		return nil
-	}
-}
-
-// UseConcurrentWrites allows the Client to perform concurrent Writes.
-//
-// Using concurrency while doing writes, requires special consideration.
-// A write to a later offset in a file after an error,
-// could end up with a file length longer than what was successfully written.
-//
-// When using this option, if you receive an error during `io.Copy` or `io.WriteTo`,
-// you may need to `Truncate` the target Writer to avoid “holes” in the data written.
-func UseConcurrentWrites(value bool) ClientOption {
-	return func(c *Client) error {
-		c.useConcurrentWrites = value
-		return nil
-	}
-}
-
-// UseConcurrentReads allows the Client to perform concurrent Reads.
-//
-// Concurrent reads are generally safe to use and not using them will degrade
-// performance, so this option is enabled by default.
-//
-// When enabled, WriteTo will use Stat/Fstat to get the file size and determines
-// how many concurrent workers to use.
-// Some "read once" servers will delete the file if they receive a stat call on an
-// open file and then the download will fail.
-// Disabling concurrent reads you will be able to download files from these servers.
-// If concurrent reads are disabled, the UseFstat option is ignored.
-func UseConcurrentReads(value bool) ClientOption {
-	return func(c *Client) error {
-		c.disableConcurrentReads = !value
-		return nil
-	}
-}
-*/
 
 // Client represents an SFTP session on a *ssh.ClientConn SSH connection.
 // Multiple Clients can be active on a single SSH connection, and a Client
@@ -133,17 +59,12 @@ type Client struct {
 
 	ext map[string]string // Extensions (name -> data).
 
-	maxPacket             int // max packet size read or written.
-	maxConcurrentRequests int
+	maxPacket int // max packet size read or written.
 
-	// write concurrency is… error prone.
-	// Default behavior should be to not use it.
-	useConcurrentWrites    bool
-	disableConcurrentReads bool
+	preventSlowReadFrom bool
 }
 
-// NewClient creates a new SFTP client on conn, using zero or more option
-// functions.
+// Create a new SFTP client on the SSH conn
 func NewClient(conn *ssh.Client, opts ...ClientOption) (*Client, error) {
 	s, err := conn.NewSession()
 	if err != nil {
@@ -164,7 +85,7 @@ func NewClient(conn *ssh.Client, opts ...ClientOption) (*Client, error) {
 	return NewClientPipe(pr, pw, opts...)
 }
 
-// NewClientPipe creates a new SFTP client given a Reader and a WriteCloser.
+// Create a new SFTP client with the Reader and a WriteCloser.
 // This can be used for connecting to an SFTP server over TCP/TLS or by using
 // the system's ssh client program (e.g. via exec.Command).
 func NewClientPipe(
@@ -176,8 +97,7 @@ func NewClientPipe(
 	err error,
 ) {
 	client = &Client{
-		maxPacket:             1 << 15, // 32768, min supported as per RFC
-		maxConcurrentRequests: 64,
+		maxPacket: 1 << 15, // 32768, min supported as per RFC
 	}
 	client.respPool.New = client.newResponder
 
@@ -226,7 +146,7 @@ func (c *Client) responder() *errResponder_ {
 // https://filezilla-project.org/specs/draft-ietf-secsh-filexfer-02.txt
 const sftpProtocolVersion = 3
 
-// HasExtension checks whether the server supports a named extension.
+// Check whether the server supports a named extension.
 //
 // The first return value is the extension data reported by the server
 // (typically a version number).
@@ -234,6 +154,7 @@ func (c *Client) HasExtension(name string) (string, bool) {
 	data, ok := c.ext[name]
 	return data, ok
 }
+
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
@@ -369,6 +290,7 @@ func (c *Client) opendir(
 	return
 }
 
+// response to an async call
 type AsyncResponse struct {
 	Request any   // request info provided by caller
 	Error   error // result (nil == success), failure (not nil)
@@ -938,6 +860,8 @@ func (c *Client) RemoveAll(path string) error {
 */
 
 // File represents a remote file.
+//
+// Reads and Writes must be externally synchronized if performed concurrently
 type File struct {
 	c      *Client
 	pathN  string
@@ -1001,6 +925,8 @@ func (f *File) SetName(newN string) { f.pathN = newN }
 func (f *File) BaseName() string { return path.Base(f.pathN) }
 
 // Open the file for read.
+//
+// async safe
 func (f *File) OpenRead() (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
@@ -1010,6 +936,8 @@ func (f *File) OpenRead() (err error) {
 }
 
 // Open the file for read, async.
+//
+// async safe
 func (f *File) OpenReadAsync(request any, respC chan *AsyncResponse) (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
@@ -1019,6 +947,8 @@ func (f *File) OpenReadAsync(request any, respC chan *AsyncResponse) (err error)
 }
 
 // Open file using the specified flags
+//
+// async safe
 func (f *File) Open(flags int) (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
@@ -1028,6 +958,8 @@ func (f *File) Open(flags int) (err error) {
 }
 
 // Open the file, async.
+//
+// async safe
 func (f *File) OpenAsync(flags int, req any, respC chan *AsyncResponse) (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
@@ -1036,7 +968,11 @@ func (f *File) OpenAsync(flags int, req any, respC chan *AsyncResponse) (err err
 	return
 }
 
+// implement io.Closer
+//
 // close the File.
+//
+// syncronize access
 func (f *File) Close() error {
 	if 0 == len(f.handle) {
 		return nil
@@ -1047,6 +983,8 @@ func (f *File) Close() error {
 }
 
 // close the File, async.
+//
+// syncronize access
 func (f *File) CloseAsync(request any, respC chan *AsyncResponse) error {
 	if 0 == len(f.handle) {
 		return nil
@@ -1057,16 +995,22 @@ func (f *File) CloseAsync(request any, respC chan *AsyncResponse) error {
 }
 
 // remove the file.  it may remain open.
+//
+// async safe
 func (f *File) Remove() (err error) {
 	return f.c.Remove(f.pathN)
 }
 
 // remove the file, async.  it may remain open.
+//
+// async safe
 func (f *File) RemoveAsync(req any, respC chan *AsyncResponse) (err error) {
 	return f.c.RemoveAsync(f.pathN, req, respC)
 }
 
 // rename file.
+//
+// synchronize access
 func (f *File) Rename(newN string) (err error) {
 	err = f.c.Rename(f.pathN, newN)
 	if err != nil {
@@ -1077,6 +1021,8 @@ func (f *File) Rename(newN string) (err error) {
 }
 
 // Rename file, but only if it doesn't already exist.
+//
+// synchronize access
 func (f *File) RenameAsync(newN string, req any, respC chan *AsyncResponse) error {
 	return f.c.asyncExpectStatus(
 		&sshFxpRenamePacket{
@@ -1094,6 +1040,8 @@ func (f *File) RenameAsync(newN string, req any, respC chan *AsyncResponse) erro
 // rename file, even if newN already exists (replacing it).
 //
 // uses the posix-rename@openssh.com extension
+//
+// synchronize access
 func (f *File) PosixRename(newN string) (err error) {
 	err = f.c.PosixRename(f.pathN, newN)
 	if err != nil {
@@ -1106,6 +1054,8 @@ func (f *File) PosixRename(newN string) (err error) {
 // rename file, async, even if newN already exists (replacing it).
 //
 // uses the posix-rename@openssh.com extension
+//
+// synchronize access
 func (f *File) PosixRenameAsync(
 	newN string, req any, respC chan *AsyncResponse,
 ) error {
@@ -1122,10 +1072,14 @@ func (f *File) PosixRenameAsync(
 		req, respC)
 }
 
+// implement io.WriterTo
+//
 // copy contents (from current offset to end) of file to w
 //
 // If file is not built from ReadDir, then Stat must be called on it before
 // making this call to ensure the size is known.
+//
+// synchronize i/o ops
 func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 
 	const errStat = uerr.Const("file has no attrs - run Stat prior to WriteTo")
@@ -1313,6 +1267,9 @@ func (f *File) buildReadReq(
 	return
 }
 
+// implement io.ReaderAt
+//
+// synchronize i/o ops
 func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 	const errMissing = uerr.Const(
 		"previous read was short, but this was not - missing data")
@@ -1448,6 +1405,8 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 	return
 }
 
+// implement io.Reader
+//
 // Reads up to len(b) bytes from the File. It returns the number of bytes
 // read and an error, if any. Read follows io.Reader semantics, so when Read
 // encounters an error or EOF condition after successfully reading n > 0 bytes,
@@ -1457,6 +1416,8 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 //
 // If transfering to an ioWriter, use WriteTo for best performance.  io.Copy
 // will do this automatically.
+//
+// synchronize i/o ops
 func (f *File) Read(b []byte) (nread int, err error) {
 	nread, err = f.ReadAt(b, f.offset)
 	f.offset += int64(nread)
@@ -1467,6 +1428,8 @@ func (f *File) Read(b []byte) (nread int, err error) {
 // is used, otherwise, stat is used.  The attributes cached in this File will
 // be updated.  To avoid a round trip with the server, use the already cached
 // FileStat.
+//
+// synchronize i/o ops
 func (f *File) Stat() (attrs *FileStat, err error) {
 
 	if 0 == len(f.handle) {
@@ -1482,37 +1445,203 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 }
 
 // implement io.ReaderFrom
+//
+// This call will likely be very slow unless r (the io.Reader) has one of the
+// following methods:
+//
+//	Len()  int
+//	Size() int64
+//	Stat() (os.FileInfo, error)
+//
+// or is an instance of [io.LimitedReader].
+//
+// synchronize i/o ops
 func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
-	/*
-		req := &clientReq_{
-			expectType: sshFxpData,
-			noAutoResp: true,
-			//expectPkts: uint32(expectPkts),
+
+	if 0 == len(f.handle) {
+		return 0, os.ErrClosed
+	}
+
+	//
+	// we need to know the amount we'll be reading up front, as we need to be
+	// able to tell the conn.writer and conn.reader how many packets to expect,
+	// so that we can pump data to the sftp server while getting back acks.
+	//
+	var remain int64
+	switch r := r.(type) {
+	case interface{ Len() int }:
+		remain = int64(r.Len())
+
+	case interface{ Size() int64 }:
+		remain = r.Size()
+
+	case *io.LimitedReader:
+		remain = r.N
+
+	case interface{ Stat() (os.FileInfo, error) }:
+		info, err := r.Stat()
+		if err == nil {
+			remain = info.Size()
 		}
-		pkt := sshFxpWritePacket{
-			Handle: f.handle,
-			Offset: uint64(off),
-			Length: uint32(len(b)),
-			Data:   b,
+	default:
+		return f.readFromSlow(r)
+	}
+
+	if 0 == remain {
+		return 0, nil
+	}
+
+	maxPacket := f.c.maxPacket
+	expectPkts := remain / int64(maxPacket)
+	if remain != expectPkts*int64(maxPacket) {
+		expectPkts++
+	}
+
+	responder := f.c.responder()
+	req := &clientReq_{
+		expectType: sshFxpStatus,
+		noAutoResp: true,
+		onError:    responder.onError,
+		expectPkts: uint32(expectPkts),
+	}
+	pkt := sshFxpWritePacket{Handle: f.handle}
+
+	conn := &f.c.conn
+	eof := false
+	var sendErr error
+	req.nextPkt = func(id uint32) idAwarePkt_ {
+		// must only be accessed from conn.writer context
+		dataBuff := conn.GetBuffForReadFrom()
+		pkt.ID = id
+		if eof { // need to flush remaining expected pkts
+			pkt.Offset = uint64(f.offset)
+			pkt.Length = 0
+			pkt.Data = dataBuff[:0]
+			return &pkt
+		}
+		amount, err := r.Read(dataBuff)
+		if err != nil {
+			if io.EOF != err {
+				sendErr = err
+			}
+			eof = true
+		}
+		if amount > maxPacket {
+			panic("impossible! - dataBuff somehow larger than maxPacket")
+		}
+		ncopied += int64(amount)
+		pkt.Offset = uint64(f.offset)
+		f.offset += int64(amount)
+		pkt.Length = uint32(amount)
+		pkt.Data = dataBuff[:amount]
+		return &pkt
+	}
+
+	req.onResp = func(id, length uint32, typ uint8) (err error) {
+		expectPkts--
+		if 0 > expectPkts {
+			panic("got back too many packets for ReadFrom!")
+		}
+		switch typ {
+		case sshFxpStatus:
+			err = maybeError(conn.buff) // may be nil
+		default:
+			panic("impossible!")
+		}
+		if 0 == expectPkts { // all done
+			responder.onError(err)
+		}
+		return
+	}
+
+	err = conn.Request(req)
+	if err != nil {
+		return
+	}
+	err = responder.await()
+	if err != nil {
+		return
+	}
+	if nil == err {
+		err = sendErr
+	}
+	return
+}
+
+// this is slow because we have to wait for round trip of each write.
+// however, if the reader only has a buffer or two worth of data, then ok.
+func (f *File) readFromSlow(r io.Reader) (ncopied int64, err error) {
+
+	if f.c.preventSlowReadFrom {
+		return 0, errors.New("attempt to use File.ReadFrom with slow Reader")
+	}
+
+	maxPacket := f.c.maxPacket
+	conn := &f.c.conn
+	pkt := sshFxpWritePacket{Handle: f.handle}
+	eof := false
+	var sendErr error
+
+	for !eof {
+		responder := f.c.responder()
+		req := &clientReq_{
+			expectType: sshFxpStatus,
+			noAutoResp: true,
+			onError:    responder.onError,
+			expectPkts: 1,
 		}
 
 		req.nextPkt = func(id uint32) idAwarePkt_ {
+			// must only be accessed from conn.writer context
+			dataBuff := conn.GetBuffForReadFrom()
 			pkt.ID = id
-			pkt.Offset = uint64(offset)
-			offset += int64(chunkSz)
-			//expectPkts--
-			if 0 == expectPkts {
-				single.Len = lastChunkSz
-			} else {
-				single.Len = chunkSz
+			amount, err := r.Read(dataBuff)
+			if err != nil {
+				if io.EOF != err {
+					sendErr = err
+				}
+				eof = true
 			}
-			return single
+			if amount > maxPacket {
+				panic("impossible! - dataBuff somehow larger than maxPacket")
+			}
+			ncopied += int64(amount)
+			pkt.Offset = uint64(f.offset)
+			f.offset += int64(amount)
+			pkt.Length = uint32(amount)
+			pkt.Data = dataBuff[:amount]
+			return &pkt
 		}
-	*/
-	return 0, errors.New("not implemented yet")
+
+		req.onResp = func(id, length uint32, typ uint8) (err error) {
+			switch typ {
+			case sshFxpStatus:
+				err = maybeError(conn.buff) // may be nil
+			default:
+				panic("impossible!")
+			}
+			responder.onError(err)
+			return
+		}
+
+		err = conn.Request(req)
+		if err != nil {
+			return
+		}
+		err = responder.await()
+		if err != nil {
+			return
+		}
+	}
+	if nil == err {
+		err = sendErr
+	}
+	return
 }
 
 // implement io.Writer
+//
+// synchronize i/o ops
 func (f *File) Write(b []byte) (nwrote int, err error) {
 
 	if 0 == len(f.handle) {
@@ -1524,6 +1653,8 @@ func (f *File) Write(b []byte) (nwrote int, err error) {
 }
 
 // implement io.WriterAt
+//
+// synchronize i/o ops
 func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
 
 	if 0 == len(f.handle) {
@@ -1592,301 +1723,16 @@ func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
 	return
 }
 
-/*
-
-func (f *File) writeChunkAt(ch chan result, b []byte, off int64) (int, error) {
-	typ, data, err := f.c.sendPacket(context.Background(), ch, &sshFxpWritePacket{
-		ID:     f.c.nextID(),
-		Handle: f.handle,
-		Offset: uint64(off),
-		Length: uint32(len(b)),
-		Data:   b,
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	switch typ {
-	case sshFxpStatus:
-		id, _ := unmarshalUint32(data)
-		err := maybeError(unmarshalStatus(id, data))
-		if err != nil {
-			return 0, err
-		}
-
-	default:
-		return 0, unimplementedPacketErr(typ)
-	}
-
-	return len(b), nil
-}
-
-// ReadFromWithConcurrency implements ReaderFrom,
-// but uses the given concurrency to issue multiple requests at the same time.
+// implement io.Seeker
 //
-// Giving a concurrency of less than one will default to the Client’s max concurrency.
+// Set the offset for the next Read or Write. Return the next offset.
 //
-// Otherwise, the given concurrency will be capped by the Client's max concurrency.
+// Seeking before or after the end of the file is undefined.
 //
-// When one needs to guarantee concurrent reads/writes, this method is preferred
-// over ReadFrom.
-func (f *File) ReadFromWithConcurrency(r io.Reader, concurrency int) (read int64, err error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return f.readFromWithConcurrency(r, concurrency)
-}
-
-func (f *File) readFromWithConcurrency(r io.Reader, concurrency int) (read int64, err error) {
-	if f.handle == "" {
-		return 0, os.ErrClosed
-	}
-
-	// Split the write into multiple maxPacket sized concurrent writes.
-	// This allows writes with a suitably large reader
-	// to transfer data at a much faster rate due to overlapping round trip times.
-
-	cancel := make(chan struct{})
-
-	type work struct {
-		id  uint32
-		res chan result
-
-		off int64
-	}
-	workCh := make(chan work)
-
-	type rwErr struct {
-		off int64
-		err error
-	}
-	errCh := make(chan rwErr)
-
-	if concurrency > f.c.maxConcurrentRequests || concurrency < 1 {
-		concurrency = f.c.maxConcurrentRequests
-	}
-
-	pool := newResChanPool(concurrency)
-
-	// Slice: cut up the Read into any number of buffers of length <= f.c.maxPacket, and at appropriate offsets.
-	go func() {
-		defer close(workCh)
-
-		b := make([]byte, f.c.maxPacket)
-		off := f.offset
-
-		for {
-			n, err := r.Read(b)
-
-			if n > 0 {
-				read += int64(n)
-
-				id := f.c.nextID()
-				res := pool.Get()
-
-				f.c.dispatchRequest(res, &sshFxpWritePacket{
-					ID:     id,
-					Handle: f.handle,
-					Offset: uint64(off),
-					Length: uint32(n),
-					Data:   b[:n],
-				})
-
-				select {
-				case workCh <- work{id, res, off}:
-				case <-cancel:
-					return
-				}
-
-				off += int64(n)
-			}
-
-			if err != nil {
-				if err != io.EOF {
-					errCh <- rwErr{off, err}
-				}
-				return
-			}
-		}
-	}()
-
-	var wg sync.WaitGroup
-	wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
-		// Map_i: each worker gets work, and does the Write from each buffer to its respective offset.
-		go func() {
-			defer wg.Done()
-
-			for work := range workCh {
-				s := <-work.res
-				pool.Put(work.res)
-
-				err := s.err
-				if err == nil {
-					switch s.typ {
-					case sshFxpStatus:
-						err = maybeError(unmarshalStatus(work.id, s.data))
-					default:
-						err = unimplementedPacketErr(s.typ)
-					}
-				}
-
-				if err != nil {
-					errCh <- rwErr{work.off, err}
-
-					// DO NOT return.
-					// We want to ensure that workCh is drained before wg.Wait returns.
-				}
-			}
-		}()
-	}
-
-	// Wait for long tail, before closing results.
-	go func() {
-		wg.Wait()
-		close(errCh)
-	}()
-
-	// Reduce: Collect all the results into a relevant return: the earliest offset to return an error.
-	firstErr := rwErr{math.MaxInt64, nil}
-	for rwErr := range errCh {
-		if rwErr.off <= firstErr.off {
-			firstErr = rwErr
-		}
-
-		select {
-		case <-cancel:
-		default:
-			// stop any more work from being distributed.
-			close(cancel)
-		}
-	}
-
-	if firstErr.err != nil {
-		// firstErr.err != nil if and only if firstErr.off is a valid offset.
-		//
-		// firstErr.off will then be the lesser of:
-		// * the offset of the first error from writing,
-		// * the last successfully read offset.
-		//
-		// This could be less than the last successfully written offset,
-		// which is the whole reason for the UseConcurrentWrites() ClientOption.
-		//
-		// Callers are responsible for truncating any SFTP files to a safe length.
-		f.offset = firstErr.off
-
-		// ReadFrom is defined to return the read bytes, regardless of any writer errors.
-		return read, firstErr.err
-	}
-
-	f.offset += read
-	return read, nil
-}
-
-// ReadFrom reads data from r until EOF and writes it to the file. The return
-// value is the number of bytes read. Any error except io.EOF encountered
-// during the read is also returned.
+// Seeking relative to the end will call Stat if file has no cached attributes,
+// otherwise, it will use the cached attributes.
 //
-// This method is preferred over calling Write multiple times
-// to maximise throughput for transferring the entire file,
-// especially over high-latency links.
-//
-// To ensure concurrent writes, the given r needs to implement one of
-// the following receiver methods:
-//
-//	Len()  int
-//	Size() int64
-//	Stat() (os.FileInfo, error)
-//
-// or be an instance of [io.LimitedReader] to determine the number of possible
-// concurrent requests. Otherwise, reads/writes are performed sequentially.
-// ReadFromWithConcurrency can be used explicitly to guarantee concurrent
-// processing of the reader.
-func (f *File) ReadFrom(r io.Reader) (int64, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if f.handle == "" {
-		return 0, os.ErrClosed
-	}
-
-	if f.c.useConcurrentWrites {
-		var remain int64
-		switch r := r.(type) {
-		case interface{ Len() int }:
-			remain = int64(r.Len())
-
-		case interface{ Size() int64 }:
-			remain = r.Size()
-
-		case *io.LimitedReader:
-			remain = r.N
-
-		case interface{ Stat() (os.FileInfo, error) }:
-			info, err := r.Stat()
-			if err == nil {
-				remain = info.Size()
-			}
-		}
-
-		if remain < 0 {
-			// We can strongly assert that we want default max concurrency here.
-			return f.readFromWithConcurrency(r, f.c.maxConcurrentRequests)
-		}
-
-		if remain > int64(f.c.maxPacket) {
-			// Otherwise, only use concurrency, if it would be at least two packets.
-
-			// This is the best reasonable guess we can make.
-			concurrency64 := remain/int64(f.c.maxPacket) + 1
-
-			// We need to cap this value to an `int` size value to avoid overflow on 32-bit machines.
-			// So, we may as well pre-cap it to `f.c.maxConcurrentRequests`.
-			if concurrency64 > int64(f.c.maxConcurrentRequests) {
-				concurrency64 = int64(f.c.maxConcurrentRequests)
-			}
-
-			return f.readFromWithConcurrency(r, int(concurrency64))
-		}
-	}
-
-	ch := make(chan result, 1) // reusable channel
-
-	b := make([]byte, f.c.maxPacket)
-
-	var read int64
-	for {
-		n, err := r.Read(b)
-		if n < 0 {
-			panic("sftp.File: reader returned negative count from Read")
-		}
-
-		if n > 0 {
-			read += int64(n)
-
-			m, err2 := f.writeChunkAt(ch, b[:n], f.offset)
-			f.offset += int64(m)
-
-			if err == nil {
-				err = err2
-			}
-		}
-
-		if err != nil {
-			if err == io.EOF {
-				return read, nil // return nil explicitly.
-			}
-
-			return read, err
-		}
-	}
-}
-*/
-
-// Seek implements io.Seeker by setting the client offset for the next Read or
-// Write. It returns the next offset read. Seeking before or after the end of
-// the file is undefined. Seeking relative to the end will call Stat if file
-// has no cached attributes, otherwise, it will use the cached attributes.
+// synchronize i/o ops
 func (f *File) Seek(offset int64, whence int) (int64, error) {
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
@@ -1916,7 +1762,9 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	return f.offset, nil
 }
 
-// Chown changes the uid/gid of the current file.
+// Change the uid/gid of the current file.
+//
+// async safe
 func (f *File) Chown(uid, gid int) error {
 	fs := &FileStat{
 		UID: uint32(uid),
@@ -1929,7 +1777,7 @@ func (f *File) Chown(uid, gid int) error {
 	}
 }
 
-// Chmod changes the permissions of the current file.
+// Change the permissions of the current file.
 //
 // See Client.Chmod for details.
 func (f *File) Chmod(mode os.FileMode) error {
@@ -1947,6 +1795,8 @@ func (f *File) Chmod(mode os.FileMode) error {
 // Names of the attributes should be a string of the format "name@domain", where "domain"
 // is a valid, registered domain name and "name" identifies the method. Server
 // implementations SHOULD ignore extended data fields that they do not understand.
+//
+// async safe
 func (f *File) SetExtendedData(path string, extended []StatExtended) error {
 	attrs := &FileStat{Extended: extended}
 	if 0 == len(f.handle) {
@@ -1960,6 +1810,8 @@ func (f *File) SetExtendedData(path string, extended []StatExtended) error {
 // that if the size is less than its current size it will be truncated to fit,
 // the SFTP protocol does not specify what behavior the server should do when setting
 // size greater than the current size.
+//
+// async safe
 func (f *File) Truncate(size int64) error {
 
 	if 0 == len(f.handle) {
@@ -1972,6 +1824,8 @@ func (f *File) Truncate(size int64) error {
 // Request a flush of the contents of a File to stable storage.
 //
 // Sync requires the server to support the fsync@openssh.com extension.
+//
+// async safe
 func (f *File) Sync() error {
 	if 0 == len(f.handle) {
 		return os.ErrClosed
@@ -1982,6 +1836,8 @@ func (f *File) Sync() error {
 // Asynchronously request a flush of the contents of a File to stable storage.
 //
 // Requires the server to support the fsync@openssh.com extension.
+//
+// async safe
 func (f *File) SyncAsync(req any, respC chan *AsyncResponse) error {
 	if 0 == len(f.handle) {
 		return os.ErrClosed

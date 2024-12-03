@@ -20,6 +20,9 @@ type clientConn_ struct {
 	wC chan *clientReq_
 	rC chan *clientReq_
 
+	readFromBuff []byte // see File.ReadFrom
+	maxPacket    int
+
 	backing []byte
 	buff    []byte
 	pos     int
@@ -79,6 +82,7 @@ func (conn *clientConn_) closeConn() (wasClosed bool) {
 }
 
 func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, maxPkt int) {
+	conn.maxPacket = maxPkt
 	conn.r = r
 	conn.w = w
 	conn.rC = make(chan *clientReq_, 2048)
@@ -175,6 +179,16 @@ func (conn *clientConn_) Request(req *clientReq_) (err error) {
 	return
 }
 
+// for use by File.ReadFrom, only within req.nextPkt()
+//
+// provides a max sized buff for ReadFrom to use to copy data
+func (conn *clientConn_) GetBuffForReadFrom() []byte {
+	if nil == conn.readFromBuff {
+		conn.readFromBuff = make([]byte, conn.maxPacket)
+	}
+	return conn.readFromBuff
+}
+
 func (conn *clientConn_) writer() {
 	var err error
 	idGen := uint32(1) // generate req ids
@@ -197,7 +211,7 @@ func (conn *clientConn_) writer() {
 
 		conn.rC <- req
 
-		if 1 == req.expectPkts && nil == req.nextPkt {
+		if nil == req.nextPkt {
 			req.pkt.setId(idGen)
 			idGen++
 			//ulog.Printf("XXX: send single: %#v", req.pkt)
@@ -210,6 +224,8 @@ func (conn *clientConn_) writer() {
 			}
 			continue
 		}
+
+		// File.WriteTo, Write, WriteAt, ReadFrom
 
 		for i := uint32(0); i < req.expectPkts; i++ {
 			pkt := req.nextPkt(idGen)
