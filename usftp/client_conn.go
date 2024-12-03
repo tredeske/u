@@ -257,6 +257,13 @@ func (conn *clientConn_) reader() {
 		if err = conn.ensure(9); err != nil {
 			return
 		}
+
+		//dbgLen := len(conn.buff)
+		//if dbgLen >= 48 {
+		//dbgLen = 48
+		//}
+		//ulog.Printf("XXX: read\n%s", hex.Dump(conn.buff[:dbgLen]))
+
 		length, typ, err = conn.readHeader()
 		if err != nil {
 			return
