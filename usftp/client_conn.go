@@ -34,8 +34,10 @@ type clientReq_ struct {
 	//pkts       []idAwarePkt_  // request packets to send
 	//single     [1]idAwarePkt_ // we mostly only ever send one per
 
-	pkt     idAwarePkt_                 // we mostly ever send one per
-	nextPkt func(id uint32) idAwarePkt_ // when more than 1 pkt
+	pkt idAwarePkt_ // we mostly ever send one per
+
+	// when pkt(s) need to be provided just in time
+	nextPkt func(id uint32) idAwarePkt_
 
 	onResp  func(id, length uint32, typ uint8) error
 	onError func(error)
@@ -96,7 +98,7 @@ func (conn *clientConn_) Start() (exts map[string]string, err error) {
 	initPkt := &sshFxInitPacket{
 		Version: sftpProtocolVersion,
 	}
-	buff := make([]byte, 0, 8192)
+	buff := make([]byte, 0, 1024*1024)
 	err = sendPacket(conn.w, buff, initPkt)
 	if err != nil {
 		return
@@ -195,7 +197,7 @@ func (conn *clientConn_) writer() {
 
 		conn.rC <- req
 
-		if 1 == req.expectPkts {
+		if 1 == req.expectPkts && nil == req.nextPkt {
 			req.pkt.setId(idGen)
 			idGen++
 			//ulog.Printf("XXX: send single: %#v", req.pkt)
@@ -218,6 +220,15 @@ func (conn *clientConn_) writer() {
 					req.onError(err)
 				}
 				return
+			}
+			if writePkt, ok := pkt.(*sshFxpWritePacket); ok {
+				_, err = conn.w.Write(writePkt.Data)
+				if err != nil {
+					if nil != req.onError {
+						req.onError(err)
+					}
+					return
+				}
 			}
 			//ulog.Printf("XXX: sent %d", pkt.id())
 		}

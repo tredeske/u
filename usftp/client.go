@@ -1481,28 +1481,118 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 	return
 }
 
-/*
+// implement io.ReaderFrom
+func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
+	/*
+		req := &clientReq_{
+			expectType: sshFxpData,
+			noAutoResp: true,
+			//expectPkts: uint32(expectPkts),
+		}
+		pkt := sshFxpWritePacket{
+			Handle: f.handle,
+			Offset: uint64(off),
+			Length: uint32(len(b)),
+			Data:   b,
+		}
 
-// Write writes len(b) bytes to the File. It returns the number of bytes
-// written and an error, if any. Write returns a non-nil error when n !=
-// len(b).
-//
-// To maximise throughput for transferring the entire file (especially
-// over high latency links) it is recommended to use ReadFrom rather
-// than calling Write multiple times. io.Copy will do this
-// automatically.
-func (f *File) Write(b []byte) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+		req.nextPkt = func(id uint32) idAwarePkt_ {
+			pkt.ID = id
+			pkt.Offset = uint64(offset)
+			offset += int64(chunkSz)
+			//expectPkts--
+			if 0 == expectPkts {
+				single.Len = lastChunkSz
+			} else {
+				single.Len = chunkSz
+			}
+			return single
+		}
+	*/
+	return 0, errors.New("not implemented yet")
+}
 
-	if f.handle == "" {
+// implement io.Writer
+func (f *File) Write(b []byte) (nwrote int, err error) {
+
+	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
 	}
-
-	n, err := f.writeAt(b, f.offset)
-	f.offset += int64(n)
-	return n, err
+	nwrote, err = f.WriteAt(b, f.offset)
+	f.offset += int64(nwrote)
+	return
 }
+
+// implement io.WriterAt
+func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
+
+	if 0 == len(f.handle) {
+		return 0, os.ErrClosed
+	} else if 0 == len(b) {
+		return
+	}
+
+	responder := f.c.responder()
+
+	maxPacket := f.c.maxPacket
+	expectPkts := len(b) / maxPacket
+	if len(b) != expectPkts*maxPacket {
+		expectPkts++
+	}
+
+	req := &clientReq_{
+		expectType: sshFxpStatus,
+		noAutoResp: true,
+		onError:    responder.onError,
+		expectPkts: uint32(expectPkts),
+	}
+	pkt := sshFxpWritePacket{Handle: f.handle}
+
+	req.nextPkt = func(id uint32) idAwarePkt_ {
+		pkt.ID = id
+		amount := len(b)
+		if 0 == amount {
+			return nil
+		} else if amount > maxPacket {
+			amount = maxPacket
+		}
+		written += amount
+		pkt.Offset = uint64(offset)
+		offset += int64(amount)
+		pkt.Length = uint32(amount)
+		pkt.Data = b
+		b = b[amount:]
+		return &pkt
+	}
+
+	conn := &f.c.conn
+
+	req.onResp = func(id, length uint32, typ uint8) (err error) {
+		expectPkts--
+		if 0 > expectPkts {
+			return errors.New("got back too many packets for write!")
+		}
+		switch typ {
+		case sshFxpStatus:
+			err = maybeError(conn.buff) // may be nil
+		default:
+			panic("impossible!")
+		}
+		if 0 == expectPkts { // all done
+			responder.onError(err)
+		}
+		return
+	}
+
+	err = conn.Request(req)
+	if err != nil {
+		return
+	}
+	err = responder.await()
+	return
+}
+
+/*
 
 func (f *File) writeChunkAt(ch chan result, b []byte, off int64) (int, error) {
 	typ, data, err := f.c.sendPacket(context.Background(), ch, &sshFxpWritePacket{
@@ -1526,177 +1616,6 @@ func (f *File) writeChunkAt(ch chan result, b []byte, off int64) (int, error) {
 
 	default:
 		return 0, unimplementedPacketErr(typ)
-	}
-
-	return len(b), nil
-}
-
-// writeAtConcurrent implements WriterAt, but works concurrently rather than sequentially.
-func (f *File) writeAtConcurrent(b []byte, off int64) (int, error) {
-	// Split the write into multiple maxPacket sized concurrent writes
-	// bounded by maxConcurrentRequests. This allows writes with a suitably
-	// large buffer to transfer data at a much faster rate due to
-	// overlapping round trip times.
-
-	cancel := make(chan struct{})
-
-	type work struct {
-		id  uint32
-		res chan result
-
-		off int64
-	}
-	workCh := make(chan work)
-
-	concurrency := len(b)/f.c.maxPacket + 1
-	if concurrency > f.c.maxConcurrentRequests || concurrency < 1 {
-		concurrency = f.c.maxConcurrentRequests
-	}
-
-	pool := newResChanPool(concurrency)
-
-	// Slice: cut up the Read into any number of buffers of length <= f.c.maxPacket, and at appropriate offsets.
-	go func() {
-		defer close(workCh)
-
-		var read int
-		chunkSize := f.c.maxPacket
-
-		for read < len(b) {
-			wb := b[read:]
-			if len(wb) > chunkSize {
-				wb = wb[:chunkSize]
-			}
-
-			id := f.c.nextID()
-			res := pool.Get()
-			off := off + int64(read)
-
-			f.c.dispatchRequest(res, &sshFxpWritePacket{
-				ID:     id,
-				Handle: f.handle,
-				Offset: uint64(off),
-				Length: uint32(len(wb)),
-				Data:   wb,
-			})
-
-			select {
-			case workCh <- work{id, res, off}:
-			case <-cancel:
-				return
-			}
-
-			read += len(wb)
-		}
-	}()
-
-	type wErr struct {
-		off int64
-		err error
-	}
-	errCh := make(chan wErr)
-
-	var wg sync.WaitGroup
-	wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
-		// Map_i: each worker gets work, and does the Write from each buffer to its respective offset.
-		go func() {
-			defer wg.Done()
-
-			for work := range workCh {
-				s := <-work.res
-				pool.Put(work.res)
-
-				err := s.err
-				if err == nil {
-					switch s.typ {
-					case sshFxpStatus:
-						err = maybeError(unmarshalStatus(work.id, s.data))
-					default:
-						err = unimplementedPacketErr(s.typ)
-					}
-				}
-
-				if err != nil {
-					errCh <- wErr{work.off, err}
-				}
-			}
-		}()
-	}
-
-	// Wait for long tail, before closing results.
-	go func() {
-		wg.Wait()
-		close(errCh)
-	}()
-
-	// Reduce: collect all the results into a relevant return: the earliest offset to return an error.
-	firstErr := wErr{math.MaxInt64, nil}
-	for wErr := range errCh {
-		if wErr.off <= firstErr.off {
-			firstErr = wErr
-		}
-
-		select {
-		case <-cancel:
-		default:
-			// stop any more work from being distributed. (Just in case.)
-			close(cancel)
-		}
-	}
-
-	if firstErr.err != nil {
-		// firstErr.err != nil if and only if firstErr.off >= our starting offset.
-		return int(firstErr.off - off), firstErr.err
-	}
-
-	return len(b), nil
-}
-
-// WriteAt writes up to len(b) byte to the File at a given offset `off`. It returns
-// the number of bytes written and an error, if any. WriteAt follows io.WriterAt semantics,
-// so the file offset is not altered during the write.
-func (f *File) WriteAt(b []byte, off int64) (written int, err error) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-
-	if f.handle == "" {
-		return 0, os.ErrClosed
-	}
-
-	return f.writeAt(b, off)
-}
-
-// writeAt must be called while holding either the Read or Write mutex in File.
-// This code is concurrent safe with itself, but not with Close.
-func (f *File) writeAt(b []byte, off int64) (written int, err error) {
-	if len(b) <= f.c.maxPacket {
-		// We can do this in one write.
-		return f.writeChunkAt(nil, b, off)
-	}
-
-	if f.c.useConcurrentWrites {
-		return f.writeAtConcurrent(b, off)
-	}
-
-	ch := make(chan result, 1) // reusable channel
-
-	chunkSize := f.c.maxPacket
-
-	for written < len(b) {
-		wb := b[written:]
-		if len(wb) > chunkSize {
-			wb = wb[:chunkSize]
-		}
-
-		n, err := f.writeChunkAt(ch, wb, off+int64(written))
-		if n > 0 {
-			written += n
-		}
-
-		if err != nil {
-			return written, err
-		}
 	}
 
 	return len(b), nil
