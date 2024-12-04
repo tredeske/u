@@ -34,15 +34,18 @@ type clientReq_ struct {
 	expectPkts uint32 // pkts to send
 	expectType uint8  // expected resp type (status always expected)
 	noAutoResp bool   // disable invoke of onError after onResp
-	//pkts       []idAwarePkt_  // request packets to send
-	//single     [1]idAwarePkt_ // we mostly only ever send one per
 
-	pkt idAwarePkt_ // we mostly ever send one per
+	// when nextPkt is not set (most cases) this is the single packet to send
+	pkt idAwarePkt_
 
-	// when pkt(s) need to be provided just in time
+	// when pkt(s) need to be provided just in time.
+	// this runs in the clientConn.writer context
 	nextPkt func(id uint32) idAwarePkt_
 
-	onResp  func(id, length uint32, typ uint8) error
+	// this runs in the clientConn.reader context
+	onResp func(id, length uint32, typ uint8) error
+
+	// this runs in the clientConn writer or reader contexts
 	onError func(error)
 }
 

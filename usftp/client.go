@@ -859,9 +859,21 @@ func (c *Client) RemoveAll(path string) error {
 }
 */
 
-// File represents a remote file.
+// Provide access to a remote file.
 //
-// Reads and Writes must be externally synchronized if performed concurrently
+// Files obtained via Client.ReadDir are not in an open state.  They must be opened
+// first.  These Files do have populated attributes.
+//
+// Files obtained via Client.Open calls are open, but do not have populated
+// attributes until Stat() is called.
+//
+// Calls that change the offset (Read/ReadFrom/Write/WriteTo/Seek) need to be
+// externally coordinated or synchronized.  This is no different than dealing
+// with any other kind of file, as concurrent reads and writes will result in
+// gibberish otherwise.
+//
+// Likewise, Open/Close needs to also be externally coordinated or synchronized
+// with other i/o ops.
 type File struct {
 	c      *Client
 	pathN  string
@@ -871,6 +883,14 @@ type File struct {
 }
 
 const ErrOpenned = uerr.Const("file already openned")
+
+// normally create with client.Open or client.ReadDir
+func NewFile(client *Client, pathN string) *File {
+	return &File{
+		c:     client,
+		pathN: pathN,
+	}
+}
 
 func (f *File) IsOpen() bool { return 0 != len(f.handle) }
 
@@ -1408,13 +1428,12 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 // implement io.Reader
 //
 // Reads up to len(b) bytes from the File. It returns the number of bytes
-// read and an error, if any. Read follows io.Reader semantics, so when Read
-// encounters an error or EOF condition after successfully reading n > 0 bytes,
-// it returns the number of bytes read.
+// read and an error, if any. When Read encounters an error or EOF condition after
+// successfully reading n > 0 bytes, it returns the number of bytes read.
 //
-// The read will be broken up into chunks supported by the server.
+// The read may be broken up into chunks supported by the server.
 //
-// If transfering to an ioWriter, use WriteTo for best performance.  io.Copy
+// If transfering to an io.Writer, use WriteTo for best performance.  io.Copy
 // will do this automatically.
 //
 // synchronize i/o ops
@@ -1446,14 +1465,24 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 
 // implement io.ReaderFrom
 //
-// This call will likely be very slow unless r (the io.Reader) has one of the
-// following methods:
+// This is fast as long as r (the io.Reader) has one of these methods:
 //
 //	Len()  int
 //	Size() int64
 //	Stat() (os.FileInfo, error)
 //
-// or is an instance of [io.LimitedReader].
+// or is an instance of [io.LimitedReader].  The following are known to match:
+//   - bytes.Buffer
+//   - bytes.Reader
+//   - strings.Reader
+//   - os.File
+//   - io.LimitedReader
+//
+// Otherwise, this call will be slow, since we won't know the amount that is
+// to be transferred and will need to make one i/o at a time.
+//
+// If you need to prevent the slow path from occuring, use the
+// PreventSlowReadFrom ClientOption.
 //
 // synchronize i/o ops
 func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
@@ -1467,27 +1496,10 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 	// able to tell the conn.writer and conn.reader how many packets to expect,
 	// so that we can pump data to the sftp server while getting back acks.
 	//
-	var remain int64
-	switch r := r.(type) {
-	case interface{ Len() int }:
-		remain = int64(r.Len())
-
-	case interface{ Size() int64 }:
-		remain = r.Size()
-
-	case *io.LimitedReader:
-		remain = r.N
-
-	case interface{ Stat() (os.FileInfo, error) }:
-		info, err := r.Stat()
-		if err == nil {
-			remain = info.Size()
-		}
-	default:
+	remain, limited := surmiseRemaining(r)
+	if !limited {
 		return f.readFromSlow(r)
-	}
-
-	if 0 == remain {
+	} else if 0 == remain {
 		return 0, nil
 	}
 
@@ -1635,6 +1647,38 @@ func (f *File) readFromSlow(r io.Reader) (ncopied int64, err error) {
 	}
 	if nil == err {
 		err = sendErr
+	}
+	return
+}
+
+func surmiseRemaining(r io.Reader) (remain int64, limited bool) {
+	//
+	// we need to know the amount we'll be reading up front, as we need to be
+	// able to tell the conn.writer and conn.reader how many packets to expect,
+	// so that we can pump data to the sftp server while getting back acks.
+	//
+	switch r := r.(type) {
+	case interface{ Len() int }:
+		limited = true
+		remain = int64(r.Len())
+
+	case interface{ Size() int64 }:
+		limited = true
+		remain = r.Size()
+
+	case *io.LimitedReader:
+		remain, limited = surmiseRemaining(r.R) // need to dig deeper
+		if !limited || remain > r.N {
+			limited = true
+			remain = r.N
+		}
+
+	case interface{ Stat() (os.FileInfo, error) }:
+		limited = true
+		info, err := r.Stat()
+		if err == nil {
+			remain = info.Size()
+		}
 	}
 	return
 }
