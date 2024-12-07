@@ -285,7 +285,7 @@ func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_, err error) {
 	//
 	for req := range conn.rC {
 		hi := req.id + req.expectPkts - 1
-		for d := req.id; id <= hi; id++ {
+		for id := req.id; id <= hi; id++ {
 			reqs[id] = req
 		}
 	}
