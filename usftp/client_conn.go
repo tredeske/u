@@ -3,10 +3,10 @@ package usftp
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sync/atomic"
 
 	"github.com/tredeske/u/uerr"
-	"github.com/tredeske/u/ulog"
 	"github.com/tredeske/u/usync"
 )
 
@@ -27,13 +27,21 @@ type clientConn_ struct {
 	buff    []byte
 	pos     int
 	closed  atomic.Bool
+	client  *Client
 }
 
+type autoResp_ bool
+
+const (
+	autoRespond_   autoResp_ = true
+	manualRespond_ autoResp_ = false
+)
+
 type clientReq_ struct {
-	id         uint32 // request id filled in by writer
-	expectPkts uint32 // pkts to send
-	expectType uint8  // expected resp type (status always expected)
-	noAutoResp bool   // disable invoke of onError after onResp
+	id         uint32    // request id filled in by writer
+	expectPkts uint32    // pkts to send
+	expectType uint8     // expected resp type (status always expected)
+	autoResp   autoResp_ // automatically call ensure before onResp, and onError after
 
 	// when nextPkt is not set (most cases) this is the single packet to send
 	pkt idAwarePkt_
@@ -52,7 +60,7 @@ type clientReq_ struct {
 func newClientReq(
 	pkt idAwarePkt_,
 	expectType uint8,
-	noAutoResp bool,
+	autoResp autoResp_,
 	onResp func(id, length uint32, typ uint8) error,
 	onError func(error),
 ) (
@@ -60,7 +68,7 @@ func newClientReq(
 ) {
 	req = &clientReq_{
 		expectType: expectType,
-		noAutoResp: noAutoResp,
+		autoResp:   autoResp,
 		onResp:     onResp,
 		onError:    onError,
 	}
@@ -84,14 +92,15 @@ func (conn *clientConn_) closeConn() (wasClosed bool) {
 	return true
 }
 
-func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, maxPkt int) {
-	conn.maxPacket = maxPkt
+func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, c *Client) {
+	conn.client = c
+	conn.maxPacket = c.maxPacket
 	conn.r = r
 	conn.w = w
 	conn.rC = make(chan *clientReq_, 2048)
 	conn.wC = make(chan *clientReq_, 2048)
 	// we add a little extra since data pkts can be 4+1+4 larger
-	conn.backing = make([]byte, maxPkt+16)
+	conn.backing = make([]byte, conn.maxPacket+16)
 	conn.buff = conn.backing[:0]
 	conn.closed.Store(true)
 }
@@ -105,7 +114,7 @@ func (conn *clientConn_) Start() (exts map[string]string, err error) {
 	initPkt := &sshFxInitPacket{
 		Version: sftpProtocolVersion,
 	}
-	buff := make([]byte, 0, 1024*1024)
+	buff := make([]byte, 0, 4096)
 	err = sendPacket(conn.w, buff, initPkt)
 	if err != nil {
 		return
@@ -164,13 +173,13 @@ func (conn *clientConn_) Start() (exts map[string]string, err error) {
 func (conn *clientConn_) RequestSingle(
 	pkt idAwarePkt_,
 	expectType uint8,
-	noAutoResp bool,
+	autoResp autoResp_,
 	onResp func(id, length uint32, typ uint8) error,
 	onError func(error),
 ) (
 	err error,
 ) {
-	return conn.Request(newClientReq(pkt, expectType, noAutoResp, onResp, onError))
+	return conn.Request(newClientReq(pkt, expectType, autoResp, onResp, onError))
 }
 
 func (conn *clientConn_) Request(req *clientReq_) (err error) {
@@ -199,12 +208,17 @@ func (conn *clientConn_) writer() {
 
 	defer func() {
 		wasClosed := conn.closeConn()
-		close(conn.rC)
 		if !wasClosed && err != nil {
-			// TODO
-
-			ulog.Errorf("SFTP write failed: %s", err)
+			err = uerr.Chainf(err, "SFTP writer")
+			conn.client.reportError(err)
 		}
+		// drain our chan over to the reader chan for disposal
+		for req := range conn.wC {
+			req.id = idGen
+			conn.rC <- req
+			idGen += req.expectPkts
+		}
+		close(conn.rC)
 	}()
 
 	for req := range conn.wC {
@@ -254,6 +268,50 @@ func (conn *clientConn_) writer() {
 	}
 }
 
+// used by reader to cancel any reqs in flight
+func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_, err error) {
+
+	statusError := StatusError{
+		Code: sshFxConnectionLost,
+		msg:  "cancelled",
+		lang: "",
+	}
+	if nil == err {
+		err = &statusError
+	}
+
+	//
+	// drain the reader chan until it closes
+	//
+	for req := range conn.rC {
+		hi := req.id + req.expectPkts - 1
+		for d := req.id; id <= hi; id++ {
+			reqs[id] = req
+		}
+	}
+
+	//
+	// cancel in order
+	//
+	if 0 != len(reqs) {
+		cancelList := make([]uint32, 0, len(reqs))
+		for id, _ := range reqs {
+			cancelList = append(cancelList, id)
+		}
+		slices.Sort(cancelList)
+		for _, id := range cancelList {
+			req := reqs[id]
+			if nil != req.onError {
+				req.onError(err)
+				continue
+			}
+			// use buff we share with client
+			conn.buff = marshalStatus(conn.backing[:0], statusError)
+			req.onResp(id, uint32(len(conn.buff)), sshFxpStatus)
+		}
+	}
+}
+
 func (conn *clientConn_) reader() {
 	const errUnexpected = uerr.Const("Unexpected SFTP req ID in response")
 	var err error
@@ -263,17 +321,16 @@ func (conn *clientConn_) reader() {
 	var found bool
 	var req *clientReq_
 
-	reqs := make(map[uint32]*clientReq_, 1024)
+	reqs := make(map[uint32]*clientReq_, 8192)
 
 	defer func() {
 		wasClosed := conn.closeConn()
 
 		if !wasClosed && err != nil {
-			if nil != req && nil != req.onError {
-				req.onError(err)
-			}
-			ulog.Warnf("SFTP reader failed: %s", err)
+			err = uerr.Chainf(err, "SFTP reader")
+			conn.client.reportError(err)
 		}
+		conn.cancelReqs(reqs, err)
 	}()
 
 	for {
@@ -319,7 +376,6 @@ func (conn *clientConn_) reader() {
 				}
 				lo := req.id
 				hi := req.id + req.expectPkts - 1
-				//hi := req.id + uint32(len(req.pkts)) - 1
 				found = (id >= lo && id <= hi)
 				for ; lo <= hi; lo++ {
 					reqs[lo] = req
@@ -329,7 +385,6 @@ func (conn *clientConn_) reader() {
 				return
 			}
 		}
-		delete(reqs, id)
 
 		//
 		// handle response
@@ -339,8 +394,15 @@ func (conn *clientConn_) reader() {
 				req.expectType, typ)
 			return
 		}
+		if req.autoResp || sshFxpStatus == typ {
+			err = conn.ensure(int(length))
+			if err != nil {
+				return
+			}
+		}
+		delete(reqs, id)
 		reqErr := req.onResp(id, length, typ)
-		if !req.noAutoResp && nil != req.onError {
+		if req.autoResp && nil != req.onError {
 			req.onError(reqErr) // autoResp - whether err nil or not
 		}
 		req = nil // disable onError after here
