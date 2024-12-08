@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"sync"
@@ -171,16 +172,20 @@ func (c *Client) HasExtension(name string) (string, bool) {
 	return data, ok
 }
 
+// close connection to SFTP server and cease operation
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// TODO: make a fs wrapper
-//
-// Walk returns a new Walker rooted at root.
-//func (c *Client) Walk(root string) *fs.Walker {
-//	return fs.WalkFS(root, c)
-//}
+// return fs.FS compliant facade
+func (c *Client) FS() fs.FS {
+	return &fsClient_{client: c}
+}
+
+// see fs.WalkDir
+func (c *Client) WalkDir(root string, f fs.WalkDirFunc) error {
+	return fs.WalkDir(c.FS(), root, f)
+}
 
 type ReadDirFilter func(fileN string, attrs *FileStat) (allow, stop bool)
 

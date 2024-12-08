@@ -43,17 +43,22 @@ type clientReq_ struct {
 	expectType uint8     // expected resp type (status always expected)
 	autoResp   autoResp_ // automatically call ensure before onResp, and onError after
 
-	// when nextPkt is not set (most cases) this is the single packet to send
+	// When nextPkt is not set (most cases) this is the single packet to send.
 	pkt idAwarePkt_
 
-	// when pkt(s) need to be provided just in time.
-	// this runs in the clientConn.writer context
+	// When a request requires multiple packets, then this is provided to
+	// enable the writer to request each packet to send.
+	//
+	// This runs in the clientConn.writer context
 	nextPkt func(id uint32) idAwarePkt_
 
-	// this runs in the clientConn.reader context
+	// Called for each received pkt related to the request.
+	// This runs in the clientConn.reader context
 	onResp func(id, length uint32, typ uint8) error
 
-	// this runs in the clientConn writer or reader contexts
+	// Notify requestor that a problem occurred.  For "fire and forget" requests,
+	// this may not be set.
+	// This runs in the clientConn writer or reader contexts
 	onError func(error)
 }
 
@@ -206,19 +211,23 @@ func (conn *clientConn_) writer() {
 	idGen := uint32(1) // generate req ids
 	buff := make([]byte, 8192)
 
-	defer func() {
+	defer func() { // cleanup
 		wasClosed := conn.closeConn()
+		close(conn.rC)
 		if !wasClosed && err != nil {
 			err = uerr.Chainf(err, "SFTP writer")
 			conn.client.reportError(err)
 		}
-		// drain our chan over to the reader chan for disposal
-		for req := range conn.wC {
-			req.id = idGen
-			conn.rC <- req
-			idGen += req.expectPkts
+		// notify any pending reqs
+		err = &StatusError{
+			Code: sshFxConnectionLost,
+			msg:  "cancelled",
 		}
-		close(conn.rC)
+		for req := range conn.wC {
+			if nil != req.onError {
+				req.onError(err)
+			}
+		}
 	}()
 
 	for req := range conn.wC {
@@ -269,29 +278,15 @@ func (conn *clientConn_) writer() {
 }
 
 // used by reader to cancel any reqs in flight
-func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_, err error) {
+func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_) {
 
-	statusError := StatusError{
+	err := &StatusError{
 		Code: sshFxConnectionLost,
 		msg:  "cancelled",
-		lang: "",
-	}
-	if nil == err {
-		err = &statusError
 	}
 
 	//
-	// drain the reader chan until it closes
-	//
-	for req := range conn.rC {
-		hi := req.id + req.expectPkts - 1
-		for id := req.id; id <= hi; id++ {
-			reqs[id] = req
-		}
-	}
-
-	//
-	// cancel in order
+	// cancel in order, but only the lowest id pkt for each req
 	//
 	if 0 != len(reqs) {
 		cancelList := make([]uint32, 0, len(reqs))
@@ -300,14 +295,28 @@ func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_, err error) {
 		}
 		slices.Sort(cancelList)
 		for _, id := range cancelList {
-			req := reqs[id]
-			if nil != req.onError {
-				req.onError(err)
+			req, ok := reqs[id]
+			if !ok || nil == req.onError {
 				continue
 			}
-			// use buff we share with client
-			conn.buff = marshalStatus(conn.backing[:0], statusError)
-			req.onResp(id, uint32(len(conn.buff)), sshFxpStatus)
+			req.onError(err)
+			hi := req.id + req.expectPkts - 1
+			rm := req.id
+			if id > rm {
+				rm = id
+			}
+			for ; rm <= hi; rm++ {
+				delete(reqs, rm)
+			}
+		}
+	}
+
+	//
+	// drain the reader chan until it closes
+	//
+	for req := range conn.rC {
+		if nil != req.onError {
+			req.onError(err)
 		}
 	}
 }
@@ -326,11 +335,15 @@ func (conn *clientConn_) reader() {
 	defer func() {
 		wasClosed := conn.closeConn()
 
+		if nil != req && nil != req.onError {
+			req.onError(err)
+		}
+
 		if !wasClosed && err != nil {
 			err = uerr.Chainf(err, "SFTP reader")
 			conn.client.reportError(err)
 		}
-		conn.cancelReqs(reqs, err)
+		conn.cancelReqs(reqs)
 	}()
 
 	for {
@@ -385,6 +398,7 @@ func (conn *clientConn_) reader() {
 				return
 			}
 		}
+		delete(reqs, id)
 
 		//
 		// handle response
@@ -400,16 +414,12 @@ func (conn *clientConn_) reader() {
 				return
 			}
 		}
-		delete(reqs, id)
 		reqErr := req.onResp(id, length, typ)
 		if req.autoResp && nil != req.onError {
 			req.onError(reqErr) // autoResp - whether err nil or not
 		}
 		req = nil // disable onError after here
-		//if err != nil {
-		//	ulog.Printf("XXX: onResp %s", err)
-		//	return
-		//}
+
 		if int(length) > len(conn.buff) {
 			conn.pos = 0
 			conn.buff = conn.backing[:0]
