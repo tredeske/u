@@ -17,17 +17,43 @@ type clientConn_ struct {
 	r io.Reader
 	w io.WriteCloser
 
-	wC chan *clientReq_
-	rC chan *clientReq_
+	wC chan *clientReq_ // input chan to writer
+	rC chan *clientReq_ // chan from writer to reader
 
 	readFromBuff []byte // see File.ReadFrom
 	maxPacket    int
 
-	backing []byte
-	buff    []byte
-	pos     int
-	closed  atomic.Bool
+	backing []byte      // for reader
+	buff    []byte      // for reader, req.onResp
+	pos     int         // for reader
+	closed  atomic.Bool // the end
 	client  *Client
+}
+
+func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, c *Client) {
+	conn.client = c
+	conn.maxPacket = c.maxPacket
+	conn.r = r
+	conn.w = w
+	conn.rC = make(chan *clientReq_, 2048)
+	conn.wC = make(chan *clientReq_, 2048)
+	// we add a little extra since data pkts can be 4+1+4 larger
+	conn.backing = make([]byte, conn.maxPacket+16)
+	conn.buff = conn.backing[:0]
+	conn.closed.Store(true)
+}
+
+func (conn *clientConn_) Close() error {
+	conn.closeConn()
+	return nil
+}
+
+func (conn *clientConn_) closeConn() (wasClosed bool) {
+	if conn.closed.CompareAndSwap(false, true) {
+		close(conn.wC)
+		return false
+	}
+	return true
 }
 
 type autoResp_ bool
@@ -38,16 +64,20 @@ const (
 )
 
 type clientReq_ struct {
-	id         uint32    // request id filled in by writer
-	expectPkts uint32    // pkts to send
-	expectType uint8     // expected resp type (status always expected)
-	autoResp   autoResp_ // automatically call ensure before onResp, and onError after
+	id         uint32 // request id filled in by writer
+	expectPkts uint32 // pkts to send
+	expectType uint8  // expected resp type (status always expected)
+	cancelled  bool   // reader use
+
+	// automatically call ensure before onResp, and onError after
+	// onError must be set
+	autoResp autoResp_
 
 	// When nextPkt is not set (most cases) this is the single packet to send.
 	pkt idAwarePkt_
 
-	// When a request requires multiple packets, then this is provided to
-	// enable the writer to request each packet to send.
+	// When a request requires multiple packets, then requester provides this to
+	// enable the writer to get each packet to send.
 	//
 	// This runs in the clientConn.writer context
 	nextPkt func(id uint32) idAwarePkt_
@@ -56,9 +86,11 @@ type clientReq_ struct {
 	// This runs in the clientConn.reader context
 	onResp func(id, length uint32, typ uint8) error
 
-	// Notify requestor that a problem occurred.  For "fire and forget" requests,
-	// this may not be set.
-	// This runs in the clientConn writer or reader contexts
+	// Notify requestor that a problem occurred.
+	//
+	// This is only not set for "fire and forget" requests.
+	//
+	// This may run in either the clientConn writer or reader contexts
 	onError func(error)
 }
 
@@ -79,99 +111,6 @@ func newClientReq(
 	}
 	req.pkt = pkt
 	req.expectPkts = 1
-	//req.single[0] = pkt
-	//req.pkts = req.single[:]
-	return
-}
-
-func (conn *clientConn_) Close() error {
-	conn.closeConn()
-	return nil
-}
-
-func (conn *clientConn_) closeConn() (wasClosed bool) {
-	if conn.closed.CompareAndSwap(false, true) {
-		close(conn.wC)
-		return false
-	}
-	return true
-}
-
-func (conn *clientConn_) Construct(r io.Reader, w io.WriteCloser, c *Client) {
-	conn.client = c
-	conn.maxPacket = c.maxPacket
-	conn.r = r
-	conn.w = w
-	conn.rC = make(chan *clientReq_, 2048)
-	conn.wC = make(chan *clientReq_, 2048)
-	// we add a little extra since data pkts can be 4+1+4 larger
-	conn.backing = make([]byte, conn.maxPacket+16)
-	conn.buff = conn.backing[:0]
-	conn.closed.Store(true)
-}
-
-func (conn *clientConn_) Start() (exts map[string]string, err error) {
-	// initial exchange has no pkt ids
-	// - send init
-	// - get back version and extensions
-	//
-	// https://filezilla-project.org/specs/draft-ietf-secsh-filexfer-02.txt
-	initPkt := &sshFxInitPacket{
-		Version: sftpProtocolVersion,
-	}
-	buff := make([]byte, 0, 4096)
-	err = sendPacket(conn.w, buff, initPkt)
-	if err != nil {
-		return
-	}
-
-	length, typ, err := conn.readHeader()
-	if err != nil {
-		return
-	}
-	if err = conn.ensure(int(length)); err != nil {
-		return
-	}
-	if typ != sshFxpVersion {
-		err = &unexpectedPacketErr{sshFxpVersion, typ}
-		return
-	}
-
-	version, _, err := unmarshalUint32Safe(conn.buff)
-	if err != nil {
-		return
-	}
-	conn.bump(4)
-	length -= 4
-
-	if version != sftpProtocolVersion {
-		err = &unexpectedVersionErr{sftpProtocolVersion, version}
-		return
-	}
-
-	if 0 != length {
-		exts = make(map[string]string)
-	}
-	for 0 != length {
-		var ext extensionPair
-		var data []byte
-		ext, data, err = unmarshalExtensionPair(conn.buff)
-		if err != nil {
-			return
-		}
-		exts[ext.Name] = ext.Data
-		amount := len(conn.buff) - len(data)
-		conn.bump(amount)
-		length -= uint32(amount)
-	}
-
-	//
-	// now we can start the reader and writer as all other pkts are idAware
-	//
-	conn.closed.Store(false)
-	go conn.writer()
-	go conn.reader()
-
 	return
 }
 
@@ -189,6 +128,10 @@ func (conn *clientConn_) RequestSingle(
 
 func (conn *clientConn_) Request(req *clientReq_) (err error) {
 	const errClosed = uerr.Const("sftp conn closed")
+
+	if req.autoResp && nil == req.onError { // assert
+		panic("autoResp set, but no onError set")
+	}
 	defer usync.BareIgnoreClosedChanPanic()
 	err = errClosed
 	conn.wC <- req
@@ -218,7 +161,8 @@ func (conn *clientConn_) writer() {
 			err = uerr.Chainf(err, "SFTP writer")
 			conn.client.reportError(err)
 		}
-		// notify any pending reqs
+
+		// notify any pending reqs still in writer chan
 		err = &StatusError{
 			Code: sshFxConnectionLost,
 			msg:  "cancelled",
@@ -233,14 +177,11 @@ func (conn *clientConn_) writer() {
 	for req := range conn.wC {
 		req.id = idGen
 
-		//ulog.Printf("XXX: send idGen %d, expect=%d", req.id, req.expectPkts)
-
 		conn.rC <- req
 
 		if nil == req.nextPkt {
 			req.pkt.setId(idGen)
 			idGen++
-			//ulog.Printf("XXX: send single: %#v", req.pkt)
 			err = sendPacket(conn.w, buff[:], req.pkt)
 			if err != nil {
 				if nil != req.onError {
@@ -251,7 +192,7 @@ func (conn *clientConn_) writer() {
 			continue
 		}
 
-		// File.WriteTo, Write, WriteAt, ReadFrom
+		// for File.WriteTo, Write, WriteAt, ReadFrom
 
 		for i := uint32(0); i < req.expectPkts; i++ {
 			pkt := req.nextPkt(idGen)
@@ -263,7 +204,7 @@ func (conn *clientConn_) writer() {
 				}
 				return
 			}
-			if writePkt, ok := pkt.(*sshFxpWritePacket); ok {
+			if writePkt, ok := pkt.(*sshFxpWritePacket); ok { // ReadFrom
 				_, err = conn.w.Write(writePkt.Data)
 				if err != nil {
 					if nil != req.onError {
@@ -272,12 +213,11 @@ func (conn *clientConn_) writer() {
 					return
 				}
 			}
-			//ulog.Printf("XXX: sent %d", pkt.id())
 		}
 	}
 }
 
-// used by reader to cancel any reqs in flight
+// used by reader to cancel any reqs in flight while closing
 func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_) {
 
 	err := &StatusError{
@@ -301,11 +241,7 @@ func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_) {
 			}
 			req.onError(err)
 			hi := req.id + req.expectPkts - 1
-			rm := req.id
-			if id > rm {
-				rm = id
-			}
-			for ; rm <= hi; rm++ {
+			for rm := id; rm <= hi; rm++ {
 				delete(reqs, rm)
 			}
 		}
@@ -324,7 +260,7 @@ func (conn *clientConn_) cancelReqs(reqs map[uint32]*clientReq_) {
 func (conn *clientConn_) reader() {
 	const errUnexpected = uerr.Const("Unexpected SFTP req ID in response")
 	var err error
-	var length uint32
+	var id, length uint32
 	var typ uint8
 	var alive bool
 	var found bool
@@ -334,11 +270,6 @@ func (conn *clientConn_) reader() {
 
 	defer func() {
 		wasClosed := conn.closeConn()
-
-		if nil != req && nil != req.onError {
-			req.onError(err)
-		}
-
 		if !wasClosed && err != nil {
 			err = uerr.Chainf(err, "SFTP reader")
 			conn.client.reportError(err)
@@ -347,35 +278,14 @@ func (conn *clientConn_) reader() {
 	}()
 
 	for {
-		//
-		// wait until we get a response pkt
-		//
-		// id packets always start with 4 byte size,
-		// followed by 1 byte type
-		// followed by 4 byte req id
-		//
-		if err = conn.ensure(9); err != nil {
-			return
-		}
 
-		//dbgLen := len(conn.buff)
-		//if dbgLen >= 48 {
-		//dbgLen = 48
-		//}
-		//ulog.Printf("XXX: read\n%s", hex.Dump(conn.buff[:dbgLen]))
-
-		length, typ, err = conn.readHeader()
+		id, length, typ, err = conn.readIdHeader()
 		if err != nil {
 			return
 		} else if length < 4 {
 			err = errShortPacket
 			return
 		}
-		id, _ := unmarshalUint32(conn.buff)
-		conn.bump(4)
-		length -= 4
-
-		//ulog.Printf("XXX: recv %d, len=%d", id, length)
 
 		//
 		// match to req
@@ -384,7 +294,7 @@ func (conn *clientConn_) reader() {
 		for !found {
 			select {
 			case req, alive = <-conn.rC:
-				if !alive {
+				if !alive { // chan closed
 					return
 				}
 				lo := req.id
@@ -393,7 +303,7 @@ func (conn *clientConn_) reader() {
 				for ; lo <= hi; lo++ {
 					reqs[lo] = req
 				}
-			default:
+			default: // ran out of reqs, but unable to find match
 				err = errUnexpected
 				return
 			}
@@ -403,22 +313,33 @@ func (conn *clientConn_) reader() {
 		//
 		// handle response
 		//
-		if req.expectType != typ && sshFxpStatus != typ {
-			err = fmt.Errorf("Expected packet type %d, but got %d",
-				req.expectType, typ)
-			return
-		}
-		if req.autoResp || sshFxpStatus == typ {
+		if !req.cancelled {
+			if req.expectType != typ && sshFxpStatus != typ { // server error
+				err = fmt.Errorf("Expected packet type %d, but got %d",
+					req.expectType, typ)
+				return
+			}
+			if req.autoResp || sshFxpStatus == typ {
+				err = conn.ensure(int(length))
+				if err != nil {
+					return
+				}
+			}
+			reqErr := req.onResp(id, length, typ)
+			if req.autoResp && nil != req.onError {
+				req.onError(reqErr)  // autoResp - whether err nil or not
+				req.cancelled = true // ignore any responses still outstanding
+			} else if reqErr != nil {
+				req.cancelled = true // ignore any responses still outstanding
+			}
+
+		} else { // skip cancelled
 			err = conn.ensure(int(length))
 			if err != nil {
 				return
 			}
 		}
-		reqErr := req.onResp(id, length, typ)
-		if req.autoResp && nil != req.onError {
-			req.onError(reqErr) // autoResp - whether err nil or not
-		}
-		req = nil // disable onError after here
+		req = nil
 
 		if int(length) > len(conn.buff) {
 			conn.pos = 0
@@ -429,9 +350,10 @@ func (conn *clientConn_) reader() {
 	}
 }
 
-func (conn *clientConn_) readHeader() (length uint32, typ uint8, err error) {
-	// packets always start with 4 byte size, followed by 1 byte type
-	if err = conn.ensure(5); err != nil {
+func (conn *clientConn_) readIdHeader() (id, length uint32, typ uint8, err error) {
+	// id packets always start with 4 byte size, followed by 1 byte type,
+	// followed by 4 byte id
+	if err = conn.ensure(9); err != nil {
 		return
 	}
 	length, _ = unmarshalUint32(conn.buff)
@@ -439,13 +361,14 @@ func (conn *clientConn_) readHeader() (length uint32, typ uint8, err error) {
 		err = fmt.Errorf("recv pkt: %d bytes, but max is %d", length, len(conn.backing))
 		//err = errLongPacket
 		return
-	} else if length == 0 {
+	} else if length < 5 {
 		err = errShortPacket
 		return
 	}
-	length--
+	length -= 5
 	typ = conn.buff[4]
-	conn.bump(5)
+	id, _ = unmarshalUint32(conn.buff[5:])
+	conn.bump(9)
 	return
 }
 
@@ -479,4 +402,59 @@ func (conn *clientConn_) ensureRead(amount int) (err error) {
 func (conn *clientConn_) bump(amount int) {
 	conn.pos += amount
 	conn.buff = conn.buff[amount:]
+}
+
+func (conn *clientConn_) Start() (exts map[string]string, err error) {
+	// initial exchange has no pkt ids
+	// - send init
+	// - get back version and extensions
+	//
+	// https://filezilla-project.org/specs/draft-ietf-secsh-filexfer-02.txt
+	initPkt := &sshFxInitPacket{
+		Version: sftpProtocolVersion,
+	}
+	buff := make([]byte, 0, 4096)
+	err = sendPacket(conn.w, buff, initPkt)
+	if err != nil {
+		return
+	}
+
+	// happily, we can reuse since version is same size as id
+	version, length, typ, err := conn.readIdHeader()
+	if err != nil {
+		return
+	} else if err = conn.ensure(int(length)); err != nil {
+		return
+	} else if typ != sshFxpVersion {
+		err = &unexpectedPacketErr{sshFxpVersion, typ}
+		return
+	} else if version != sftpProtocolVersion {
+		err = &unexpectedVersionErr{sftpProtocolVersion, version}
+		return
+	}
+
+	if 0 != length {
+		exts = make(map[string]string)
+		for 0 != length {
+			var ext extensionPair
+			var data []byte
+			ext, data, err = unmarshalExtensionPair(conn.buff)
+			if err != nil {
+				return
+			}
+			exts[ext.Name] = ext.Data
+			amount := len(conn.buff) - len(data)
+			conn.bump(amount)
+			length -= uint32(amount)
+		}
+	}
+
+	//
+	// now we can start the reader and writer as all other pkts are idAware
+	//
+	conn.closed.Store(false)
+	go conn.writer()
+	go conn.reader()
+
+	return
 }

@@ -178,8 +178,8 @@ func TestClientShortPacket(t *testing.T) {
 
 	r := bytes.NewReader(packet)
 	_, err := NewClientPipe(r, &sink{})
-	if !errors.Is(err, errShortPacket) {
-		t.Fatalf("expected error: %v, got: %v", errShortPacket, err)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("expected error: %v, got: %v", io.ErrUnexpectedEOF, err)
 	}
 }
 
