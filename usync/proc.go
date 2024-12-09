@@ -1,5 +1,7 @@
 package usync
 
+import "github.com/tredeske/u/uerr"
+
 // mixin to be added to a service goroutine to allow clients to make sync and/or
 // async calls to the service.  rather than marshaling args into a struct and
 // passing them to the service, a closure is passed to the service to execute.
@@ -63,7 +65,7 @@ func (this *Proc) Construct(backlog int) {
 // return true if backend accepted the call (it's not dead)
 func (this *Proc) Async(closure ProcF) (ok bool) {
 	defer func() {
-		ok = !IgnoreClosedChanPanic(recover())
+		ok = !uerr.IfClosedChanPanic(recover())
 	}()
 	this.ProcC <- closure
 	return true
@@ -74,7 +76,7 @@ func (this *Proc) Async(closure ProcF) (ok bool) {
 // return true if backend accepted the call (it's not dead)
 func (this *Proc) Call(closure ProcF) (ok bool, err error) {
 	defer func() {
-		ok = !IgnoreClosedChanPanic(recover())
+		ok = !uerr.IfClosedChanPanic(recover())
 	}()
 	// benchmarked with a sync.Pool, and pool was slightly slower
 	doneC := make(chan struct{}, 1)
@@ -87,7 +89,7 @@ func (this *Proc) Call(closure ProcF) (ok bool, err error) {
 }
 
 func (this *Proc) Close() {
-	defer BareIgnoreClosedChanPanic()
+	defer uerr.IgnoreClosedChanPanic()
 	close(this.ProcC)
 }
 
@@ -113,7 +115,7 @@ func (this *ProcAny) Construct(c chan any) { this.ProcC = c }
 
 func (this *ProcAny) Async(closure ProcF) (ok bool) {
 	defer func() {
-		ok = !IgnoreClosedChanPanic(recover())
+		ok = !uerr.IfClosedChanPanic(recover())
 	}()
 	this.ProcC <- closure
 	return true
@@ -121,7 +123,7 @@ func (this *ProcAny) Async(closure ProcF) (ok bool) {
 
 func (this *ProcAny) Call(closure ProcF) (ok bool, err error) {
 	defer func() {
-		ok = !IgnoreClosedChanPanic(recover())
+		ok = !uerr.IfClosedChanPanic(recover())
 	}()
 	doneC := make(chan struct{}, 1)
 	this.ProcC <- func() error {

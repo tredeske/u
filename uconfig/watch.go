@@ -7,23 +7,18 @@ import (
 
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/ulog"
-	"github.com/tredeske/u/usync"
 )
 
-//
 // used to watch for changes to files
-//
 type Watch struct {
 	lock   sync.Mutex
 	files  []string
 	filesC chan string
 }
 
-//
 // add a file to watch
 //
 // we may get files to add prior to being started
-//
 func (this *Watch) Add(file string) {
 	this.lock.Lock()
 	if nil == this.filesC {
@@ -34,21 +29,17 @@ func (this *Watch) Add(file string) {
 	this.lock.Unlock()
 }
 
-//
 // stop watching
-//
 func (this *Watch) Stop() {
 	if nil != this.filesC {
-		usync.IgnorePanicIn(func() { close(this.filesC) })
+		uerr.IgnorePanicIn(func() { close(this.filesC) })
 	}
 }
 
-//
 // watch files.  if there is a change, then call onChange.
 // if there is an error and onError is set, then call it.
 //
 // if either func returns true, then watching will be stopped
-//
 func (this *Watch) Start(
 	period time.Duration,
 	onChange func(changedFile string) (done bool),

@@ -4,6 +4,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/tredeske/u/uerr"
 )
 
 type WorkF func(any)
@@ -147,7 +149,7 @@ func (this *Workers) WaitDone() {
 //
 // There may be still results being worked on after this
 func (this *Workers) Close() {
-	defer BareIgnoreClosedChanPanic()
+	defer uerr.IgnoreClosedChanPanic()
 	close(this.RequestC)
 }
 

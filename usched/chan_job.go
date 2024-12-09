@@ -1,6 +1,6 @@
 package usched
 
-import "github.com/tredeske/u/usync"
+import "github.com/tredeske/u/uerr"
 
 // Adapt Schedulable to provide notifications to a chan
 type ChanJob struct {
@@ -33,7 +33,7 @@ func (this *ChanJob) Schedule(s *Scheduler, interval string) (err error) {
 //
 // implement Schedulable
 func (this *ChanJob) OnSchedule() {
-	defer usync.BareIgnoreClosedChanPanic()
+	defer uerr.IgnoreClosedChanPanic()
 	this.StartC <- this // ready, steady, go
 	<-this.StopC        // wait til done
 }

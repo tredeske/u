@@ -2,6 +2,8 @@ package usync
 
 import (
 	"time"
+
+	"github.com/tredeske/u/uerr"
 )
 
 // a channel to signal death
@@ -14,7 +16,7 @@ func NewDeathChan() (rv DeathChan) {
 
 // writer: signal to any reader it's time to die
 func (this DeathChan) Close() {
-	defer BareIgnoreClosedChanPanic()
+	defer uerr.IgnoreClosedChanPanic()
 	close(this)
 }
 
@@ -100,7 +102,7 @@ func (this Chan[T]) Put(it T) {
 // in general, the writer should 'know' the chan is closed because they
 // closed it, but there are sometimes cases where this is not true
 func (this Chan[T]) PutRecover(it T) (ok bool) {
-	defer func() { ok = ok || !IgnoreClosedChanPanic(recover()) }()
+	defer func() { ok = ok || !uerr.IfClosedChanPanic(recover()) }()
 	this <- it
 	ok = true
 	return
@@ -132,6 +134,6 @@ func (this Chan[T]) PutWait(it T, d time.Duration) (ok bool) {
 // in general, the writer should 'know' the chan is closed because they
 // closed it, but there are sometimes cases where this is not true
 func (this Chan[T]) PutWaitRecover(it T, d time.Duration) (ok bool) {
-	defer func() { ok = ok || !IgnoreClosedChanPanic(recover()) }()
+	defer func() { ok = ok || !uerr.IfClosedChanPanic(recover()) }()
 	return this.PutWait(it, d)
 }
