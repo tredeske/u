@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 
 	"github.com/tredeske/u/uerr"
-	"github.com/tredeske/u/usync"
 )
 
 // a bidirectional channel on which client requests are multiplexed
@@ -132,7 +131,7 @@ func (conn *clientConn_) Request(req *clientReq_) (err error) {
 	if req.autoResp && nil == req.onError { // assert
 		panic("autoResp set, but no onError set")
 	}
-	defer usync.BareIgnoreClosedChanPanic()
+	defer uerr.IgnoreClosedChanPanic()
 	err = errClosed
 	conn.wC <- req
 	err = nil
