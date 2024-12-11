@@ -37,7 +37,7 @@ func (fsc *fsClient_) Stat(name string) (fs.FileInfo, error) {
 
 // implement fs.ReadDirFS
 func (fsc *fsClient_) ReadDir(dirN string) ([]fs.DirEntry, error) {
-	files, err := fsc.client.ReadDir(dirN, 0, nil)
+	files, err := fsc.client.ReadDirLimit(dirN, 0, nil)
 	if err != nil || 0 == len(files) {
 		return nil, err
 	}

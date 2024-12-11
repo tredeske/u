@@ -29,31 +29,32 @@ const ErrOpenned = uerr.Const("file already openned")
 // Likewise, Open/Close needs to also be externally coordinated or synchronized
 // with other i/o ops.
 type File struct {
-	c      *Client
+	client *Client
 	pathN  string
 	handle string   // empty if not open
 	offset int64    // current offset within remote file
 	attrs  FileStat // if Mode bits not set, then not populated
+	Stash  any      // stash whatever you want here
 }
 
 // normally create with client.Open or client.ReadDir
 func NewFile(client *Client, pathN string) *File {
 	return &File{
-		c:     client,
-		pathN: pathN,
+		client: client,
+		pathN:  pathN,
 	}
 }
 
 func (f *File) IsOpen() bool { return 0 != len(f.handle) }
 
-func (f *File) Client() *Client { return f.c }
+func (f *File) Client() *Client { return f.client }
 
 // if File is not currently open, it is possible to change the Client
 func (f *File) SetClient(c *Client) error {
 	if 0 != len(f.handle) {
 		return ErrOpenned
 	}
-	f.c = c
+	f.client = c
 	return nil
 }
 
@@ -90,7 +91,7 @@ func (f *File) IsDir() bool { return f.attrs.IsDir() }
 // return the name of the file as presented to Open or Create.
 func (f *File) Name() string { return f.pathN }
 
-// change the name - useful after AsyncRename
+// change the name
 func (f *File) SetName(newN string) { f.pathN = newN }
 
 // return the base name of the file
@@ -103,18 +104,18 @@ func (f *File) OpenRead() (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
 	}
-	_, err = f.c.open(f, toPflags(os.O_RDONLY))
+	_, err = f.client.open(f, toPflags(os.O_RDONLY))
 	return
 }
 
 // Open the file for read, async.
 //
 // async safe
-func (f *File) OpenReadAsync(request any, respC chan *AsyncResponse) (err error) {
+func (f *File) OpenReadAsync(req any, onComplete AsyncFunc) (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
 	}
-	err = f.c.openAsync(f, toPflags(os.O_RDONLY), request, respC)
+	err = f.client.openAsync(f, toPflags(os.O_RDONLY), req, onComplete)
 	return
 }
 
@@ -125,18 +126,18 @@ func (f *File) Open(flags int) (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
 	}
-	_, err = f.c.open(f, toPflags(flags))
+	_, err = f.client.open(f, toPflags(flags))
 	return
 }
 
 // Open the file, async.
 //
 // async safe
-func (f *File) OpenAsync(flags int, req any, respC chan *AsyncResponse) (err error) {
+func (f *File) OpenAsync(flags int, req any, onComplete AsyncFunc) (err error) {
 	if 0 != len(f.handle) {
 		return ErrOpenned
 	}
-	err = f.c.openAsync(f, toPflags(flags), req, respC)
+	err = f.client.openAsync(f, toPflags(flags), req, onComplete)
 	return
 }
 
@@ -151,40 +152,45 @@ func (f *File) Close() error {
 	}
 	handle := f.handle
 	f.handle = ""
-	return f.c.closeHandle(handle)
+	return f.client.closeHandle(handle)
 }
 
 // close the File, async.
 //
+// Use nil for request and respC to "fire and forget".  This is useful when
+// closing after an error encountered or for done reading, but dangerous after
+// a successful write, as it is possible the write is not 100% complete and a
+// failure is detected during close.
+//
 // syncronize access
-func (f *File) CloseAsync(request any, respC chan *AsyncResponse) error {
+func (f *File) CloseAsync(req any, onComplete AsyncFunc) error {
 	if 0 == len(f.handle) {
 		return nil
 	}
 	handle := f.handle
 	f.handle = ""
-	return f.c.closeHandleAsync(handle, request, respC)
+	return f.client.closeHandleAsync(handle, req, onComplete)
 }
 
 // remove the file.  it may remain open.
 //
 // async safe
 func (f *File) Remove() (err error) {
-	return f.c.Remove(f.pathN)
+	return f.client.Remove(f.pathN)
 }
 
 // remove the file, async.  it may remain open.
 //
 // async safe
-func (f *File) RemoveAsync(req any, respC chan *AsyncResponse) (err error) {
-	return f.c.RemoveAsync(f.pathN, req, respC)
+func (f *File) RemoveAsync(req any, onComplete AsyncFunc) error {
+	return f.client.RemoveAsync(f.pathN, req, onComplete)
 }
 
 // rename file.
 //
 // synchronize access
 func (f *File) Rename(newN string) (err error) {
-	err = f.c.Rename(f.pathN, newN)
+	err = f.client.Rename(f.pathN, newN)
 	if err != nil {
 		return
 	}
@@ -195,8 +201,8 @@ func (f *File) Rename(newN string) (err error) {
 // Rename file, but only if it doesn't already exist.
 //
 // synchronize access
-func (f *File) RenameAsync(newN string, req any, respC chan *AsyncResponse) error {
-	return f.c.asyncExpectStatus(
+func (f *File) RenameAsync(newN string, req any, onComplete AsyncFunc) error {
+	return f.client.asyncExpectStatus(
 		&sshFxpRenamePacket{
 			Oldpath: f.pathN,
 			Newpath: newN,
@@ -206,7 +212,7 @@ func (f *File) RenameAsync(newN string, req any, respC chan *AsyncResponse) erro
 				f.pathN = newN
 			}
 		},
-		req, respC)
+		req, onComplete)
 }
 
 // rename file, even if newN already exists (replacing it).
@@ -215,7 +221,7 @@ func (f *File) RenameAsync(newN string, req any, respC chan *AsyncResponse) erro
 //
 // synchronize access
 func (f *File) PosixRename(newN string) (err error) {
-	err = f.c.PosixRename(f.pathN, newN)
+	err = f.client.PosixRename(f.pathN, newN)
 	if err != nil {
 		return
 	}
@@ -228,10 +234,8 @@ func (f *File) PosixRename(newN string) (err error) {
 // uses the posix-rename@openssh.com extension
 //
 // synchronize access
-func (f *File) PosixRenameAsync(
-	newN string, req any, respC chan *AsyncResponse,
-) error {
-	return f.c.asyncExpectStatus(
+func (f *File) PosixRenameAsync(newN string, req any, onComplete AsyncFunc) error {
+	return f.client.asyncExpectStatus(
 		&sshFxpPosixRenamePacket{
 			Oldpath: f.pathN,
 			Newpath: newN,
@@ -241,7 +245,7 @@ func (f *File) PosixRenameAsync(
 				f.pathN = newN
 			}
 		},
-		req, respC)
+		req, onComplete)
 }
 
 // implement io.WriterTo
@@ -267,8 +271,8 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 
 	pkt := sshFxpReadPacket{}
 	chunkSz, lastChunkSz, req := f.buildReadReq(amount, f.offset, &pkt)
-	conn := &f.c.conn
-	responder := f.c.responder()
+	conn := &f.client.conn
+	responder := f.client.responder()
 	req.onError = responder.onError
 	req.autoResp = manualRespond_
 	expectPkts := req.expectPkts
@@ -398,7 +402,7 @@ func (f *File) buildReadReq(
 	chunkSz, lastChunkSz uint32,
 	req *clientReq_,
 ) {
-	maxPkt := int64(f.c.maxPacket)
+	maxPkt := int64(f.client.maxPacket)
 	expectPkts := amount / maxPkt
 	if amount != expectPkts*maxPkt {
 		if 0 == expectPkts {
@@ -453,8 +457,8 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 
 	pkt := sshFxpReadPacket{}
 	chunkSz, lastChunkSz, req := f.buildReadReq(int64(len(toBuff)), offset, &pkt)
-	conn := &f.c.conn
-	responder := f.c.responder()
+	conn := &f.client.conn
+	responder := f.client.responder()
 	req.onError = responder.onError
 	expectPkts := req.expectPkts //len(req.pkts)
 
@@ -605,9 +609,9 @@ func (f *File) Read(b []byte) (nread int, err error) {
 func (f *File) Stat() (attrs *FileStat, err error) {
 
 	if 0 == len(f.handle) {
-		attrs, err = f.c.stat(f.pathN)
+		attrs, err = f.client.stat(f.pathN)
 	} else {
-		attrs, err = f.c.fstat(f.handle)
+		attrs, err = f.client.fstat(f.handle)
 	}
 	if err != nil {
 		return
@@ -656,13 +660,13 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 		return 0, nil
 	}
 
-	maxPacket := f.c.maxPacket
+	maxPacket := f.client.maxPacket
 	expectPkts := remain / int64(maxPacket)
 	if remain != expectPkts*int64(maxPacket) {
 		expectPkts++
 	}
 
-	responder := f.c.responder()
+	responder := f.client.responder()
 	req := &clientReq_{
 		expectType: sshFxpStatus,
 		autoResp:   manualRespond_,
@@ -671,7 +675,7 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 	}
 	pkt := sshFxpWritePacket{Handle: f.handle}
 
-	conn := &f.c.conn
+	conn := &f.client.conn
 	eof := false
 	var sendErr error
 	req.nextPkt = func(id uint32) idAwarePkt_ {
@@ -737,18 +741,18 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 // however, if the reader only has a buffer or two worth of data, then ok.
 func (f *File) readFromSlow(r io.Reader) (ncopied int64, err error) {
 
-	if f.c.withoutSlowReadFrom {
+	if f.client.withoutSlowReadFrom {
 		return 0, errors.New("attempt to use File.ReadFrom with slow Reader")
 	}
 
-	maxPacket := f.c.maxPacket
-	conn := &f.c.conn
+	maxPacket := f.client.maxPacket
+	conn := &f.client.conn
 	pkt := sshFxpWritePacket{Handle: f.handle}
 	eof := false
 	var sendErr error
 
 	for !eof {
-		responder := f.c.responder()
+		responder := f.client.responder()
 		req := &clientReq_{
 			expectType: sshFxpStatus,
 			autoResp:   autoRespond_,
@@ -860,9 +864,9 @@ func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
 		return
 	}
 
-	responder := f.c.responder()
+	responder := f.client.responder()
 
-	maxPacket := f.c.maxPacket
+	maxPacket := f.client.maxPacket
 	expectPkts := len(b) / maxPacket
 	if len(b) != expectPkts*maxPacket {
 		expectPkts++
@@ -893,7 +897,7 @@ func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
 		return &pkt
 	}
 
-	conn := &f.c.conn
+	conn := &f.client.conn
 
 	req.onResp = func(id, length uint32, typ uint8) (err error) {
 		expectPkts--
@@ -968,9 +972,9 @@ func (f *File) Chown(uid, gid int) error {
 		GID: uint32(gid),
 	}
 	if 0 == len(f.handle) {
-		return f.c.setstat(f.pathN, sshFileXferAttrUIDGID, fs)
+		return f.client.setstat(f.pathN, sshFileXferAttrUIDGID, fs)
 	} else {
-		return f.c.fsetstat(f.handle, sshFileXferAttrUIDGID, fs)
+		return f.client.fsetstat(f.handle, sshFileXferAttrUIDGID, fs)
 	}
 }
 
@@ -979,9 +983,9 @@ func (f *File) Chown(uid, gid int) error {
 // See Client.Chmod for details.
 func (f *File) Chmod(mode os.FileMode) error {
 	if 0 == len(f.handle) {
-		return f.c.setstat(f.pathN, sshFileXferAttrPermissions, toChmodPerm(mode))
+		return f.client.setstat(f.pathN, sshFileXferAttrPermissions, toChmodPerm(mode))
 	} else {
-		return f.c.fsetstat(f.handle, sshFileXferAttrPermissions, toChmodPerm(mode))
+		return f.client.fsetstat(f.handle, sshFileXferAttrPermissions, toChmodPerm(mode))
 	}
 }
 
@@ -997,9 +1001,9 @@ func (f *File) Chmod(mode os.FileMode) error {
 func (f *File) SetExtendedData(path string, extended []StatExtended) error {
 	attrs := &FileStat{Extended: extended}
 	if 0 == len(f.handle) {
-		return f.c.setstat(f.pathN, sshFileXferAttrExtended, attrs)
+		return f.client.setstat(f.pathN, sshFileXferAttrExtended, attrs)
 	} else {
-		return f.c.fsetstat(f.handle, sshFileXferAttrExtended, attrs)
+		return f.client.fsetstat(f.handle, sshFileXferAttrExtended, attrs)
 	}
 }
 
@@ -1012,9 +1016,9 @@ func (f *File) SetExtendedData(path string, extended []StatExtended) error {
 func (f *File) Truncate(size int64) error {
 
 	if 0 == len(f.handle) {
-		return f.c.setstat(f.pathN, sshFileXferAttrSize, uint64(size))
+		return f.client.setstat(f.pathN, sshFileXferAttrSize, uint64(size))
 	} else {
-		return f.c.fsetstat(f.handle, sshFileXferAttrSize, uint64(size))
+		return f.client.fsetstat(f.handle, sshFileXferAttrSize, uint64(size))
 	}
 }
 
@@ -1027,7 +1031,7 @@ func (f *File) Sync() error {
 	if 0 == len(f.handle) {
 		return os.ErrClosed
 	}
-	return f.c.invokeExpectStatus(&sshFxpFsyncPacket{Handle: f.handle})
+	return f.client.invokeExpectStatus(&sshFxpFsyncPacket{Handle: f.handle})
 }
 
 // Asynchronously request a flush of the contents of a File to stable storage.
@@ -1035,10 +1039,10 @@ func (f *File) Sync() error {
 // Requires the server to support the fsync@openssh.com extension.
 //
 // async safe
-func (f *File) SyncAsync(req any, respC chan *AsyncResponse) error {
+func (f *File) SyncAsync(req any, onComplete AsyncFunc) error {
 	if 0 == len(f.handle) {
 		return os.ErrClosed
 	}
-	return f.c.asyncExpectStatus(
-		&sshFxpFsyncPacket{Handle: f.handle}, nil, req, respC)
+	return f.client.asyncExpectStatus(
+		&sshFxpFsyncPacket{Handle: f.handle}, nil, req, onComplete)
 }
