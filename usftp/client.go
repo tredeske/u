@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -343,9 +344,9 @@ type AsyncFunc func(req any, err error)
 // async call expecting a status response
 func (client *Client) asyncExpectStatus(
 	pkt idAwarePkt_,
-	onStatus func(error), // if not nil, call before dispatching to respC
+	onStatus func(error), // if not nil, call before onComplete
 	req any, // onComplete req
-	onComplete AsyncFunc,
+	onComplete AsyncFunc, // nil if fire and forget
 ) (err error) {
 	return client.asyncExpect(pkt, 0, nil, onStatus, req, onComplete)
 }
@@ -353,18 +354,17 @@ func (client *Client) asyncExpectStatus(
 // async call expecting a single response, either the expectType or status
 func (client *Client) asyncExpect(
 	pkt idAwarePkt_,
-	expectType uint8,
-	onExpect func() (err error),
+	expectType uint8, // use 0 if expect status
+	onExpect func() (err error), // use nil if expect status
 	onStatus func(error),
 	req any, // onComplete req
-	onComplete AsyncFunc,
+	onComplete AsyncFunc, // nil if fire and forget
 ) error {
 	const errUnexpected = uerr.Const("Unexpected packet type 0")
 
 	return client.conn.RequestSingle(
 		pkt, expectType, manualRespond_,
-		func(id, length uint32, typ uint8) error {
-			var respErr error
+		func(id, length uint32, typ uint8) (respErr error) {
 			defer func() {
 				if nil != onStatus {
 					onStatus(respErr)
@@ -376,20 +376,24 @@ func (client *Client) asyncExpect(
 			switch typ {
 			case expectType:
 				respErr = client.conn.ensure(int(length))
-				if respErr != nil {
-					return respErr
-				}
-				if nil != onExpect {
-					respErr = onExpect()
-				} else {
-					respErr = errUnexpected
+				if nil == respErr {
+					if nil != onExpect {
+						respErr = onExpect()
+					} else {
+						respErr = errUnexpected
+					}
 				}
 			case sshFxpStatus:
 				respErr = maybeError(client.conn.buff) // may be nil
+				if 0 != expectType && nil == respErr { // not expecting status
+					respErr = fmt.Errorf(
+						"req %d (%#v) did not get expected response type %d",
+						id, pkt, expectType)
+				}
 			default:
 				panic("impossible!")
 			}
-			return nil
+			return
 		},
 		func(err error) {
 			if nil != onComplete {
@@ -401,29 +405,33 @@ func (client *Client) asyncExpect(
 // perform invocation expecting a single response, either the expectType or status
 func (client *Client) invokeExpect(
 	pkt idAwarePkt_,
-	expectType uint8,
-	onExpect func() error,
-) (err error) {
+	expectType uint8, // use 0 if only expecting status
+	onExpect func() error, // use nil if only expecting status
+) (invokeErr error) {
 	responder := client.responder()
-	err = client.conn.RequestSingle(
+	invokeErr = client.conn.RequestSingle(
 		pkt, expectType, autoRespond_,
-		func(id, length uint32, typ uint8) (err error) {
+		func(id, length uint32, typ uint8) (respErr error) {
 			switch typ {
 			case expectType:
-				err = onExpect()
+				respErr = onExpect()
 			case sshFxpStatus:
-				err = maybeError(client.conn.buff) // may be nil
+				respErr = maybeError(client.conn.buff) // may be nil
+				if 0 != expectType && nil == respErr { // not expecting status
+					respErr = fmt.Errorf(
+						"req %d (%#v) did not get expected response type %d",
+						id, pkt, expectType)
+				}
 			default:
 				panic("impossible!")
 			}
-			return nil
+			return
 		},
 		responder.onError)
-	if err != nil {
+	if invokeErr != nil {
 		return
 	}
-	err = responder.await()
-	return
+	return responder.await()
 }
 
 // invoke when expected resp is just a status
@@ -432,8 +440,8 @@ func (client *Client) invokeExpectStatus(pkt idAwarePkt_) (err error) {
 }
 
 // Return a FileStat describing the file specified by pathN
-// If pathN is a symbolic link, the returned FileStat describes the actual file.
-// FileInfoFromStat can be used to convert this to a go os.FileInfo
+// If pathN is a symbolic link, the returned FileStat describes the actual file,
+// not the link.
 func (client *Client) Stat(pathN string) (fs *FileStat, err error) {
 	return client.stat(pathN)
 }
@@ -758,7 +766,6 @@ func (client *Client) RenameAsync(
 }
 
 // Rename oldN to newN, replacing newN if it exists.
-//
 // Uses the posix-rename@openssh.com extension.
 func (client *Client) PosixRename(oldN, newN string) error {
 	return client.invokeExpectStatus(
@@ -766,7 +773,6 @@ func (client *Client) PosixRename(oldN, newN string) error {
 }
 
 // Rename oldN to newN, replacing newN if it exists, async.
-//
 // Uses the posix-rename@openssh.com extension.
 func (client *Client) PosixRenameAsync(
 	oldN, newN string,
@@ -815,18 +821,18 @@ func (client *Client) Mkdir(dirN string) error {
 // If dirN exists and is a directory, do nothing and return nil.
 // If dirN exists and is not a directory, return error.
 func (client *Client) MkdirAll(dirN string) (err error) {
-	if 0 == len(dirN) || "." == dirN || "/" == dirN {
+	if 0 == len(dirN) || "." == dirN || "/" == dirN || ".." == dirN {
 		return // no reason to create root or current dir
 	}
 	// "" will clean to ".", as will ".", as will "./", as will "foo/.."
 	dirN = path.Clean(dirN)
-	if "/" == dirN || "." == dirN {
+	if "/" == dirN || "." == dirN || ".." == dirN {
 		return // no reason to create root or current dir
 	}
 
 	// if already exists, we either have nothing to do, or cannot continue
 	stat, err := client.Stat(dirN)
-	if nil == err {
+	if nil == err { // if NO error
 		if stat.IsDir() {
 			return // no reason to recreate dir
 		}
@@ -837,13 +843,29 @@ func (client *Client) MkdirAll(dirN string) (err error) {
 	if err != nil {
 		return
 	}
-	return client.Mkdir(dirN)
+
+	err = client.Mkdir(dirN)
+	if err != nil {
+		//
+		// it is possible that something else created the dir after our stat.
+		// the error is not determinitive of why mkdir failed, so stat again to
+		// see if the dir exists
+		//
+		var errStatAgain error
+		stat, errStatAgain = client.Stat(dirN)
+		if nil == errStatAgain {
+			err = nil
+			if !stat.IsDir() {
+				err = &os.PathError{Op: "mkdir", Path: dirN, Err: syscall.ENOTDIR}
+			}
+		}
+	}
+	return
 }
 
 // Delete dirN and all files (if dirN is a dir) of any kind contained in dirN.
 //
-// Return error if dirN does not exist or is not readable, or if a file is not
-// removable.
+// This will error if dirN does not exist.
 func (client *Client) RemoveAll(dirN string) (err error) {
 
 	dirN = path.Clean(dirN)
@@ -879,9 +901,6 @@ func (client *Client) RemoveAll(dirN string) (err error) {
 }
 
 // Delete all files contained in dirN, but do not delete dirN.
-//
-// Return error if dirN is not readable or not a dir, or if a file is not
-// removable.
 func (client *Client) RemoveAllIn(dirN string) (err error) {
 
 	dirN = path.Clean(dirN)
