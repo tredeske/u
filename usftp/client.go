@@ -68,7 +68,7 @@ func WithErrorFunc(onError func(error)) ClientOption {
 // Multiple Clients can be active on a single SSH connection, and a Client
 // may be called concurrently from multiple Goroutines.
 type Client struct {
-	conn clientConn_
+	conn conn_
 
 	respPool sync.Pool // of resp chans
 
@@ -154,8 +154,9 @@ func (client *Client) newResponder() any {
 	}
 }
 
-func (client *Client) responder() *errResponder_ {
-	return client.respPool.Get().(*errResponder_)
+func (client *Client) responder() (rv *errResponder_) {
+	rv = client.respPool.Get().(*errResponder_)
+	return
 }
 
 func (client *Client) reportError(err error) {
@@ -233,6 +234,7 @@ func (client *Client) ReadDirLimit(
 
 	responder := client.responder()
 
+	readdirPkt := &sshFxpReaddirPacket{Handle: handle}
 	var readdirF func(id, length uint32, typ uint8) (err error)
 	readdirF = func(id, length uint32, typ uint8) (err error) {
 		done := false
@@ -240,10 +242,8 @@ func (client *Client) ReadDirLimit(
 			if !done && nil == err &&
 				(0 >= timeout || !time.Now().After(deadline)) {
 				err = client.conn.RequestSingle(
-					&sshFxpReaddirPacket{Handle: handle},
-					sshFxpName, manualRespond_,
-					readdirF,
-					responder.onError)
+					readdirPkt, sshFxpName, manualRespond_,
+					readdirF, responder.onError)
 			}
 			if done || nil != err {
 				responder.onError(err)
@@ -278,6 +278,7 @@ func (client *Client) ReadDirLimit(
 					attrs:  *attrs,
 				})
 			}
+			done = (0 == count)
 		case sshFxpStatus:
 			err = maybeError(client.conn.buff) // may be nil
 			if 0 != len(entries) || io.EOF == err {
@@ -291,10 +292,7 @@ func (client *Client) ReadDirLimit(
 	}
 
 	err = client.conn.RequestSingle(
-		&sshFxpReaddirPacket{Handle: handle},
-		sshFxpName, manualRespond_,
-		readdirF,
-		responder.onError)
+		readdirPkt, sshFxpName, manualRespond_, readdirF, responder.onError)
 	if err != nil {
 		return
 	}

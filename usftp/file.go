@@ -1,11 +1,13 @@
 package usftp
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/tredeske/u/uerr"
@@ -269,8 +271,7 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 		return
 	}
 
-	pkt := sshFxpReadPacket{}
-	chunkSz, lastChunkSz, req := f.buildReadReq(amount, f.offset, &pkt)
+	chunkSz, lastChunkSz, req := f.buildReadReq(amount, f.offset)
 	conn := &f.client.conn
 	responder := f.client.responder()
 	req.onError = responder.onError
@@ -397,7 +398,6 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 // nextPkt closure to manufacture reqs as needed by the conn writer.
 func (f *File) buildReadReq(
 	amount, offset int64,
-	single *sshFxpReadPacket,
 ) (
 	chunkSz, lastChunkSz uint32,
 	req *clientReq_,
@@ -420,27 +420,50 @@ func (f *File) buildReadReq(
 		autoResp:   manualRespond_,
 		expectPkts: uint32(expectPkts),
 	}
-	single.Handle = f.handle
 	if 1 == expectPkts {
-		single.Offset = uint64(offset)
-		single.Len = chunkSz
-		req.pkt = single
+		pkt := &sshFxpReadPacket{
+			Handle: f.handle,
+			Offset: uint64(offset),
+			Len:    chunkSz,
+		}
+		req.pkt = pkt
 		req.expectPkts = 1
 		return
 	}
 
-	req.nextPkt = func(id uint32) idAwarePkt_ {
-		single.ID = id
-		single.Offset = uint64(offset)
-		offset += int64(chunkSz)
-		expectPkts--
-		if 0 == expectPkts {
-			single.Len = lastChunkSz
-		} else {
-			single.Len = chunkSz
+	req.pumpPkts =
+		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
+			pkt := sshFxpReadPacket{
+				Handle: f.handle,
+			}
+			pos := 0
+			for 0 != expectPkts {
+				pos += 4
+				pkt.ID = id
+				id++
+				pkt.Offset = uint64(offset)
+				offset += int64(chunkSz)
+				expectPkts--
+				if 0 == expectPkts {
+					pkt.Len = lastChunkSz
+				} else {
+					pkt.Len = chunkSz
+				}
+				b, _ := pkt.appendTo(buff[pos:pos])
+				length := len(b)
+				binary.BigEndian.PutUint32(buff[pos-4:], uint32(length))
+				pos += length
+				nsent++
+				if 0 == expectPkts || len(buff) < pos+4+length {
+					_, err = conn.w.Write(buff[:pos])
+					if err != nil {
+						return
+					}
+					pos = 0
+				}
+			}
+			return
 		}
-		return single
-	}
 	return
 }
 
@@ -455,8 +478,7 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 		return
 	}
 
-	pkt := sshFxpReadPacket{}
-	chunkSz, lastChunkSz, req := f.buildReadReq(int64(len(toBuff)), offset, &pkt)
+	chunkSz, lastChunkSz, req := f.buildReadReq(int64(len(toBuff)), offset)
 	conn := &f.client.conn
 	responder := f.client.responder()
 	req.onError = responder.onError
@@ -622,6 +644,8 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 
 // implement io.ReaderFrom
 //
+// Copy from io.Reader into this file starting at current offset.
+//
 // This is fast as long as r (the io.Reader) has one of these methods:
 //
 //	Len()  int
@@ -642,7 +666,7 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 // WithoutSlowReadFrom ClientOption.
 //
 // synchronize i/o ops
-func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
+func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
@@ -653,6 +677,7 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 	// able to tell the conn.writer and conn.reader how many packets to expect,
 	// so that we can pump data to the sftp server while getting back acks.
 	//
+	//var remain int64
 	remain, limited := surmiseRemaining(r)
 	if !limited {
 		return f.readFromSlow(r)
@@ -673,39 +698,59 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 		onError:    responder.onError,
 		expectPkts: uint32(expectPkts),
 	}
-	pkt := sshFxpWritePacket{Handle: f.handle}
+
+	// conn still ok after readErr, but we need to report to our caller
+	var readErr error
+	req.pumpPkts =
+		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
+			packetsToSend := expectPkts // need our own counter in closure
+			pkt := sshFxpWritePacket{Handle: f.handle}
+			length := pkt.sizeBeforeData()
+			for 0 != packetsToSend {
+				packetsToSend--
+				pkt.ID = id
+				id++
+				amount := maxPacket
+				if remain < int64(amount) {
+					amount = int(remain)
+				}
+				pkt.Offset = uint64(f.offset)
+
+				readB := buff[4+length : 4+length+amount]
+				var readAmount int
+				readAmount, readErr = io.ReadFull(r, readB)
+				nread += int64(readAmount)
+				if readErr != nil {
+					if readErr != io.ErrUnexpectedEOF {
+						return
+					}
+					//
+					// we ran out of data before expectation met, so someone
+					// likely was fibbing to us about the amount.
+					//
+					readErr = nil
+					if 0 == readAmount {
+						return
+					}
+				}
+				pkt.Length = uint32(readAmount)
+				bigEnd_.PutUint32(buff, uint32(length+readAmount))
+				pkt.appendTo(buff[4:4])
+
+				_, err = conn.w.Write(buff[:4+length+readAmount])
+				if err != nil {
+					return
+				}
+				f.offset += int64(readAmount)
+				nsent++
+				if amount != readAmount { // from io.ErrUnexpectedEOF, above
+					return
+				}
+			}
+			return
+		}
 
 	conn := &f.client.conn
-	eof := false
-	var sendErr error
-	req.nextPkt = func(id uint32) idAwarePkt_ {
-		// must only be accessed from conn.writer context
-		dataBuff := conn.GetBuffForReadFrom()
-		pkt.ID = id
-		if eof { // need to flush remaining expected pkts
-			pkt.Offset = uint64(f.offset)
-			pkt.Length = 0
-			pkt.Data = dataBuff[:0]
-			return &pkt
-		}
-		amount, err := r.Read(dataBuff)
-		if err != nil {
-			if io.EOF != err {
-				sendErr = err
-			}
-			eof = true
-		}
-		if amount > maxPacket {
-			panic("impossible! - dataBuff somehow larger than maxPacket")
-		}
-		ncopied += int64(amount)
-		pkt.Offset = uint64(f.offset)
-		f.offset += int64(amount)
-		pkt.Length = uint32(amount)
-		pkt.Data = dataBuff[:amount]
-		return &pkt
-	}
-
 	req.onResp = func(id, length uint32, typ uint8) (err error) {
 		expectPkts--
 		if 0 > expectPkts {
@@ -723,88 +768,167 @@ func (f *File) ReadFrom(r io.Reader) (ncopied int64, err error) {
 		return
 	}
 
-	err = conn.Request(req)
+	err = f.client.conn.Request(req)
 	if err != nil {
 		return
 	}
 	err = responder.await()
 	if err != nil {
-		return
+		if errReqTrunc_ == err {
+			err = nil // we didn't get as much as expected, but that's ok
+		}
 	}
 	if nil == err {
-		err = sendErr
+		err = readErr
 	}
 	return
 }
 
-// this is slow because we have to wait for round trip of each write.
-// however, if the reader only has a buffer or two worth of data, then ok.
-func (f *File) readFromSlow(r io.Reader) (ncopied int64, err error) {
+// this may not be slow, but it is more complicated and resource intensive.
+// it requires sending multple reqs to the conn.reader.
+func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 
 	if f.client.withoutSlowReadFrom {
 		return 0, errors.New("attempt to use File.ReadFrom with slow Reader")
 	}
 
-	maxPacket := f.client.maxPacket
+	var lock sync.Mutex
+	var acks, acksNeeded uint32
+	var sendDone bool
+	var errDone error
+	cond := sync.Cond{L: &lock}
+
+	onError := func(err error) {
+		lock.Lock()
+		errDone = err
+		lock.Unlock()
+		cond.Signal()
+	}
+
 	conn := &f.client.conn
-	pkt := sshFxpWritePacket{Handle: f.handle}
-	eof := false
-	var sendErr error
-
-	for !eof {
-		responder := f.client.responder()
-		req := &clientReq_{
-			expectType: sshFxpStatus,
-			autoResp:   autoRespond_,
-			onError:    responder.onError,
-			expectPkts: 1,
-		}
-
-		req.nextPkt = func(id uint32) idAwarePkt_ {
-			// must only be accessed from conn.writer context
-			dataBuff := conn.GetBuffForReadFrom()
-			pkt.ID = id
-			amount, err := r.Read(dataBuff)
-			if err != nil {
-				if io.EOF != err {
-					sendErr = err
+	onResp := func(id, length uint32, typ uint8) (err error) {
+		if typ == sshFxpStatus {
+			var signal bool
+			err = maybeError(conn.buff) // may be nil
+			lock.Lock()
+			if nil == err {
+				acks++
+				if sendDone && acks == acksNeeded {
+					errDone = errReqTrunc_
+					signal = true
 				}
-				eof = true
+			} else {
+				errDone = err
+				signal = true
 			}
-			if amount > maxPacket {
-				panic("impossible! - dataBuff somehow larger than maxPacket")
+			lock.Unlock()
+			if signal {
+				cond.Signal()
 			}
-			ncopied += int64(amount)
-			pkt.Offset = uint64(f.offset)
-			f.offset += int64(amount)
-			pkt.Length = uint32(amount)
-			pkt.Data = dataBuff[:amount]
-			return &pkt
 		}
+		return
+	}
 
-		req.onResp = func(id, length uint32, typ uint8) (err error) {
-			switch typ {
-			case sshFxpStatus:
-				err = maybeError(conn.buff) // may be nil
-			default:
-				panic("impossible!")
-			}
-			responder.onError(err)
-			return
-		}
+	//
+	// send 1 req at a time, but only the first req goes to the conn.writer
+	//
+	req := &clientReq_{
+		expectType: sshFxpStatus,
+		autoResp:   manualRespond_,
+		onError:    onError,
+		expectPkts: 1,
+		onResp:     onResp,
+	}
 
-		err = conn.Request(req)
-		if err != nil {
-			return
+	// conn still ok after readErr, but we need to report to our caller
+	var readErr error
+
+	req.pumpPkts =
+		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
+			maxPacket := f.client.maxPacket
+			pkt := sshFxpWritePacket{Handle: f.handle}
+			length := pkt.sizeBeforeData()
+
+			defer func() {
+				if nil == err { // no conn err.  if conn err, conn notifies us.
+					var signal bool
+					lock.Lock()
+					sendDone = true
+					acksNeeded = nsent
+					signal = (nsent == acks)
+					errDone = errReqTrunc_
+					lock.Unlock()
+					if signal {
+						cond.Signal()
+					}
+				}
+			}()
+
+			for {
+				pkt.ID = id
+				id++
+				pkt.Offset = uint64(f.offset)
+
+				readB := buff[4+length : 4+length+maxPacket]
+				var readAmount int
+				readAmount, readErr = r.Read(readB)
+				nread += int64(readAmount)
+				if readErr != nil {
+					if readErr != io.EOF {
+						return
+					} else if 0 == readAmount { // eof, and no data read
+						readErr = nil
+						return // conn.writer may get a trunc event
+					}
+				}
+
+				if 0 != nsent {
+					conn.rC <- &clientReq_{
+						id:         pkt.ID,
+						expectType: sshFxpStatus,
+						autoResp:   manualRespond_,
+						onError:    onError,
+						onResp:     onResp,
+						expectPkts: 1,
+					}
+				}
+
+				pkt.Length = uint32(readAmount)
+				bigEnd_.PutUint32(buff, uint32(length+readAmount))
+				pkt.appendTo(buff[4:4])
+
+				_, err = conn.w.Write(buff[:4+length+readAmount])
+				if err != nil {
+					return
+				}
+				f.offset += int64(readAmount)
+				nsent++
+
+				if io.EOF == readErr {
+					readErr = nil
+					return
+				}
+			}
 		}
-		err = responder.await()
-		if err != nil {
-			return
+	err = f.client.conn.Request(req)
+	if err != nil {
+		return
+	}
+	lock.Lock()
+	for {
+		cond.Wait()
+		if nil != errDone {
+			err = errDone
+			break
 		}
 	}
-	if nil == err {
-		err = sendErr
+	lock.Unlock()
+	if err != nil {
+		if errReqTrunc_ == err {
+			err = nil // reached EOF
+		}
 	}
+	err = readErr
 	return
 }
 
@@ -856,19 +980,19 @@ func (f *File) Write(b []byte) (nwrote int, err error) {
 // implement io.WriterAt
 //
 // synchronize i/o ops
-func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
+func (f *File) WriteAt(dataB []byte, offset int64) (written int, err error) {
 
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
-	} else if 0 == len(b) {
+	} else if 0 == len(dataB) {
 		return
 	}
 
 	responder := f.client.responder()
 
 	maxPacket := f.client.maxPacket
-	expectPkts := len(b) / maxPacket
-	if len(b) != expectPkts*maxPacket {
+	expectPkts := len(dataB) / maxPacket
+	if len(dataB) != expectPkts*maxPacket {
 		expectPkts++
 	}
 
@@ -878,27 +1002,45 @@ func (f *File) WriteAt(b []byte, offset int64) (written int, err error) {
 		onError:    responder.onError,
 		expectPkts: uint32(expectPkts),
 	}
-	pkt := sshFxpWritePacket{Handle: f.handle}
 
-	req.nextPkt = func(id uint32) idAwarePkt_ {
-		pkt.ID = id
-		amount := len(b)
-		if 0 == amount {
-			return nil
-		} else if amount > maxPacket {
-			amount = maxPacket
+	req.pumpPkts =
+		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
+			packetsToSend := expectPkts // need our own counter in closure
+			pkt := sshFxpWritePacket{Handle: f.handle}
+			length := pkt.sizeBeforeData()
+			for 0 != packetsToSend {
+				packetsToSend--
+				pkt.ID = id
+				id++
+				amount := len(dataB)
+				if amount > maxPacket {
+					amount = maxPacket
+				}
+				pkt.Offset = uint64(offset)
+				offset += int64(amount)
+				pkt.Length = uint32(amount)
+				pkt.Data = dataB[:amount]
+				dataB = dataB[amount:]
+
+				bigEnd_.PutUint32(buff, uint32(length+amount))
+				pkt.appendTo(buff[4:4])
+
+				_, err = conn.w.Write(buff[:4+length])
+				if err != nil {
+					return
+				}
+				_, err = conn.w.Write(pkt.Data)
+				if err != nil {
+					return
+				}
+
+				nsent++
+				written += amount
+			}
+			return
 		}
-		written += amount
-		pkt.Offset = uint64(offset)
-		offset += int64(amount)
-		pkt.Length = uint32(amount)
-		pkt.Data = b
-		b = b[amount:]
-		return &pkt
-	}
 
 	conn := &f.client.conn
-
 	req.onResp = func(id, length uint32, typ uint8) (err error) {
 		expectPkts--
 		if 0 > expectPkts {

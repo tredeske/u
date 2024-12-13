@@ -269,7 +269,6 @@ func sendPacket(w io.Writer, buff []byte, pkt appendable_) (err error) {
 	length := len(outBuff)
 	outBuff = buff[:4+len(outBuff)]
 	binary.BigEndian.PutUint32(outBuff[:4], uint32(length))
-	//ulog.Printf("XXX: post:\n%s", hex.Dump(outBuff))
 
 	_, err = w.Write(outBuff)
 	if err != nil {
@@ -738,6 +737,11 @@ type sshFxpWritePacket struct {
 	Offset uint64
 	Handle string
 	Data   []byte // TODO - need to mark this somehow
+}
+
+func (p *sshFxpWritePacket) sizeBeforeData() int {
+	// 1 (type) + 4 (id) + 4 (handle len) + len(handle) + 8 (offset) + 4 (datalen)
+	return 21 + len(p.Handle)
 }
 
 func (p *sshFxpWritePacket) appendTo(inB []byte) (outB []byte, err error) {
