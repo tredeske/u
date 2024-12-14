@@ -15,19 +15,18 @@ const errReqTrunc_ = uerr.Const("request truncated")
 //
 // https://filezilla-project.org/specs/draft-ietf-secsh-filexfer-02.txt
 type conn_ struct {
-	r io.Reader
-	w io.WriteCloser
-
 	wC chan *clientReq_ // input chan to writer
-	rC chan *clientReq_ // chan from writer to reader
+	w  io.WriteCloser   // for writer
 
 	maxPacket int
+	client    *Client
+	closed    atomic.Bool // the end
 
-	backing []byte      // for reader
-	buff    []byte      // for reader, req.onResp
-	pos     int         // for reader
-	closed  atomic.Bool // the end
-	client  *Client
+	rC      chan *clientReq_ // chan from writer to reader
+	pos     int              // for reader
+	r       io.Reader        // for reader
+	backing []byte           // for reader
+	buff    []byte           // for reader, req.onResp
 }
 
 func (conn *conn_) Construct(r io.Reader, w io.WriteCloser, c *Client) {
@@ -63,6 +62,16 @@ const (
 	manualRespond_ autoResp_ = false
 )
 
+// these are created for each request to the server.
+//
+//	client/file -----> conn.writer ------> conn.reader
+//
+// and, in some cases
+//
+//	pumper ------> conn.reader
+//
+// once passed to the next guy, do not touch any of the fields in the req!
+// each worker is free to modify req while they have it.
 type clientReq_ struct {
 	id         uint32 // request id filled in by writer
 	expectPkts uint32 // pkts to send
@@ -95,26 +104,8 @@ type clientReq_ struct {
 	//
 	// This may run in either the clientConn writer or reader contexts
 	onError func(error)
-}
 
-func newClientReq(
-	pkt idAwarePkt_,
-	expectType uint8,
-	autoResp autoResp_,
-	onResp func(id, length uint32, typ uint8) error,
-	onError func(error),
-) (
-	req *clientReq_,
-) {
-	req = &clientReq_{
-		expectType: expectType,
-		autoResp:   autoResp,
-		onResp:     onResp,
-		onError:    onError,
-	}
-	req.pkt = pkt
-	req.expectPkts = 1
-	return
+	client *Client
 }
 
 func (conn *conn_) RequestSingle(
@@ -126,7 +117,14 @@ func (conn *conn_) RequestSingle(
 ) (
 	err error,
 ) {
-	return conn.Request(newClientReq(pkt, expectType, autoResp, onResp, onError))
+	req := conn.client.request()
+	req.expectType = expectType
+	req.autoResp = autoResp
+	req.onResp = onResp
+	req.onError = onError
+	req.pkt = pkt
+	req.expectPkts = 1
+	return conn.Request(req)
 }
 
 func (conn *conn_) Request(req *clientReq_) (err error) {
@@ -199,12 +197,12 @@ func (conn *conn_) writer() {
 				return
 			}
 			if nsent < expectPkts { // ReadFrom could actually be more
-				conn.rC <- &clientReq_{
-					id:         idGen,
-					expectPkts: expectPkts,
-					actualPkts: nsent,
-					trunc:      true,
-				}
+				truncReq := conn.client.request()
+				req.id = idGen
+				req.expectPkts = expectPkts
+				req.actualPkts = nsent
+				req.trunc = true
+				conn.rC <- truncReq
 			}
 			idGen += nsent
 		}
@@ -272,6 +270,9 @@ func (conn *conn_) reader() {
 
 	for {
 
+		//
+		// get the next pkt header
+		//
 		id, length, typ, err = conn.readIdHeader()
 		if err != nil {
 			err = uerr.Chainf(err, "read SFTP header")
@@ -284,10 +285,10 @@ func (conn *conn_) reader() {
 		//log.Printf("XXX: %p read typ=%d, id=%d, len=%d", conn, typ, id, length)
 
 		//
-		// match to req
+		// check for req updates.  do this before looking up the req, as the req
+		// may have since been truncated
 		//
-		req, found = reqs[id]
-		for !found {
+		for {
 			select {
 			case req, alive = <-conn.rC:
 				if !alive { // chan closed
@@ -302,21 +303,32 @@ func (conn *conn_) reader() {
 							rmReq.actualPkts = req.actualPkts
 							delete(reqs, lo)
 							rmReq.expectPkts--
-							if 0 == rmReq.expectPkts && nil != rmReq.onError {
-								rmReq.onError(errReqTrunc_)
+							if 0 == rmReq.expectPkts {
+								if nil != rmReq.onError {
+									rmReq.onError(errReqTrunc_)
+								}
+								rmReq.recycle()
 							}
 						}
 					}
 				} else {
-					found = (id >= lo && id <= hi)
 					for ; lo <= hi; lo++ {
 						reqs[lo] = req
 					}
 				}
-			default: // ran out of reqs, but unable to find match
-				err = errUnexpected
-				return
+				continue
+			default: // don't wait on conn.rC
 			}
+			break
+		}
+
+		//
+		// match to req
+		//
+		req, found = reqs[id]
+		if !found {
+			err = errUnexpected
+			return
 		}
 		delete(reqs, id)
 
@@ -357,6 +369,9 @@ func (conn *conn_) reader() {
 				err = uerr.Chainf(err, "read (skip) SFTP payload")
 				return
 			}
+		}
+		if 0 == req.expectPkts {
+			req.recycle()
 		}
 		req = nil
 

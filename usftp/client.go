@@ -70,6 +70,7 @@ func WithErrorFunc(onError func(error)) ClientOption {
 type Client struct {
 	conn conn_
 
+	reqPool  sync.Pool // of clientReq_
 	respPool sync.Pool // of resp chans
 
 	ext map[string]string // Extensions (name -> data).
@@ -115,6 +116,7 @@ func NewClientPipe(
 	client = &Client{
 		maxPacket: 1 << 15, // 32768, min supported as per RFC
 	}
+	client.reqPool.New = manufactureReq
 	client.respPool.New = client.newResponder
 
 	defer func() {
@@ -134,6 +136,28 @@ func NewClientPipe(
 	client.ext, err = client.conn.Start()
 	return
 }
+
+// request
+
+var zeroReq_ clientReq_
+
+func manufactureReq() any {
+	return &clientReq_{}
+}
+
+func (client *Client) request() (rv *clientReq_) {
+	rv = client.reqPool.Get().(*clientReq_)
+	rv.client = client
+	return
+}
+
+func (req *clientReq_) recycle() {
+	client := req.client
+	*req = zeroReq_
+	client.reqPool.Put(req)
+}
+
+// response
 
 type errResponder_ struct {
 	errC   chan error
@@ -158,6 +182,8 @@ func (client *Client) responder() (rv *errResponder_) {
 	rv = client.respPool.Get().(*errResponder_)
 	return
 }
+
+// error
 
 func (client *Client) reportError(err error) {
 	if nil != client.onError {

@@ -67,7 +67,7 @@ func (f *File) SetClient(c *Client) error {
 // it will be populated after a ReadDir, or a Stat call
 func (f *File) FileStat() FileStat { return f.attrs }
 
-// if attrs are populated, mod time in unix seconds
+// if attrs are populated, mod time in unix serespConds
 //
 // it's only 32 bits, but it's unsigned so will not fail in 2038
 func (f *File) ModTimeUnix() uint32 { return f.attrs.Mtime }
@@ -415,11 +415,10 @@ func (f *File) buildReadReq(
 		expectPkts++
 	}
 
-	req = &clientReq_{
-		expectType: sshFxpData,
-		autoResp:   manualRespond_,
-		expectPkts: uint32(expectPkts),
-	}
+	req = f.client.request()
+	req.expectType = sshFxpData
+	req.autoResp = manualRespond_
+	req.expectPkts = uint32(expectPkts)
 	if 1 == expectPkts {
 		pkt := &sshFxpReadPacket{
 			Handle: f.handle,
@@ -607,7 +606,7 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 // implement io.Reader
 //
 // Reads up to len(b) bytes from the File. It returns the number of bytes
-// read and an error, if any. When Read encounters an error or EOF condition after
+// read and an error, if any. When Read encounters an error or EOF respCondition after
 // successfully reading n > 0 bytes, it returns the number of bytes read.
 //
 // The read may be broken up into chunks supported by the server.
@@ -692,12 +691,11 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	}
 
 	responder := f.client.responder()
-	req := &clientReq_{
-		expectType: sshFxpStatus,
-		autoResp:   manualRespond_,
-		onError:    responder.onError,
-		expectPkts: uint32(expectPkts),
-	}
+	req := f.client.request()
+	req.expectType = sshFxpStatus
+	req.autoResp = manualRespond_
+	req.onError = responder.onError
+	req.expectPkts = uint32(expectPkts)
 
 	// conn still ok after readErr, but we need to report to our caller
 	var readErr error
@@ -792,17 +790,17 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 		return 0, errors.New("attempt to use File.ReadFrom with slow Reader")
 	}
 
-	var lock sync.Mutex
-	var acks, acksNeeded uint32
-	var sendDone bool
-	var errDone error
-	cond := sync.Cond{L: &lock}
+	var respLock sync.Mutex
+	var respAcks, respPkts uint32
+	var respSendDone bool
+	var respErr error
+	respCond := sync.Cond{L: &respLock}
 
 	onError := func(err error) {
-		lock.Lock()
-		errDone = err
-		lock.Unlock()
-		cond.Signal()
+		respLock.Lock()
+		respErr = err
+		respLock.Unlock()
+		respCond.Signal()
 	}
 
 	conn := &f.client.conn
@@ -810,20 +808,20 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 		if typ == sshFxpStatus {
 			var signal bool
 			err = maybeError(conn.buff) // may be nil
-			lock.Lock()
+			respLock.Lock()
 			if nil == err {
-				acks++
-				if sendDone && acks == acksNeeded {
-					errDone = errReqTrunc_
+				respAcks++
+				if respSendDone && respAcks == respPkts {
+					respErr = errReqTrunc_
 					signal = true
 				}
 			} else {
-				errDone = err
+				respErr = err
 				signal = true
 			}
-			lock.Unlock()
+			respLock.Unlock()
 			if signal {
-				cond.Signal()
+				respCond.Signal()
 			}
 		}
 		return
@@ -832,13 +830,12 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 	//
 	// send 1 req at a time, but only the first req goes to the conn.writer
 	//
-	req := &clientReq_{
-		expectType: sshFxpStatus,
-		autoResp:   manualRespond_,
-		onError:    onError,
-		expectPkts: 1,
-		onResp:     onResp,
-	}
+	req := f.client.request()
+	req.expectType = sshFxpStatus
+	req.autoResp = manualRespond_
+	req.onError = onError
+	req.expectPkts = 1
+	req.onResp = onResp
 
 	// conn still ok after readErr, but we need to report to our caller
 	var readErr error
@@ -852,14 +849,14 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 			defer func() {
 				if nil == err { // no conn err.  if conn err, conn notifies us.
 					var signal bool
-					lock.Lock()
-					sendDone = true
-					acksNeeded = nsent
-					signal = (nsent == acks)
-					errDone = errReqTrunc_
-					lock.Unlock()
+					respLock.Lock()
+					respSendDone = true
+					respPkts = nsent
+					signal = (nsent == respAcks)
+					respErr = errReqTrunc_
+					respLock.Unlock()
 					if signal {
-						cond.Signal()
+						respCond.Signal()
 					}
 				}
 			}()
@@ -883,14 +880,13 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 				}
 
 				if 0 != nsent {
-					conn.rC <- &clientReq_{
-						id:         pkt.ID,
-						expectType: sshFxpStatus,
-						autoResp:   manualRespond_,
-						onError:    onError,
-						onResp:     onResp,
-						expectPkts: 1,
-					}
+					req := f.client.request()
+					req.expectType = sshFxpStatus
+					req.autoResp = manualRespond_
+					req.onError = onError
+					req.onResp = onResp
+					req.expectPkts = 1
+					conn.rC <- req
 				}
 
 				pkt.Length = uint32(readAmount)
@@ -914,15 +910,15 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 	if err != nil {
 		return
 	}
-	lock.Lock()
+	respLock.Lock()
 	for {
-		cond.Wait()
-		if nil != errDone {
-			err = errDone
+		respCond.Wait()
+		if nil != respErr {
+			err = respErr
 			break
 		}
 	}
-	lock.Unlock()
+	respLock.Unlock()
 	if err != nil {
 		if errReqTrunc_ == err {
 			err = nil // reached EOF
@@ -996,12 +992,11 @@ func (f *File) WriteAt(dataB []byte, offset int64) (written int, err error) {
 		expectPkts++
 	}
 
-	req := &clientReq_{
-		expectType: sshFxpStatus,
-		autoResp:   manualRespond_,
-		onError:    responder.onError,
-		expectPkts: uint32(expectPkts),
-	}
+	req := f.client.request()
+	req.expectType = sshFxpStatus
+	req.autoResp = manualRespond_
+	req.onError = responder.onError
+	req.expectPkts = uint32(expectPkts)
 
 	req.pumpPkts =
 		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
