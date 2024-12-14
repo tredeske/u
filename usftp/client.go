@@ -82,24 +82,25 @@ type Client struct {
 	onError func(error)
 }
 
-// Create a new SFTP client on the SSH conn
-func NewClient(conn *ssh.Client, opts ...ClientOption) (*Client, error) {
+// Create a new SFTP client on the SSH client conn
+func NewClient(conn *ssh.Client, opts ...ClientOption) (rv *Client, err error) {
 	s, err := conn.NewSession()
 	if err != nil {
-		return nil, err
+		return
 	}
-	if err := s.RequestSubsystem("sftp"); err != nil {
-		return nil, err
-	}
-	pw, err := s.StdinPipe()
+	err = s.RequestSubsystem("sftp")
 	if err != nil {
-		return nil, err
+		return
 	}
-	pr, err := s.StdoutPipe()
+	pwrite, err := s.StdinPipe()
 	if err != nil {
-		return nil, err
+		return
 	}
-	return NewClientPipe(pr, pw, opts...)
+	pread, err := s.StdoutPipe()
+	if err != nil {
+		return
+	}
+	return NewClientPipe(pread, pwrite, opts...)
 }
 
 // Create a new SFTP client with the Reader and a WriteCloser.
@@ -141,9 +142,7 @@ func NewClientPipe(
 
 var zeroReq_ clientReq_
 
-func manufactureReq() any {
-	return &clientReq_{}
-}
+func manufactureReq() any { return &clientReq_{} }
 
 func (client *Client) request() (rv *clientReq_) {
 	rv = client.reqPool.Get().(*clientReq_)
@@ -201,20 +200,17 @@ func (client *Client) HasExtension(name string) (string, bool) {
 }
 
 // close connection to SFTP server and cease operation
-func (client *Client) Close() error {
-	return client.conn.Close()
-}
+func (client *Client) Close() error { return client.conn.Close() }
 
 // return fs.FS compliant facade
-func (client *Client) FS() fs.FS {
-	return &fsClient_{client: client}
-}
+func (client *Client) FS() fs.FS { return &fsClient_{client: client} }
 
 // see fs.WalkDir
-func (client *Client) WalkDir(root string, f fs.WalkDirFunc) error {
-	return fs.WalkDir(client.FS(), root, f)
+func (client *Client) WalkDir(rootD string, f fs.WalkDirFunc) error {
+	return fs.WalkDir(client.FS(), rootD, f)
 }
 
+// return allow=true to allow file, stop=true to stop making server reqs
 type ReadDirFilter func(fileN string, attrs *FileStat) (allow, stop bool)
 
 type ReadDirLimit struct {
@@ -229,12 +225,18 @@ func (rdl *ReadDirLimit) Filter(fileN string, attrs *FileStat) (allow, stop bool
 	return false, true
 }
 
-// ReadDir get a list of Files in dirN.
+// Get a list of Files in dirN.
+//
+// Due to SFTP, it takes at least 3 round trips with the server to get a listing
+// of the files.
 func (client *Client) ReadDir(dirN string) ([]*File, error) {
 	return client.ReadDirLimit(dirN, 0, nil)
 }
 
-// ReadDir get a list of Files in dirN.
+// Get a list of Files in dirN.
+//
+// Due to SFTP, it takes at least 3 round trips with the server to get a listing
+// of the files.
 func (client *Client) ReadDirLimit(
 	dirN string,
 	timeout time.Duration, // if positive, limit time to read dir
@@ -261,13 +263,13 @@ func (client *Client) ReadDirLimit(
 	responder := client.responder()
 
 	readdirPkt := &sshFxpReaddirPacket{Handle: handle}
-	var readdirF func(id, length uint32, typ uint8) (err error)
-	readdirF = func(id, length uint32, typ uint8) (err error) {
+	var readdirF func(id, length uint32, typ uint8, conn *conn_) (err error)
+	readdirF = func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		done := false
 		defer func() {
 			if !done && nil == err &&
 				(0 >= timeout || !time.Now().After(deadline)) {
-				err = client.conn.RequestSingle(
+				err = conn.RequestSingle(
 					readdirPkt, sshFxpName, manualRespond_,
 					readdirF, responder.onError)
 			}
@@ -277,12 +279,12 @@ func (client *Client) ReadDirLimit(
 		}()
 		switch typ {
 		case sshFxpName:
-			err = client.conn.ensure(int(length))
+			err = conn.ensure(int(length))
 			if err != nil {
 				return
 			}
 			allow := true
-			count, buff := unmarshalUint32(client.conn.buff)
+			count, buff := unmarshalUint32(conn.buff)
 			for i := uint32(0); i < count && !done; i++ {
 				var fileN string
 				fileN, buff = unmarshalString(buff)
@@ -306,7 +308,7 @@ func (client *Client) ReadDirLimit(
 			}
 			done = (0 == count)
 		case sshFxpStatus:
-			err = maybeError(client.conn.buff) // may be nil
+			err = maybeError(conn.buff) // may be nil
 			if 0 != len(entries) || io.EOF == err {
 				err = nil // ignore any unmarshaled error if we have entries
 			}
@@ -336,8 +338,8 @@ func (client *Client) opendir(
 	err = client.invokeExpect(
 		&sshFxpOpendirPacket{Path: dirN},
 		sshFxpHandle,
-		func() error {
-			handle, _ = unmarshalString(client.conn.buff)
+		func(buff []byte) error {
+			handle, _ = unmarshalString(buff)
 			return nil
 		})
 	return
@@ -379,7 +381,7 @@ func (client *Client) asyncExpectStatus(
 func (client *Client) asyncExpect(
 	pkt idAwarePkt_,
 	expectType uint8, // use 0 if expect status
-	onExpect func() (err error), // use nil if expect status
+	onExpect func(buff []byte) (err error), // use nil if expect status
 	onStatus func(error),
 	req any, // onComplete req
 	onComplete AsyncFunc, // nil if fire and forget
@@ -388,7 +390,7 @@ func (client *Client) asyncExpect(
 
 	return client.conn.RequestSingle(
 		pkt, expectType, manualRespond_,
-		func(id, length uint32, typ uint8) (respErr error) {
+		func(id, length uint32, typ uint8, conn *conn_) (respErr error) {
 			defer func() {
 				if nil != onStatus {
 					onStatus(respErr)
@@ -399,16 +401,16 @@ func (client *Client) asyncExpect(
 			}()
 			switch typ {
 			case expectType:
-				respErr = client.conn.ensure(int(length))
+				respErr = conn.ensure(int(length))
 				if nil == respErr {
 					if nil != onExpect {
-						respErr = onExpect()
+						respErr = onExpect(conn.buff)
 					} else {
 						respErr = errUnexpected
 					}
 				}
 			case sshFxpStatus:
-				respErr = maybeError(client.conn.buff) // may be nil
+				respErr = maybeError(conn.buff)        // may be nil
 				if 0 != expectType && nil == respErr { // not expecting status
 					respErr = fmt.Errorf(
 						"req %d (%#v) did not get expected response type %d",
@@ -430,17 +432,17 @@ func (client *Client) asyncExpect(
 func (client *Client) invokeExpect(
 	pkt idAwarePkt_,
 	expectType uint8, // use 0 if only expecting status
-	onExpect func() error, // use nil if only expecting status
+	onExpect func(buff []byte) error, // use nil if only expecting status
 ) (invokeErr error) {
 	responder := client.responder()
 	invokeErr = client.conn.RequestSingle(
 		pkt, expectType, autoRespond_,
-		func(id, length uint32, typ uint8) (respErr error) {
+		func(id, length uint32, typ uint8, conn *conn_) (respErr error) {
 			switch typ {
 			case expectType:
-				respErr = onExpect()
+				respErr = onExpect(conn.buff)
 			case sshFxpStatus:
-				respErr = maybeError(client.conn.buff) // may be nil
+				respErr = maybeError(conn.buff)        // may be nil
 				if 0 != expectType && nil == respErr { // not expecting status
 					respErr = fmt.Errorf(
 						"req %d (%#v) did not get expected response type %d",
@@ -477,8 +479,8 @@ func (client *Client) Lstat(pathN string) (attrs *FileStat, err error) {
 	err = client.invokeExpect(
 		&sshFxpLstatPacket{Path: pathN},
 		sshFxpAttrs,
-		func() (err error) {
-			attrs, _, err = unmarshalAttrs(client.conn.buff)
+		func(buff []byte) (err error) {
+			attrs, _, err = unmarshalAttrs(buff)
 			return
 		})
 	return
@@ -489,8 +491,8 @@ func (client *Client) ReadLink(pathN string) (target string, err error) {
 	err = client.invokeExpect(
 		&sshFxpReadlinkPacket{Path: pathN},
 		sshFxpName,
-		func() (err error) {
-			count, buff := unmarshalUint32(client.conn.buff)
+		func(buff []byte) (err error) {
+			count, buff := unmarshalUint32(buff)
 			if count != 1 {
 				err = unexpectedCount(1, count)
 			} else {
@@ -570,8 +572,8 @@ func (client *Client) Chmod(pathN string, mode os.FileMode) error {
 // Set the size of the named file. Setting a size smaller than the current size
 // causes file truncation.  Setting a size greater than the current size is
 // not defined by SFTP - the server may grow the file or do something else.
-func (client *Client) Truncate(path string, size int64) error {
-	return client.setstat(path, sshFileXferAttrSize, uint64(size))
+func (client *Client) Truncate(pathN string, size int64) error {
+	return client.setstat(pathN, sshFileXferAttrSize, uint64(size))
 }
 
 // Set extended attributes of the named file, using the
@@ -582,11 +584,9 @@ func (client *Client) Truncate(path string, size int64) error {
 // "domain" is a valid, registered domain name and "name" identifies the method.
 // Server implementations SHOULD ignore extended data fields that they do not
 // understand.
-func (client *Client) SetExtendedAttr(path string, extended []StatExtended) error {
-	attrs := &FileStat{
-		Extended: extended,
-	}
-	return client.setstat(path, sshFileXferAttrExtended, attrs)
+func (client *Client) SetExtendedAttr(pathN string, ext []StatExtended) error {
+	return client.setstat(pathN, sshFileXferAttrExtended,
+		&FileStat{Extended: ext})
 }
 
 // Create the named file mode 0666 (before umask), truncating it if it
@@ -598,8 +598,7 @@ func (client *Client) SetExtendedAttr(path string, extended []StatExtended) erro
 // read/write at the same time. For those services you will need to use
 // `client.OpenFile(os.O_WRONLY|os.O_CREATE|os.O_TRUNC)`.
 func (client *Client) Create(pathN string) (*File, error) {
-	return client.open(
-		&File{client: client, pathN: pathN},
+	return client.open(&File{client: client, pathN: pathN},
 		toPflags(os.O_RDWR|os.O_CREATE|os.O_TRUNC))
 }
 
@@ -608,16 +607,13 @@ func (client *Client) CreateAsync(
 	pathN string, req any, onComplete AsyncFunc,
 ) (f *File, err error) {
 	f = &File{client: client, pathN: pathN}
-	return f, client.openAsync(f,
-		toPflags(os.O_RDWR|os.O_CREATE|os.O_TRUNC),
+	return f, client.openAsync(f, toPflags(os.O_RDWR|os.O_CREATE|os.O_TRUNC),
 		req, onComplete)
 }
 
 // Open file at pathN for reading.
 func (client *Client) OpenRead(pathN string) (*File, error) {
-	return client.open(
-		&File{client: client, pathN: pathN},
-		toPflags(os.O_RDONLY))
+	return client.open(&File{client: client, pathN: pathN}, toPflags(os.O_RDONLY))
 }
 
 // Open file at pathN for reading, async.
@@ -647,8 +643,8 @@ func (client *Client) open(f *File, pflags uint32) (rv *File, err error) {
 	err = client.invokeExpect(
 		&sshFxpOpenPacket{Path: f.pathN, Pflags: pflags},
 		sshFxpHandle,
-		func() error {
-			f.handle, _ = unmarshalString(client.conn.buff)
+		func(buff []byte) error {
+			f.handle, _ = unmarshalString(buff)
 			rv = f
 			return nil
 		})
@@ -666,8 +662,8 @@ func (client *Client) openAsync(
 	err = client.asyncExpect(
 		&sshFxpOpenPacket{Path: f.pathN, Pflags: pflags},
 		sshFxpHandle,
-		func() error {
-			f.handle, _ = unmarshalString(client.conn.buff)
+		func(buff []byte) error {
+			f.handle, _ = unmarshalString(buff)
 			return nil
 		}, nil, req, onComplete)
 	if err != nil {
@@ -684,8 +680,9 @@ func (client *Client) closeHandleAsync(
 	req any, // may be nil
 	onComplete AsyncFunc,
 ) error {
-	return client.asyncExpectStatus(&sshFxpClosePacket{Handle: handle}, nil,
-		req, onComplete)
+	return client.asyncExpectStatus(
+		&sshFxpClosePacket{Handle: handle},
+		nil, req, onComplete)
 }
 
 // synchronous - waits for any error
@@ -697,8 +694,8 @@ func (client *Client) stat(path string) (attr *FileStat, err error) {
 	err = client.invokeExpect(
 		&sshFxpStatPacket{Path: path},
 		sshFxpAttrs,
-		func() (err error) {
-			attr, _, err = unmarshalAttrs(client.conn.buff)
+		func(buff []byte) (err error) {
+			attr, _, err = unmarshalAttrs(buff)
 			return
 		})
 	return
@@ -708,8 +705,8 @@ func (client *Client) fstat(handle string) (attr *FileStat, err error) {
 	err = client.invokeExpect(
 		&sshFxpFstatPacket{Handle: handle},
 		sshFxpAttrs,
-		func() (err error) {
-			attr, _, err = unmarshalAttrs(client.conn.buff)
+		func(buff []byte) (err error) {
+			attr, _, err = unmarshalAttrs(buff)
 			return
 		})
 	return
@@ -723,9 +720,9 @@ func (client *Client) StatVFS(pathN string) (rv *StatVFS, err error) {
 	err = client.invokeExpect(
 		&sshFxpStatvfsPacket{Path: pathN},
 		sshFxpExtendedReply,
-		func() (err error) {
+		func(buff []byte) (err error) {
 			rv = &StatVFS{}
-			err = binary.Read(bytes.NewReader(client.conn.buff), binary.BigEndian, rv)
+			err = binary.Read(bytes.NewReader(buff), binary.BigEndian, rv)
 			if err != nil {
 				rv = nil
 				err = errors.New("can not parse StatVFS reply")
@@ -816,8 +813,8 @@ func (client *Client) RealPath(pathN string) (canonN string, err error) {
 	err = client.invokeExpect(
 		&sshFxpRealpathPacket{Path: pathN},
 		sshFxpName,
-		func() (err error) {
-			count, buff := unmarshalUint32(client.conn.buff)
+		func(buff []byte) (err error) {
+			count, buff := unmarshalUint32(buff)
 			if count != 1 {
 				err = unexpectedCount(1, count)
 				return
@@ -1011,6 +1008,5 @@ func toChmodPerm(m os.FileMode) (perm uint32) {
 	if m&os.ModeSticky != 0 {
 		perm |= s_ISVTX
 	}
-
 	return perm
 }

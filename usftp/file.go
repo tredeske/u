@@ -272,7 +272,6 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 	}
 
 	chunkSz, lastChunkSz, req := f.buildReadReq(amount, f.offset)
-	conn := &f.client.conn
 	responder := f.client.responder()
 	req.onError = responder.onError
 	req.autoResp = manualRespond_
@@ -280,7 +279,7 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 
 	first := true
 	var expectId uint32
-	req.onResp = func(id, length uint32, typ uint8) (err error) {
+	req.onResp = func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		defer func() {
 			if err != nil || 0 == expectPkts {
 				expectPkts = 0 // ignore any remaining pkts
@@ -377,7 +376,7 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 		return
 	}
 
-	err = conn.Request(req)
+	err = f.client.conn.Request(req)
 	if err != nil {
 		return
 	}
@@ -478,7 +477,6 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 	}
 
 	chunkSz, lastChunkSz, req := f.buildReadReq(int64(len(toBuff)), offset)
-	conn := &f.client.conn
 	responder := f.client.responder()
 	req.onError = responder.onError
 	expectPkts := req.expectPkts //len(req.pkts)
@@ -486,7 +484,7 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 	first := true
 	var expectId uint32
 	lastShort := false
-	req.onResp = func(id, length uint32, typ uint8) (err error) {
+	req.onResp = func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		defer func() {
 			if err != nil || 0 == expectPkts {
 				expectPkts = 0 // ignore any others after error
@@ -595,7 +593,7 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 		return
 	}
 
-	err = conn.Request(req)
+	err = f.client.conn.Request(req)
 	if err != nil {
 		return
 	}
@@ -748,8 +746,7 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 			return
 		}
 
-	conn := &f.client.conn
-	req.onResp = func(id, length uint32, typ uint8) (err error) {
+	req.onResp = func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		expectPkts--
 		if 0 > expectPkts {
 			panic("got back too many packets for ReadFrom!")
@@ -782,7 +779,7 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	return
 }
 
-// this may not be slow, but it is more complicated and resource intensive.
+// this may not be slow anymore, but it is more complicated and resource intensive.
 // it requires sending multple reqs to the conn.reader.
 func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 
@@ -790,6 +787,9 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 		return 0, errors.New("attempt to use File.ReadFrom with slow Reader")
 	}
 
+	//
+	// a special response handler for this special operation
+	//
 	var respLock sync.Mutex
 	var respAcks, respPkts uint32
 	var respSendDone bool
@@ -803,8 +803,7 @@ func (f *File) readFromSlow(r io.Reader) (nread int64, err error) {
 		respCond.Signal()
 	}
 
-	conn := &f.client.conn
-	onResp := func(id, length uint32, typ uint8) (err error) {
+	onResp := func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		if typ == sshFxpStatus {
 			var signal bool
 			err = maybeError(conn.buff) // may be nil
@@ -1035,8 +1034,7 @@ func (f *File) WriteAt(dataB []byte, offset int64) (written int, err error) {
 			return
 		}
 
-	conn := &f.client.conn
-	req.onResp = func(id, length uint32, typ uint8) (err error) {
+	req.onResp = func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		expectPkts--
 		if 0 > expectPkts {
 			return errors.New("got back too many packets for write!")
@@ -1053,7 +1051,7 @@ func (f *File) WriteAt(dataB []byte, offset int64) (written int, err error) {
 		return
 	}
 
-	err = conn.Request(req)
+	err = f.client.conn.Request(req)
 	if err != nil {
 		return
 	}

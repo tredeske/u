@@ -96,7 +96,7 @@ type clientReq_ struct {
 
 	// Called for each received pkt related to the request.
 	// This runs in the clientConn.reader context
-	onResp func(id, length uint32, typ uint8) error
+	onResp func(id, length uint32, typ uint8, conn *conn_) error
 
 	// Notify requestor that a problem occurred.
 	//
@@ -112,7 +112,7 @@ func (conn *conn_) RequestSingle(
 	pkt idAwarePkt_,
 	expectType uint8,
 	autoResp autoResp_,
-	onResp func(id, length uint32, typ uint8) error,
+	onResp func(id, length uint32, typ uint8, conn *conn_) error,
 	onError func(error),
 ) (
 	err error,
@@ -349,7 +349,7 @@ func (conn *conn_) reader() {
 					return
 				}
 			}
-			reqErr := req.onResp(id, length, typ)
+			reqErr := req.onResp(id, length, typ, conn)
 			//log.Printf("XXX: onResp id=%d, %s", id, reqErr)
 			if req.autoResp && nil != req.onError {
 				req.onError(reqErr)  // autoResp - whether err nil or not
