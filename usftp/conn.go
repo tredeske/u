@@ -165,7 +165,7 @@ func (conn *conn_) writer() {
 	}()
 
 	for req := range conn.wC {
-		if 0 != idGen&0x8000_0000 {
+		if 0 != idGen&0xb000_0000 {
 			idGen = 1 // make sure pkt ids for this req don't wrap
 		}
 		req.id = idGen
@@ -296,6 +296,7 @@ func (conn *conn_) reader() {
 							rmReq.actualPkts = req.actualPkts
 							delete(reqs, lo)
 							rmReq.expectPkts--
+							rmReq.trunc = true
 							if 0 == rmReq.expectPkts {
 								if nil != rmReq.onError {
 									rmReq.onError(errReqTrunc_)
@@ -349,7 +350,7 @@ func (conn *conn_) reader() {
 			} else if reqErr != nil {
 				req.cancelled = true // ignore any responses still outstanding
 
-			} else if 0 != req.actualPkts && // req was truncated
+			} else if req.trunc && // req was truncated
 				0 == req.expectPkts && // we've reached the truncated amount
 				nil != req.onError { // we can notify caller
 				req.onError(errReqTrunc_)

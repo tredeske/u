@@ -688,29 +688,30 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	}
 
 	onResp := func(id, length uint32, typ uint8, conn *conn_) (err error) {
-		if typ == sshFxpStatus {
-			var signal bool
-			err = maybeError(conn.buff) // may be nil
-			//
-			// if there was an error, or if pumpPkts is done and we've got all
-			// of the responses, then signal the response waiter
-			//
-			respLock.Lock()
-			if nil == err {
-				respAcks++
-				if respPumpDone.Load() && respAcks == respPkts {
-					respErr = errReqTrunc_
-					signal = true
-				}
-			} else {
-				respPumpDone.Store(true)
-				respErr = err
+		if typ != sshFxpStatus {
+			panic("impossible!")
+		}
+		err = maybeError(conn.buff) // may be nil
+		//
+		// if there was an error, or if pumpPkts is done and we've got all
+		// of the responses, then signal the response waiter
+		//
+		var signal bool
+		respLock.Lock()
+		if nil == err {
+			respAcks++
+			if respPumpDone.Load() && respAcks == respPkts {
+				respErr = errReqTrunc_
 				signal = true
 			}
-			respLock.Unlock()
-			if signal {
-				respCond.Signal()
-			}
+		} else {
+			respPumpDone.Store(true)
+			respErr = err
+			signal = true
+		}
+		respLock.Unlock()
+		if signal {
+			respCond.Signal()
 		}
 		return
 	}
@@ -779,6 +780,7 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 				// send util we know there is no failure on read.
 				if nil == pumpReq {
 					pumpReq = f.client.request()
+					pumpReq.id = pkt.ID
 					pumpReq.expectType = sshFxpStatus
 					pumpReq.autoResp = manualRespond_
 					pumpReq.onError = onError
