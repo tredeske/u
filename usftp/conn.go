@@ -84,14 +84,13 @@ type clientReq_ struct {
 	// onError must be set
 	autoResp autoResp_
 
-	// When nextPkt is not set (most cases) this is the single packet to send.
+	// When pumpPkts is not set (most cases) this is the single packet to send.
 	pkt idAwarePkt_
 
-	// When a request requires multiple packets, then requester provides this to
-	// enable the writer to get each packet to send.
+	// When multiple packets may be required for the requests, then this assumes
+	// control of sending packets until the request is complete.
 	//
 	// This runs in the clientConn.writer context
-	//nextPkt func(id uint32) idAwarePkt_
 	pumpPkts func(id uint32, conn *conn_, buff []byte) (sent uint32, err error)
 
 	// Called for each received pkt related to the request.
@@ -174,7 +173,6 @@ func (conn *conn_) writer() {
 		if nil == req.pumpPkts {
 			conn.rC <- req
 			req.pkt.setId(idGen)
-			//log.Printf("XXX: %p send1 %d, exp %d %#v", conn, idGen, req.expectType, req.pkt)
 			idGen++
 			err = sendPacket(conn.w, buff[:], req.pkt)
 			if err != nil {
@@ -189,14 +187,11 @@ func (conn *conn_) writer() {
 			var nsent uint32
 			expectPkts := req.expectPkts // our own copy
 
-			conn.rC <- req
-
 			nsent, err = req.pumpPkts(idGen, conn, buff)
-			//log.Printf("XXX: %p pumped %d, exp %d, err: %s", conn, nsent, expectPkts, err)
 			if err != nil {
 				return
 			}
-			if nsent < expectPkts { // ReadFrom could actually be more
+			if nsent < expectPkts { // ReadFrom could be more
 				truncReq := conn.client.request()
 				req.id = idGen
 				req.expectPkts = expectPkts
@@ -282,8 +277,6 @@ func (conn *conn_) reader() {
 			return
 		}
 
-		//log.Printf("XXX: %p read typ=%d, id=%d, len=%d", conn, typ, id, length)
-
 		//
 		// check for req updates.  do this before looking up the req, as the req
 		// may have since been truncated
@@ -350,7 +343,6 @@ func (conn *conn_) reader() {
 				}
 			}
 			reqErr := req.onResp(id, length, typ, conn)
-			//log.Printf("XXX: onResp id=%d, %s", id, reqErr)
 			if req.autoResp && nil != req.onError {
 				req.onError(reqErr)  // autoResp - whether err nil or not
 				req.cancelled = true // ignore any responses still outstanding

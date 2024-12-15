@@ -42,12 +42,38 @@ func WithMaxPacket(size int) ClientOption {
 	}
 }
 
-// Cause an error if File.ReadFrom would use the slow path.  Default is false.
+// Strategy for File.WriteTo
+type WriteToStrategy uint8
+
+const (
+	// When File.WriteTo is called, if the File size is known (File was created
+	// from ReadDir, or had Stat called prior), then assume the size is correct and
+	// proceed.  Otherwise, return an error.
+	//
+	// This is the default strategy.
+	WriteToNeverStat WriteToStrategy = 0
+
+	// When File.WriteTo is called, always issue a Stat call to the server to get
+	// the curent File size, even if the size is already known.
+	WriteToAlwaysStat WriteToStrategy = 1
+
+	// When File.WriteTo is called, if the File size is not known, issue a Stat
+	// call to the server to get it before proceeding.  Otherwise, use the cached
+	// size.
+	WriteToLazyStat WriteToStrategy = 2
+)
+
+// Specify what File.WriteTo should do to determine the File size.  Default is
+// WriteToNever, which is to return an errof if the File's attributes are not
+// known before the call.
 //
-// refer to [File.ReadFrom]
-func WithoutSlowReadFrom(without bool) ClientOption {
+// refer to [File.WriteTo]
+func WithWriteToStrategy(strategy WriteToStrategy) ClientOption {
+	if WriteToLazyStat < strategy {
+		panic("impossible WriteToStrategy")
+	}
 	return func(client *Client) error {
-		client.withoutSlowReadFrom = without
+		client.writeToStrategy = strategy
 		return nil
 	}
 }
@@ -77,7 +103,7 @@ type Client struct {
 
 	maxPacket int // max packet size read or written.
 
-	withoutSlowReadFrom bool
+	writeToStrategy WriteToStrategy
 
 	onError func(error)
 }
