@@ -3,12 +3,12 @@ package urest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
 	nurl "net/url"
@@ -397,13 +397,13 @@ func (this *Chained) PostForm(url string, values *nurl.Values) *Chained {
 	return this
 }
 
-// upload a file by posting as a multipart form
+// Upload the named file using the multipart/form_data method.
 //
-// a direct post is preferred as it is much more efficient and much easier,
-// but some things require the form based way of doing things.
+// The file will be openned and streamed to the server.
 //
-// we stream the file contents to the server instead of assembling the
-// whole multipart message in memory.
+// If ContentLength is not set, this will fill in the correct value.
+//
+// If fileFieldValue is not set, then it will be filepath.Base(fileName)
 func (this *Chained) UploadFileMultipart(
 	url, fileName, fileField, fileFieldValue string,
 	fields map[string]string,
@@ -418,22 +418,50 @@ func (this *Chained) UploadFileMultipart(
 	if this.Error != nil {
 		return this
 	}
+	if 0 == this.Request.ContentLength {
+		var stat os.FileInfo
+		stat, this.Error = contentR.Stat()
+		if this.Error != nil {
+			return this
+		}
+		this.Request.ContentLength = stat.Size()
+	}
 	defer contentR.Close()
 
 	return this.UploadMultipart(url, contentR, fileField, fileFieldValue, fields)
 }
 
-// upload content by posting as a multipart form
+var quoteEscaper_ = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+var boundary_, boundaryContentType_ = func() (string, string) {
+	var buf [37]byte
+	_, err := io.ReadFull(rand.Reader, buf[:])
+	if err != nil {
+		panic(err)
+	}
+	boundary := fmt.Sprintf("%x", buf[:])
+	ct := boundary
+	// We must quote the boundary if it contains any of the
+	// tspecials characters defined by RFC 2045, or space.
+	if strings.ContainsAny(boundary, `()<>@,;:\"/[]?= `) {
+		ct = `"` + boundary + `"`
+	}
+	return boundary, "multipart/form-data; boundary=" + ct
+}()
+
+// Upload content by posting as a multipart form
 //
-// a direct post is preferred as it is much more efficient and much easier,
+// A direct post is preferred as it is more efficient and simpler,
 // but some things require the form based way of doing things.
 //
-// we stream the content to the server instead of assembling the
-// whole multipart message in memory.
+// We stream the content to the server instead of assembling the whole multipart
+// message in memory.
+//
+// If you SetContentLength ahead of this, then this will adjust the Content-Length
+// to account for the form data.  otherwise, Content-Length will be -1.
 func (this *Chained) UploadMultipart(
 	url string,
 	contentR io.Reader,
-	fileField, fileFieldValue string,
+	fileField, fileName string,
 	fields map[string]string,
 ) (rv *Chained) {
 
@@ -444,52 +472,138 @@ func (this *Chained) UploadMultipart(
 		return
 	}
 
-	pipeR, pipeW := io.Pipe()
-	defer pipeR.Close()
+	/*
+		// make a multipart mime boundary
 
-	this.SetBody(pipeR)
-	if this.Error != nil {
-		pipeW.Close()
-		return
+		var buf [30]byte
+		_, err := io.ReadFull(rand.Reader, buf[:])
+		if err != nil {
+			panic(err)
+		}
+		boundary := fmt.Sprintf("%x", buf[:])
+	*/
+
+	// add the multipart mime parts, one part per form field
+
+	var train bytes.Buffer
+	train.Grow(4096)
+	train.WriteString("--")
+	train.WriteString(boundary_)
+	train.WriteString("\r\n")
+
+	for key, val := range fields {
+		train.WriteString(`Content-Disposition: form-data; name="`)
+		train.WriteString(quoteEscaper_.Replace(key))
+		train.WriteString(`"`)
+		train.WriteString("\r\n\r\n")
+
+		train.WriteString(val)
+
+		train.WriteString("\r\n--")
+		train.WriteString(boundary_)
+		train.WriteString("\r\n")
 	}
-	writer := multipart.NewWriter(pipeW)
-	this.SetContentType(writer.FormDataContentType())
-	ch := make(chan error)
 
-	go func() { // stream it
-		var err error
-		defer func() {
-			pipeW.Close()
-			ch <- err
-		}()
+	/*
+		var train bytes.Buffer
+		train.Grow(8192)
+		writer := multipart.NewWriter(&train)
 		for key, val := range fields {
-			err = writer.WriteField(key, val)
-			if err != nil {
+			this.Error = writer.WriteField(key, val)
+			if this.Error != nil {
 				return
 			}
 		}
-		partW, err := writer.CreateFormFile(fileField, fileFieldValue)
-		if err != nil {
+		this.Error = writer.Close()
+		if this.Error != nil {
 			return
 		}
-		_, err = uio.Copy(partW, contentR)
-		if err != nil {
-			return
-		}
-		err = writer.Close()
-	}()
+		train.Truncate(train.Len() - 4) // take off --\r\n
+		train.WriteString("\r\n")       // put back on \r\n
+	*/
 
-	this.Do()
+	// add the file part header
 
-	postErr := <-ch // wait for upload result
-	if postErr != nil {
-		if nil == this.Error {
-			this.Error = postErr
-		} else {
-			this.Error = uerr.Chainf(postErr, "%s", this.Error)
-		}
+	fmt.Fprintf(&train, `Content-Disposition: form-data; name="%s"; filename="%s"`,
+		quoteEscaper_.Replace(fileField), quoteEscaper_.Replace(fileName))
+	train.WriteString("\r\nContent-Type: application/octet-stream\r\n\r\n")
+
+	// create caboose
+
+	var caboose bytes.Buffer
+	caboose.Grow(8 + len(boundary_))
+	caboose.WriteString("\r\n--")
+	caboose.WriteString(boundary_)
+	caboose.WriteString("--\r\n") // end of train
+
+	// let's go!
+
+	if 0 == this.Request.ContentLength {
+		// ?? needed ??
+		//this.surmiseContentLength(contentR)
+		//if -1 != this.Request.ContentLength {
+		//	this.Request.ContentLength += train.Len() + caboose.Len()
+		//}
+		this.Request.ContentLength = -1
+	} else {
+		this.Request.ContentLength += int64(train.Len() + caboose.Len())
 	}
+
+	this.
+		//SetContentType(writer.FormDataContentType()).
+		SetContentType(boundaryContentType_).
+		SetBody(io.MultiReader(&train, contentR, &caboose)).
+		Do()
 	return
+
+	/*
+		pipeR, pipeW := io.Pipe()
+		defer pipeR.Close()
+
+		this.SetBody(pipeR)
+		if this.Error != nil {
+			pipeW.Close()
+			return
+		}
+		writer := multipart.NewWriter(pipeW)
+		this.SetContentType(writer.FormDataContentType())
+		ch := make(chan error)
+
+		go func() { // stream it
+			var err error
+			defer func() {
+				pipeW.Close()
+				ch <- err
+			}()
+			for key, val := range fields {
+				err = writer.WriteField(key, val)
+				if err != nil {
+					return
+				}
+			}
+			partW, err := writer.CreateFormFile(fileField, fileFieldValue)
+			if err != nil {
+				return
+			}
+			_, err = uio.Copy(partW, contentR)
+			if err != nil {
+				return
+			}
+			err = writer.Close()
+		}()
+
+		this.Do()
+
+		postErr := <-ch // wait for upload result
+		if postErr != nil {
+			if nil == this.Error {
+				this.Error = postErr
+			} else {
+				this.Error = uerr.Chainf(postErr, "%s", this.Error)
+			}
+		}
+		return
+	*/
 }
 
 // Write response body to dst
