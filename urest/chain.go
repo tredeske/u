@@ -405,7 +405,7 @@ func (this *Chained) PostForm(url string, values *nurl.Values) *Chained {
 //
 // If fileFieldValue is not set, then it will be filepath.Base(fileName)
 func (this *Chained) UploadFileMultipart(
-	url, fileName, fileField, fileFieldValue string,
+	fileName, fileField, fileFieldValue string,
 	fields map[string]string,
 ) *Chained {
 
@@ -428,24 +428,36 @@ func (this *Chained) UploadFileMultipart(
 	}
 	defer contentR.Close()
 
-	return this.UploadMultipart(url, contentR, fileField, fileFieldValue, fields)
+	return this.UploadMultipart(contentR, fileField, fileFieldValue, fields)
 }
 
 var quoteEscaper_ = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
-var boundary_, boundaryContentType_ = func() (string, string) {
-	var buf [37]byte
-	_, err := io.ReadFull(rand.Reader, buf[:])
+var boundary_,
+	boundaryContentType_,
+	caboose_ = func() (string, string, *bytes.Reader) {
+	// our base64 alphabet to get more entropy in the boundary than go's std hex
+	// implementation.
+	// RFCs 2045 and 2046 say this can be up to 70 chars, and the following
+	// should be avoided: `()<>@,;:\"/[]?= `
+	// we also want to avoid -, since if we get more 2 of those in a row...
+	const a = "0123456789_abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	var buff [37]byte
+	_, err := io.ReadFull(rand.Reader, buff[:])
 	if err != nil {
 		panic(err)
 	}
-	boundary := fmt.Sprintf("%x", buf[:])
-	ct := boundary
-	// We must quote the boundary if it contains any of the
-	// tspecials characters defined by RFC 2045, or space.
-	if strings.ContainsAny(boundary, `()<>@,;:\"/[]?= `) {
-		ct = `"` + boundary + `"`
+	for i := 0; i < len(buff); i++ {
+		buff[i] = a[buff[i]&0x3f]
 	}
-	return boundary, "multipart/form-data; boundary=" + ct
+
+	boundary := string(buff[:])
+	var caboose bytes.Buffer
+	caboose.Grow(8 + len(boundary))
+	caboose.WriteString("\r\n--")
+	caboose.WriteString(boundary)
+	caboose.WriteString("--\r\n")
+	return boundary, "multipart/form-data; boundary=" + boundary,
+		bytes.NewReader(caboose.Bytes())
 }()
 
 // Upload content by posting as a multipart form
@@ -459,7 +471,6 @@ var boundary_, boundaryContentType_ = func() (string, string) {
 // If you SetContentLength ahead of this, then this will adjust the Content-Length
 // to account for the form data.  otherwise, Content-Length will be -1.
 func (this *Chained) UploadMultipart(
-	url string,
 	contentR io.Reader,
 	fileField, fileName string,
 	fields map[string]string,
@@ -467,21 +478,12 @@ func (this *Chained) UploadMultipart(
 
 	rv = this
 
-	this.ensureReq("POST", url)
 	if this.Error != nil {
 		return
 	}
-
-	/*
-		// make a multipart mime boundary
-
-		var buf [30]byte
-		_, err := io.ReadFull(rand.Reader, buf[:])
-		if err != nil {
-			panic(err)
-		}
-		boundary := fmt.Sprintf("%x", buf[:])
-	*/
+	if 0 == len(this.Request.Method) {
+		this.Request.Method = "POST"
+	}
 
 	// add the multipart mime parts, one part per form field
 
@@ -504,24 +506,6 @@ func (this *Chained) UploadMultipart(
 		train.WriteString("\r\n")
 	}
 
-	/*
-		var train bytes.Buffer
-		train.Grow(8192)
-		writer := multipart.NewWriter(&train)
-		for key, val := range fields {
-			this.Error = writer.WriteField(key, val)
-			if this.Error != nil {
-				return
-			}
-		}
-		this.Error = writer.Close()
-		if this.Error != nil {
-			return
-		}
-		train.Truncate(train.Len() - 4) // take off --\r\n
-		train.WriteString("\r\n")       // put back on \r\n
-	*/
-
 	// add the file part header
 
 	fmt.Fprintf(&train, `Content-Disposition: form-data; name="%s"; filename="%s"`,
@@ -530,80 +514,24 @@ func (this *Chained) UploadMultipart(
 
 	// create caboose
 
-	var caboose bytes.Buffer
-	caboose.Grow(8 + len(boundary_))
-	caboose.WriteString("\r\n--")
-	caboose.WriteString(boundary_)
-	caboose.WriteString("--\r\n") // end of train
+	caboose := *caboose_
 
 	// let's go!
 
 	if 0 == this.Request.ContentLength {
-		// ?? needed ??
-		//this.surmiseContentLength(contentR)
-		//if -1 != this.Request.ContentLength {
-		//	this.Request.ContentLength += train.Len() + caboose.Len()
-		//}
-		this.Request.ContentLength = -1
-	} else {
+		this.surmiseContentLength(contentR)
+		if -1 != this.Request.ContentLength {
+			this.Request.ContentLength += int64(train.Len() + caboose.Len())
+		}
+	} else if 0 < this.Request.ContentLength {
 		this.Request.ContentLength += int64(train.Len() + caboose.Len())
 	}
 
 	this.
-		//SetContentType(writer.FormDataContentType()).
 		SetContentType(boundaryContentType_).
 		SetBody(io.MultiReader(&train, contentR, &caboose)).
 		Do()
 	return
-
-	/*
-		pipeR, pipeW := io.Pipe()
-		defer pipeR.Close()
-
-		this.SetBody(pipeR)
-		if this.Error != nil {
-			pipeW.Close()
-			return
-		}
-		writer := multipart.NewWriter(pipeW)
-		this.SetContentType(writer.FormDataContentType())
-		ch := make(chan error)
-
-		go func() { // stream it
-			var err error
-			defer func() {
-				pipeW.Close()
-				ch <- err
-			}()
-			for key, val := range fields {
-				err = writer.WriteField(key, val)
-				if err != nil {
-					return
-				}
-			}
-			partW, err := writer.CreateFormFile(fileField, fileFieldValue)
-			if err != nil {
-				return
-			}
-			_, err = uio.Copy(partW, contentR)
-			if err != nil {
-				return
-			}
-			err = writer.Close()
-		}()
-
-		this.Do()
-
-		postErr := <-ch // wait for upload result
-		if postErr != nil {
-			if nil == this.Error {
-				this.Error = postErr
-			} else {
-				this.Error = uerr.Chainf(postErr, "%s", this.Error)
-			}
-		}
-		return
-	*/
 }
 
 // Write response body to dst

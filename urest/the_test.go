@@ -1,10 +1,13 @@
 package urest
 
 import (
+	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"reflect"
 	"strings"
@@ -20,7 +23,9 @@ var (
 )
 
 const (
-	GET_RESPONSE = "GET response\n"
+	GET_RESPONSE    = "GET response\n"
+	uploadContent_  = "The quick brown fox........"
+	uploadFilename_ = "fox.txt"
 )
 
 func TestRequests(t *testing.T) {
@@ -50,12 +55,12 @@ func TestRequests(t *testing.T) {
 	// POST JSON
 	//
 
-	type TestReq struct {
+	type testReq struct {
 		Foo string `json:"foo"`
 		Bar string `json:"bar"`
 	}
-	jsonReq := TestReq{"foo", "bar"}
-	var jsonResp TestReq
+	jsonReq := testReq{"foo", "bar"}
+	var jsonResp testReq
 
 	_, err = NewChain(nil).
 		SetMethod("POST").
@@ -74,6 +79,30 @@ func TestRequests(t *testing.T) {
 	} else if !reflect.DeepEqual(jsonReq, jsonResp) {
 		t.Fatalf("POST did not get expected response")
 	}
+
+	log.Printf(`
+GIVEN test http server running
+ WHEN POST multipart/form_data upload
+ THEN successful upload
+`)
+
+	var buff bytes.Buffer
+	buff.WriteString(uploadContent_)
+	_, err = NewChain(nil).
+		SetMethod("POST").
+		SetTimeout(time.Second).
+		SetUrlString("http://"+addr+"/multi").
+		UploadMultipart(&buff, "file", uploadFilename_, map[string]string{
+			"foo": "bar",
+			"1":   "one",
+		}).
+		IsOk().
+		Done()
+	if err != nil {
+		t.Fatalf("POST failed: %s", err)
+	} else if err = <-responseC_; err != errOk_ {
+		t.Fatalf("POST failed (server): %s", err)
+	}
 }
 
 // a simple http server to test against
@@ -82,7 +111,7 @@ func setupServer() (addr string) {
 
 	log.Printf("Setting up test http server on %s", addr)
 
-	testHandler := func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/test", func(w http.ResponseWriter, req *http.Request) {
 		//log.Println(req)
 
 		_, ok := req.Header["X-Test"]
@@ -113,8 +142,85 @@ func setupServer() (addr string) {
 			log.Println(err)
 			responseC_ <- err
 		}
-	}
-	http.HandleFunc("/test", testHandler)
+	})
+
+	http.HandleFunc("/multi", func(w http.ResponseWriter, req *http.Request) {
+		var err error
+		defer func() {
+			if err != nil {
+				w.WriteHeader(400)
+				responseC_ <- err
+			} else {
+				w.WriteHeader(200)
+				responseC_ <- errOk_
+			}
+		}()
+
+		contentType := req.Header.Get("Content-Type")
+		if !strings.HasPrefix(contentType, "multipart/form-data") {
+			err = fmt.Errorf("Unknown content type: %s", contentType)
+			return
+		}
+		/*
+			content, err := io.ReadAll(req.Body)
+			if err != nil {
+				responseC_ <- err
+				return
+			}
+			log.Println(string(content))
+		*/
+		multiR, err := req.MultipartReader()
+		if err != nil {
+			return
+		}
+
+		var part *multipart.Part
+		for {
+			if nil != part {
+				part.Close()
+			}
+			part, err = multiR.NextPart()
+			if err != nil {
+				if io.EOF == err {
+					err = nil // success
+				}
+				return
+			}
+			if 0 == len(part.FileName()) {
+				var value []byte
+				value, err = io.ReadAll(part)
+				if err != nil {
+					return
+				} else if 0 == len(part.FormName()) {
+					err = errors.New("form name not set!")
+					return
+				} else if 0 == len(value) {
+					err = errors.New("value not set!")
+					return
+				}
+				log.Printf("form name=%s, value=%s", part.FormName(), string(value))
+
+			} else {
+
+				var content []byte
+				content, err = io.ReadAll(part)
+				if err != nil {
+					return
+				} else if 0 == len(content) {
+					err = errors.New("file content not set!")
+					return
+				} else if uploadContent_ != string(content) {
+					err = errors.New("file content not correct!")
+					return
+				} else if uploadFilename_ != part.FileName() {
+					err = errors.New("file name not correct!")
+					return
+				}
+				log.Printf("filename '%s', content:\n%s", part.FileName(),
+					hex.Dump(content))
+			}
+		}
+	})
 
 	go func() {
 		responseC_ <- http.ListenAndServe(addr, nil)
