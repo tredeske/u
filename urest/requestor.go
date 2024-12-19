@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -61,7 +62,7 @@ type Requestor struct {
 	Client   *http.Client
 	Request  *http.Request
 	Response *http.Response
-	Error    error
+	err      error
 	cancel   context.CancelFunc
 }
 
@@ -72,7 +73,7 @@ func NewRequestor(client *http.Client) (this *Requestor) {
 		client = defaultClient_
 	}
 	this = &Requestor{Client: client}
-	this.Request, this.Error = http.NewRequest("", "", nil)
+	this.Request, this.err = http.NewRequest("", "", nil)
 	return this
 }
 
@@ -80,7 +81,7 @@ func NewRequestor(client *http.Client) (this *Requestor) {
 func (this *Requestor) Reset() *Requestor {
 	this.Response = nil
 	this.cancel = nil
-	this.Request, this.Error = http.NewRequest("", "", nil)
+	this.Request, this.err = http.NewRequest("", "", nil)
 	return this
 }
 
@@ -94,7 +95,7 @@ func (this *Requestor) GetRequestor(c **Requestor) *Requestor {
 //
 // since we create the context, we handle cancelation/cleanup
 func (this *Requestor) SetTimeout(d time.Duration) *Requestor {
-	if nil == this.Error && 0 != d {
+	if nil == this.err && 0 != d {
 		ctx, cancel := context.WithTimeout(context.Background(), d)
 		this.cancel = cancel
 		this.Request = this.Request.WithContext(ctx)
@@ -107,7 +108,7 @@ func (this *Requestor) SetTimeout(d time.Duration) *Requestor {
 // since the context is provided by caller, it is caller's responsibility to
 // check the context and cancel it, etc...
 func (this *Requestor) WithContext(ctx context.Context) *Requestor {
-	if nil == this.Error && nil != ctx {
+	if nil == this.err && nil != ctx {
 		this.Request = this.Request.WithContext(ctx)
 	}
 	return this
@@ -115,7 +116,7 @@ func (this *Requestor) WithContext(ctx context.Context) *Requestor {
 
 // set basic auth info.  if user is "", then do not actually set the info
 func (this *Requestor) SetBasicAuth(user, pass string) *Requestor {
-	if nil == this.Error && 0 != len(user) {
+	if nil == this.err && 0 != len(user) {
 		this.Request.SetBasicAuth(user, pass)
 	}
 	return this
@@ -123,7 +124,7 @@ func (this *Requestor) SetBasicAuth(user, pass string) *Requestor {
 
 // set the HTTP verb (GET, PUT, POST, DELETE, ...) to use
 func (this *Requestor) SetMethod(method string) *Requestor {
-	if nil == this.Error && 0 != len(method) {
+	if nil == this.err && 0 != len(method) {
 		this.Request.Method = method
 	}
 	return this
@@ -131,7 +132,7 @@ func (this *Requestor) SetMethod(method string) *Requestor {
 
 // set the URL to use for the request
 func (this *Requestor) SetUrl(url *nurl.URL) *Requestor {
-	if nil == this.Error && nil != url {
+	if nil == this.err && nil != url {
 		this.Request.URL = url
 		this.Request.Host = url.Host
 	}
@@ -140,9 +141,9 @@ func (this *Requestor) SetUrl(url *nurl.URL) *Requestor {
 
 // set the URL to use for the request, parsing the provided string into a URL
 func (this *Requestor) SetUrlString(url string) *Requestor {
-	if nil == this.Error && 0 != len(url) {
+	if nil == this.err && 0 != len(url) {
 		var u *nurl.URL
-		u, this.Error = nurl.Parse(url)
+		u, this.err = nurl.Parse(url)
 		this.SetUrl(u)
 	}
 	return this
@@ -150,7 +151,7 @@ func (this *Requestor) SetUrlString(url string) *Requestor {
 
 /*
 func (this *Requestor) ensureReq(method, url string) {
-	if nil == this.Error {
+	if nil == this.err {
 		if 0 != len(method) {
 			this.Request.Method = method
 		}
@@ -165,7 +166,7 @@ func (this *Requestor) ensureReq(method, url string) {
 func (this *Requestor) SetBodyJson(body any) *Requestor {
 	encoded, err := json.Marshal(body)
 	if err != nil {
-		this.Error = err
+		this.err = err
 	} else {
 		this.SetContentType("application/json")
 		this.SetBodyBytes(encoded)
@@ -182,7 +183,7 @@ func (this *Requestor) SetBodyBytes(body []byte) *Requestor {
 // set the body.  setting nil indicates no data in body.
 // the body will be automatically closed
 func (this *Requestor) SetBody(body io.Reader) *Requestor {
-	if nil == this.Error && nil != body {
+	if nil == this.err && nil != body {
 		rc, ok := body.(io.ReadCloser)
 		if !ok {
 			rc = io.NopCloser(body)
@@ -224,17 +225,17 @@ func (this *Requestor) surmiseContentLength(body io.Reader) {
 
 // set the body to the contents (and length) of the specified file
 func (this *Requestor) SetBodyFile(filename string) *Requestor {
-	if nil == this.Error {
+	if nil == this.err {
 		body, err := os.Open(filename)
 		if err != nil {
-			this.Error = err
+			this.err = err
 			return this
 		}
 		if 0 == this.Request.ContentLength {
 			fi, err := body.Stat()
 			if err != nil {
 				body.Close()
-				this.Error = err
+				this.err = err
 				return this
 			}
 			this.SetContentLength(fi.Size())
@@ -249,7 +250,7 @@ func (this *Requestor) SetBodyFile(filename string) *Requestor {
 // if content length is set to a positive number, then go http will use
 // a LimitReader, which will prevent ReaderFrom/WriterTo optimization
 func (this *Requestor) SetContentLength(length int64) *Requestor {
-	if nil == this.Error {
+	if nil == this.err {
 		this.Request.ContentLength = length
 	}
 	return this
@@ -257,7 +258,7 @@ func (this *Requestor) SetContentLength(length int64) *Requestor {
 
 // Set the Content-Type HTTP request header
 func (this *Requestor) SetContentType(ctype string) *Requestor {
-	if nil == this.Error && 0 != len(ctype) {
+	if nil == this.err && 0 != len(ctype) {
 		//ctype = "application/octet-stream"
 		this.Request.Header.Set("Content-Type", ctype)
 	}
@@ -266,7 +267,7 @@ func (this *Requestor) SetContentType(ctype string) *Requestor {
 
 // set the named HTTP request header to the specified value(s)
 func (this *Requestor) SetHeader(key, value string, values ...string) *Requestor {
-	if nil == this.Error && 0 != len(key) {
+	if nil == this.err && 0 != len(key) {
 		this.Request.Header.Set(key, value)
 		for _, v := range values {
 			this.Request.Header.Add(key, v)
@@ -277,7 +278,7 @@ func (this *Requestor) SetHeader(key, value string, values ...string) *Requestor
 
 // set the HTTP request headers
 func (this *Requestor) SetHeaders(headers map[string]string) *Requestor {
-	if nil == this.Error {
+	if nil == this.err {
 		for k, v := range headers {
 			this.Request.Header.Set(k, v)
 		}
@@ -290,7 +291,7 @@ func (this *Requestor) SetHeaders(headers map[string]string) *Requestor {
 // require this.
 func (this *Requestor) SetRawHeaders(headers map[string]string) *Requestor {
 
-	if nil == this.Error && 0 != len(headers) {
+	if nil == this.err && 0 != len(headers) {
 		for k, v := range headers {
 			if 0 != len(k) {
 				this.Request.Header[k] = []string{v}
@@ -303,7 +304,7 @@ func (this *Requestor) SetRawHeaders(headers map[string]string) *Requestor {
 // set a header without allowing Go to make the header HTTP compliant, such
 // as capitalizing the header key, etc.
 func (this *Requestor) SetRawHeader(key, value string) *Requestor {
-	if nil == this.Error && 0 != len(key) {
+	if nil == this.err && 0 != len(key) {
 		this.Request.Header[key] = []string{value}
 	}
 	return this
@@ -357,19 +358,23 @@ func (this *Requestor) LinkResponseHeaders(key string) (rv map[string]string) {
 
 // Perform specialized adjustment of req before making the request
 func (this *Requestor) BeforeRequest(f func(req *http.Request) error) *Requestor {
-	if nil == this.Error {
-		this.Error = f(this.Request)
+	if nil == this.err {
+		this.err = f(this.Request)
 	}
 	return this
 }
 
 // perform the request
 func (this *Requestor) Do() *Requestor {
-	if nil == this.Error {
+	if nil == this.err {
+		if 0 == len(this.Request.Method) {
+			this.err = errors.New("no method set")
+			return this
+		}
 		if nil != this.Request.Body && 0 == this.Request.ContentLength {
 			this.Request.ContentLength = -1
 		}
-		this.Response, this.Error = this.Client.Do(this.Request)
+		this.Response, this.err = this.Client.Do(this.Request)
 		cancel := this.cancel
 		if nil != cancel {
 			cancel()
@@ -386,15 +391,26 @@ func (this *Requestor) Get() *Requestor {
 }
 
 // perform a POST - use in place of SetMethod("POST").Do()
-// perform a simple POST
 func (this *Requestor) Post() *Requestor {
 	this.Request.Method = "POST"
 	return this.Do()
 }
 
+// perform a PUT - use in place of SetMethod("PUT").Do()
+func (this *Requestor) Put() *Requestor {
+	this.Request.Method = "PUT"
+	return this.Do()
+}
+
+// perform a DELETE - use in place of SetMethod("DELETE").Do()
+func (this *Requestor) Delete() *Requestor {
+	this.Request.Method = "DELETE"
+	return this.Do()
+}
+
 // Post URL encoded form (application/x-www-form-urlencoded)
 func (this *Requestor) PostForm(url string, values *nurl.Values) *Requestor {
-	this.Response, this.Error = this.Client.PostForm(url, *values)
+	this.Response, this.err = this.Client.PostForm(url, *values)
 	return this
 }
 
@@ -415,14 +431,14 @@ func (this *Requestor) PostFileMultipart(
 	}
 
 	var contentR *os.File
-	contentR, this.Error = os.Open(fileName)
-	if this.Error != nil {
+	contentR, this.err = os.Open(fileName)
+	if this.err != nil {
 		return this
 	}
 	if 0 == this.Request.ContentLength {
 		var stat os.FileInfo
-		stat, this.Error = contentR.Stat()
-		if this.Error != nil {
+		stat, this.err = contentR.Stat()
+		if this.err != nil {
 			return this
 		}
 		this.Request.ContentLength = stat.Size()
@@ -485,10 +501,10 @@ func (this *Requestor) PostMultipart(
 
 	rv = this
 
-	if this.Error != nil {
+	if this.err != nil {
 		return
 	} else if 0 == len(fileField) || 0 == len(fileName) || nil == contentR {
-		this.Error = errParams
+		this.err = errParams
 		return
 	}
 
@@ -577,10 +593,10 @@ func (this *Requestor) PostMultiparts(
 
 	rv = this
 
-	if this.Error != nil {
+	if this.err != nil {
 		return
 	} else if 0 == len(parts) {
-		this.Error = errParams
+		this.err = errParams
 		return
 	}
 
@@ -626,11 +642,11 @@ func (this *Requestor) PostMultiparts(
 			part.header.WriteString("\r\n")
 		}
 		if 0 >= part.Len {
-			this.Error = errLen
+			this.err = errLen
 			return
 		} else if 0 == len(part.FileField) || 0 == len(part.FileName) ||
 			nil == part.ContentR {
-			this.Error = errPart
+			this.err = errPart
 			return
 		}
 		if 0 == len(part.ContentType) {
@@ -664,14 +680,14 @@ func (this *Requestor) PostMultiparts(
 
 // Copy response body to dst
 func (this *Requestor) BodyCopy(dst io.Writer) *Requestor {
-	if nil == this.Error && nil != this.Response && nil != this.Response.Body {
+	if nil == this.err && nil != this.Response && nil != this.Response.Body {
 		defer this.Response.Body.Close()
 		var ncopied int64
-		ncopied, this.Error = io.Copy(dst, this.Response.Body)
-		if nil == this.Error && -1 != this.Response.ContentLength &&
+		ncopied, this.err = io.Copy(dst, this.Response.Body)
+		if nil == this.err && -1 != this.Response.ContentLength &&
 			this.Response.ContentLength != ncopied {
 
-			this.Error = fmt.Errorf("Only copied %d of %d bytes",
+			this.err = fmt.Errorf("Only copied %d of %d bytes",
 				ncopied, this.Response.ContentLength)
 		}
 	}
@@ -680,7 +696,7 @@ func (this *Requestor) BodyCopy(dst io.Writer) *Requestor {
 
 // get the size of the response body
 func (this *Requestor) BodyLen(length *int64) *Requestor {
-	if nil == this.Error && nil != this.Response {
+	if nil == this.err && nil != this.Response {
 		*length = this.Response.ContentLength
 	}
 	return this
@@ -696,7 +712,7 @@ func (this *Requestor) Body(body *io.Reader) *Requestor {
 
 // get the body of the response
 func (this *Requestor) GetBody() (bodyLength int64, body io.Reader, err error) {
-	err = this.Error
+	err = this.err
 	if err != nil {
 		return
 	} else if nil != this.Response {
@@ -721,8 +737,8 @@ func (this *Requestor) BodyBytesIf(cond CondF, body *[]byte) *Requestor {
 		var err error
 		*body, err = io.ReadAll(this.Response.Body)
 		this.Response.Body.Close()
-		if err != nil && nil == this.Error {
-			this.Error = err
+		if err != nil && nil == this.err {
+			this.err = err
 		}
 	}
 	return this
@@ -742,8 +758,8 @@ func (this *Requestor) BodyJsonIf(cond CondF, result any) *Requestor {
 
 		err := json.NewDecoder(this.Response.Body).Decode(result)
 		this.Response.Body.Close()
-		if err != nil && nil == this.Error {
-			this.Error = err
+		if err != nil && nil == this.err {
+			this.err = err
 		}
 	}
 	return this
@@ -791,8 +807,8 @@ func (this *Requestor) DoRetriably(
 		if 0 != i && 0 != delay {
 			time.Sleep(delay)
 		}
-		this.Response, this.Error = this.Client.Do(this.Request)
-		retry, this.Error = onResp(this, i)
+		this.Response, this.err = this.Client.Do(this.Request)
+		retry, this.err = onResp(this, i)
 	}
 	return this
 }
@@ -839,13 +855,13 @@ func (this *Requestor) IfStatusIs(
 	status int,
 	then func(c *Requestor) error,
 ) (rv *Requestor) {
-	if nil == this.Error {
+	if nil == this.err {
 		if nil == this.Response {
-			this.Error = errNoResp
+			this.err = errNoResp
 		} else if status == this.Response.StatusCode {
 			err := then(this)
-			if nil != err && nil == this.Error {
-				this.Error = err
+			if nil != err && nil == this.err {
+				this.err = err
 			}
 		}
 	}
@@ -857,14 +873,14 @@ func (this *Requestor) IfStatusIn(
 	status []int,
 	then func(c *Requestor) error,
 ) (rv *Requestor) {
-	if nil == this.Error {
+	if nil == this.err {
 		if nil == this.Response {
-			this.Error = errNoResp
+			this.err = errNoResp
 		} else {
 			if this.IsStatusIn(status) {
 				err := then(this)
-				if nil != err && nil == this.Error {
-					this.Error = err
+				if nil != err && nil == this.err {
+					this.err = err
 				}
 			}
 		}
@@ -900,7 +916,7 @@ func (this *Requestor) IsOk() *Requestor {
 func (this *Requestor) invalidStatus() {
 	var body []byte
 	this.BodyBytes(&body)
-	this.Error = fmt.Errorf("Invalid status: %d, resp: '%s'",
+	this.err = fmt.Errorf("Invalid status: %d, resp: '%s'",
 		this.Response.StatusCode, string(body))
 }
 
@@ -912,7 +928,7 @@ func (this *Requestor) StatusIn(status ...int) *Requestor {
 			ok = true
 			return nil
 		})
-	if !ok && nil == this.Error {
+	if !ok && nil == this.err {
 		this.invalidStatus()
 	}
 	return this
@@ -920,9 +936,9 @@ func (this *Requestor) StatusIn(status ...int) *Requestor {
 
 // error unless response status specified one
 func (this *Requestor) StatusIs(status int) *Requestor {
-	if this.Error == nil {
+	if this.err == nil {
 		if nil == this.Response {
-			this.Error = errNoResp
+			this.err = errNoResp
 		} else if status != this.Response.StatusCode {
 			this.invalidStatus()
 		}
@@ -933,8 +949,8 @@ func (this *Requestor) StatusIs(status int) *Requestor {
 // get status if there is a response
 func (this *Requestor) Status(status *int) *Requestor {
 	if nil == this.Response {
-		if nil == this.Error {
-			this.Error = errNoResp
+		if nil == this.err {
+			this.err = errNoResp
 		}
 	} else {
 		*status = this.Response.StatusCode
@@ -944,14 +960,19 @@ func (this *Requestor) Status(status *int) *Requestor {
 
 // invoke the function (only valid after response)
 func (this *Requestor) Then(f func(c *Requestor) error) *Requestor {
-	if nil == this.Error {
+	if nil == this.err {
 		if nil == this.Response { // programming error
-			this.Error = errNoResp
+			this.err = errNoResp
 		} else {
-			this.Error = f(this)
+			this.err = f(this)
 		}
 	}
 	return this
+}
+
+// get the recorded error, if any
+func (this *Requestor) GetError() error {
+	return this.err
 }
 
 // complete the invocation chain, returning any error encountered
@@ -969,7 +990,7 @@ func (this *Requestor) Done() (rv *Requestor, err error) {
 	if nil != this.Request && nil != this.Request.Body {
 		this.Request.Body.Close()
 	}
-	return this, this.Error
+	return this, this.err
 }
 
 //////////////////////////////////////
