@@ -10,10 +10,12 @@ import (
 	"mime/multipart"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uio"
 )
 
@@ -37,9 +39,10 @@ func TestRequests(t *testing.T) {
 
 	var body strings.Builder
 
-	_, err := NewChain(nil).
+	_, err := NewRequestor(nil).
 		SetHeader("X-Test", "GET").
-		Get("http://" + addr + "/test").
+		SetUrlString("http://" + addr + "/test").
+		Get().
 		IsOk().
 		BodyCopy(&body).
 		Done()
@@ -62,13 +65,12 @@ func TestRequests(t *testing.T) {
 	jsonReq := testReq{"foo", "bar"}
 	var jsonResp testReq
 
-	_, err = NewChain(nil).
-		SetMethod("POST").
+	_, err = NewRequestor(nil).
 		SetTimeout(time.Second).
 		SetUrlString("http://"+addr+"/test").
 		SetHeader("X-Test", "GET").
 		SetBodyJson(&jsonReq).
-		Do().
+		Post().
 		IsOk().
 		BodyJson(&jsonResp).
 		Done()
@@ -88,20 +90,56 @@ GIVEN test http server running
 
 	var buff bytes.Buffer
 	buff.WriteString(uploadContent_)
-	_, err = NewChain(nil).
-		SetMethod("POST").
+	_, err = NewRequestor(nil).
 		SetTimeout(time.Second).
 		SetUrlString("http://"+addr+"/multi").
-		UploadMultipart(&buff, "file", uploadFilename_, map[string]string{
-			"foo": "bar",
-			"1":   "one",
+		//Log().
+		PostMultipart(&buff, "file", uploadFilename_, map[string]string{
+			"foo":         "bar",
+			"expectFiles": "1",
 		}).
 		IsOk().
 		Done()
 	if err != nil {
-		t.Fatalf("POST failed: %s", err)
+		t.Fatalf("multi POST failed: %s", err)
 	} else if err = <-responseC_; err != errOk_ {
-		t.Fatalf("POST failed (server): %s", err)
+		t.Fatalf("multi POST failed (server): %s", err)
+	}
+
+	log.Printf(`
+GIVEN test http server running
+ WHEN POST multipart/form_data upload with multiple files
+ THEN successful upload
+`)
+
+	var parts [3]*Part
+	var buffs [3]bytes.Buffer
+	for i := range buffs {
+		buffs[i].WriteString(uploadContent_)
+		parts[i] = &Part{
+			FileField: "file-" + strconv.Itoa(i),
+			FileName:  uploadFilename_,
+			ContentR:  &buffs[i],
+			Len:       int64(buffs[i].Len()),
+		}
+	}
+	_, err = NewRequestor(nil).
+		SetTimeout(time.Second).
+		SetUrlString("http://"+addr+"/multi").
+		//Log().
+		PostMultiparts(
+			map[string]string{
+				"foo":         "bar",
+				"1":           "one",
+				"expectFiles": strconv.Itoa(len(parts)),
+			},
+			parts[:]...).
+		IsOk().
+		Done()
+	if err != nil {
+		t.Fatalf("multi-3 POST failed: %s", err)
+	} else if err = <-responseC_; err != errOk_ {
+		t.Fatalf("multi-3 POST failed (server): %s", err)
 	}
 }
 
@@ -148,6 +186,7 @@ func setupServer() (addr string) {
 		var err error
 		defer func() {
 			if err != nil {
+				log.Printf("ERROR: problem detected by test server: %s", err)
 				w.WriteHeader(400)
 				responseC_ <- err
 			} else {
@@ -175,6 +214,8 @@ func setupServer() (addr string) {
 		}
 
 		var part *multipart.Part
+		expectParts := 0
+		gotParts := 0
 		for {
 			if nil != part {
 				part.Close()
@@ -183,6 +224,7 @@ func setupServer() (addr string) {
 			if err != nil {
 				if io.EOF == err {
 					err = nil // success
+					break
 				}
 				return
 			}
@@ -200,6 +242,14 @@ func setupServer() (addr string) {
 				}
 				log.Printf("form name=%s, value=%s", part.FormName(), string(value))
 
+				if "expectFiles" == part.FormName() {
+					expectParts, err = strconv.Atoi(string(value))
+					if err != nil {
+						err = uerr.Chainf(err, "parsing expectFiles")
+						return
+					}
+				}
+
 			} else {
 
 				var content []byte
@@ -210,16 +260,24 @@ func setupServer() (addr string) {
 					err = errors.New("file content not set!")
 					return
 				} else if uploadContent_ != string(content) {
-					err = errors.New("file content not correct!")
+					err = fmt.Errorf("bad content: '%s' != '%s'",
+						uploadContent_, string(content))
 					return
 				} else if uploadFilename_ != part.FileName() {
-					err = errors.New("file name not correct!")
+					err = fmt.Errorf("bad filename: '%s' != '%s'",
+						uploadFilename_, part.FileName())
 					return
 				}
 				log.Printf("filename '%s', content:\n%s", part.FileName(),
 					hex.Dump(content))
+				gotParts++
 			}
 		}
+		if expectParts != gotParts {
+			err = fmt.Errorf("Expected %d file parts, got %d",
+				expectParts, gotParts)
+		}
+		return
 	})
 
 	go func() {
@@ -237,7 +295,7 @@ func TestLinkHeaders(t *testing.T) {
 		},
 	}
 
-	chain := Chained{
+	chain := Requestor{
 		Response: &resp,
 	}
 
