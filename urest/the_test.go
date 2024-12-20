@@ -40,7 +40,7 @@ func TestRequests(t *testing.T) {
 	var body strings.Builder
 
 	_, err := NewRequestor(nil).
-		SetHeader("X-Test", "GET").
+		SetHeader("X-Test-Method", "GET").
 		SetUrlString("http://" + addr + "/test").
 		Get().
 		IsOk().
@@ -68,8 +68,9 @@ func TestRequests(t *testing.T) {
 	_, err = NewRequestor(nil).
 		SetTimeout(time.Second).
 		SetUrlString("http://"+addr+"/test").
-		SetHeader("X-Test", "GET").
+		SetHeader("X-Test-Method", "POST").
 		SetBodyJson(&jsonReq).
+		//Log().
 		Post().
 		IsOk().
 		BodyJson(&jsonResp).
@@ -93,7 +94,7 @@ GIVEN test http server running
 	_, err = NewRequestor(nil).
 		SetTimeout(time.Second).
 		SetUrlString("http://"+addr+"/multi").
-		//Log().
+		Log().
 		PostMultipart(&buff, "file", uploadFilename_, map[string]string{
 			"foo":         "bar",
 			"expectFiles": "1",
@@ -112,21 +113,20 @@ GIVEN test http server running
  THEN successful upload
 `)
 
-	var parts [3]*Part
+	var parts [3]Part
 	var buffs [3]bytes.Buffer
 	for i := range buffs {
 		buffs[i].WriteString(uploadContent_)
-		parts[i] = &Part{
-			FileField: "file-" + strconv.Itoa(i),
-			FileName:  uploadFilename_,
-			ContentR:  &buffs[i],
-			Len:       int64(buffs[i].Len()),
-		}
+		part := &parts[i]
+		part.FileField = "file-" + strconv.Itoa(i)
+		part.FileName = uploadFilename_
+		part.ContentR = &buffs[i]
+		part.Len = int64(buffs[i].Len())
 	}
 	_, err = NewRequestor(nil).
 		SetTimeout(time.Second).
 		SetUrlString("http://"+addr+"/multi").
-		//Log().
+		Log().
 		PostMultiparts(
 			map[string]string{
 				"foo":         "bar",
@@ -152,12 +152,20 @@ func setupServer() (addr string) {
 	http.HandleFunc("/test", func(w http.ResponseWriter, req *http.Request) {
 		//log.Println(req)
 
-		_, ok := req.Header["X-Test"]
+		testMethods, ok := req.Header["X-Test-Method"]
 		if !ok {
+			err := fmt.Errorf("Missing X-Test-Method request header")
 			w.WriteHeader(400)
-			io.WriteString(w, "Missing X-Test request header")
-			responseC_ <- errOk_
-			responseC_ <- fmt.Errorf("Missing X-Test request header")
+			io.WriteString(w, err.Error())
+			responseC_ <- err
+			return
+		}
+		testMethod := testMethods[0]
+		if testMethod != req.Method {
+			err := fmt.Errorf("expected %s, but got %s", testMethod, req.Method)
+			w.WriteHeader(400)
+			io.WriteString(w, err.Error())
+			responseC_ <- err
 			return
 		}
 		switch req.Method {
@@ -194,6 +202,11 @@ func setupServer() (addr string) {
 				responseC_ <- errOk_
 			}
 		}()
+
+		if "POST" != req.Method {
+			err = fmt.Errorf("Method is %s, not POST!", req.Method)
+			return
+		}
 
 		contentType := req.Header.Get("Content-Type")
 		if !strings.HasPrefix(contentType, "multipart/form-data") {

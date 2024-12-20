@@ -23,7 +23,7 @@ import (
 
 var defaultClient_ = &http.Client{}
 
-const errNoResp = uerr.Const("No response - was HTTP method even called?")
+const errNoResp_ = uerr.Const("No response - was HTTP method even called?")
 
 // a fluent wrapper to deal with http interactions
 //
@@ -34,10 +34,9 @@ const errNoResp = uerr.Const("No response - was HTTP method even called?")
 //	var client *http.Client
 //	...
 //	c, err := urest.NewRequestor(client).
-//	   SetMethod("POST").
 //	   SetUrlString("http://...").
 //	   SetBody(body).
-//	   Do().
+//	   Post().
 //	   IsOK().
 //	   Done()
 //
@@ -82,12 +81,6 @@ func (this *Requestor) Reset() *Requestor {
 	this.Response = nil
 	this.cancel = nil
 	this.Request, this.err = http.NewRequest("", "", nil)
-	return this
-}
-
-// retrieve a reference to the Requestor
-func (this *Requestor) GetRequestor(c **Requestor) *Requestor {
-	*c = this
 	return this
 }
 
@@ -148,19 +141,6 @@ func (this *Requestor) SetUrlString(url string) *Requestor {
 	}
 	return this
 }
-
-/*
-func (this *Requestor) ensureReq(method, url string) {
-	if nil == this.err {
-		if 0 != len(method) {
-			this.Request.Method = method
-		}
-		if 0 != len(url) {
-			this.SetUrlString(url)
-		}
-	}
-}
-*/
 
 // set a JSON body
 func (this *Requestor) SetBodyJson(body any) *Requestor {
@@ -314,7 +294,7 @@ func (this *Requestor) SetRawHeader(key, value string) *Requestor {
 // key, and the values may be CSV separated.  The spec says that CSV
 // separated values should be treated the same as multiple header/value
 // pairs.  Normalize all of that to an array of values.
-func (this *Requestor) ResponseHeaders(key string) (rv []string) {
+func (this *Requestor) GetResponseHeaders(key string) (rv []string) {
 	if nil != this.Response {
 		for _, value := range this.Response.Header[key] {
 			values := strings.Split(value, ",")
@@ -344,7 +324,7 @@ func (this *Requestor) LinkResponseHeaders(key string) (rv map[string]string) {
 	if 0 == len(key) {
 		key = "Link"
 	}
-	for _, link := range this.ResponseHeaders(key) {
+	for _, link := range this.GetResponseHeaders(key) {
 		matches := linkExpr_.FindStringSubmatch(link)
 		if 0 != len(matches) {
 			if nil == rv {
@@ -405,6 +385,18 @@ func (this *Requestor) Put() *Requestor {
 // perform a DELETE - use in place of SetMethod("DELETE").Do()
 func (this *Requestor) Delete() *Requestor {
 	this.Request.Method = "DELETE"
+	return this.Do()
+}
+
+// perform a HEAD - use in place of SetMethod("HEAD").Do()
+func (this *Requestor) Head() *Requestor {
+	this.Request.Method = "HEAD"
+	return this.Do()
+}
+
+// perform a PATCH - use in place of SetMethod("PATCH").Do()
+func (this *Requestor) Patch() *Requestor {
+	this.Request.Method = "PATCH"
 	return this.Do()
 }
 
@@ -473,7 +465,8 @@ var boundary_,
 	caboose.WriteString("\r\n--")
 	caboose.WriteString(boundary)
 	caboose.WriteString("--\r\n")
-	return boundary, "multipart/form-data; boundary=" + boundary,
+	return boundary,
+		"multipart/form-data; boundary=" + boundary,
 		bytes.NewReader(caboose.Bytes())
 }()
 
@@ -508,14 +501,10 @@ func (this *Requestor) PostMultipart(
 		return
 	}
 
-	if 0 == len(this.Request.Method) {
-		this.Request.Method = "POST"
-	}
-
 	// add the multipart mime parts, one part per form field
 
 	var train bytes.Buffer
-	train.Grow(4096)
+	train.Grow(2048)
 	train.WriteString("--")
 	train.WriteString(boundary_)
 	train.WriteString("\r\n")
@@ -545,6 +534,9 @@ func (this *Requestor) PostMultipart(
 
 	// let's go!
 
+	if 0 == len(this.Request.Method) || "GET" == this.Request.Method {
+		this.Request.Method = "POST"
+	}
 	if 0 == this.Request.ContentLength {
 		this.surmiseContentLength(contentR)
 		if -1 != this.Request.ContentLength {
@@ -568,7 +560,6 @@ type Part struct {
 	ContentType string    // if blank, application/octet-stream
 	ContentR    io.Reader // where the bytes are
 	Len         int64     // bytes to read from ContentR
-	header      bytes.Buffer
 }
 
 // Upload content from multiple io.Readers in one multipart/form-data POST
@@ -582,7 +573,7 @@ type Part struct {
 // message in memory.
 func (this *Requestor) PostMultiparts(
 	fields map[string]string,
-	parts ...*Part,
+	parts ...Part,
 ) (rv *Requestor) {
 
 	const (
@@ -600,16 +591,12 @@ func (this *Requestor) PostMultiparts(
 		return
 	}
 
-	if 0 == len(this.Request.Method) {
-		this.Request.Method = "POST"
-	}
-
 	readers := make([]io.Reader, 0, 2+2*len(parts))
 
 	// add the multipart mime parts, one part per form field
 
 	var train bytes.Buffer
-	train.Grow(4096)
+	train.Grow(2048)
 	train.WriteString("--")
 	train.WriteString(boundary_)
 	train.WriteString("\r\n")
@@ -630,16 +617,19 @@ func (this *Requestor) PostMultiparts(
 
 	// setup the file parts
 
+	headers := make([]bytes.Buffer, len(parts))
 	contentLength := int64(0)
-	for _, part := range parts {
-		sz := 128 + len(part.FileField) + len(part.FileName)
+	for i, part := range parts {
+		header := &headers[i]
+		sz := 104 + len(part.FileField) + len(part.FileName)
 		if 0 == contentLength { // 1st time
-			part.header.Grow(sz)
+			header.Grow(sz)
 		} else {
-			part.header.Grow(sz + 6 + len(boundary_))
-			part.header.WriteString("\r\n--")
-			part.header.WriteString(boundary_)
-			part.header.WriteString("\r\n")
+			sz += 6 + len(boundary_)
+			header.Grow(sz)
+			header.WriteString("\r\n--")
+			header.WriteString(boundary_)
+			header.WriteString("\r\n")
 		}
 		if 0 >= part.Len {
 			this.err = errLen
@@ -652,15 +642,15 @@ func (this *Requestor) PostMultiparts(
 		if 0 == len(part.ContentType) {
 			part.ContentType = "application/octet-stream"
 		}
-		fmt.Fprintf(&part.header,
+		fmt.Fprintf(header,
 			`Content-Disposition: form-data; name="%s"; filename="%s"`,
 			quoteEscaper_.Replace(part.FileField),
 			quoteEscaper_.Replace(part.FileName))
-		part.header.WriteString("\r\nContent-Type: ")
-		part.header.WriteString(part.ContentType)
-		part.header.WriteString("\r\n\r\n")
-		readers = append(readers, &part.header, part.ContentR)
-		contentLength += part.Len + int64(part.header.Len())
+		header.WriteString("\r\nContent-Type: ")
+		header.WriteString(part.ContentType)
+		header.WriteString("\r\n\r\n")
+		readers = append(readers, header, part.ContentR)
+		contentLength += part.Len + int64(header.Len())
 	}
 
 	// create caboose
@@ -670,6 +660,9 @@ func (this *Requestor) PostMultiparts(
 
 	// let's go!
 
+	if 0 == len(this.Request.Method) || "GET" == this.Request.Method {
+		this.Request.Method = "POST"
+	}
 	this.Request.ContentLength = contentLength + int64(train.Len()+caboose_.Len())
 	this.
 		SetContentType(boundaryContentType_).
@@ -694,7 +687,7 @@ func (this *Requestor) BodyCopy(dst io.Writer) *Requestor {
 	return this
 }
 
-// get the size of the response body
+// in a call chain, get the size of the response body
 func (this *Requestor) BodyLen(length *int64) *Requestor {
 	if nil == this.err && nil != this.Response {
 		*length = this.Response.ContentLength
@@ -702,7 +695,7 @@ func (this *Requestor) BodyLen(length *int64) *Requestor {
 	return this
 }
 
-// get the body of the response
+// in a call chain, get the body of the response
 func (this *Requestor) Body(body *io.Reader) *Requestor {
 	if nil != this.Response {
 		*body = this.Response.Body
@@ -710,7 +703,8 @@ func (this *Requestor) Body(body *io.Reader) *Requestor {
 	return this
 }
 
-// get the body of the response
+// get the body of the response and the length of it (if known.  if not known,
+// then length will be negative
 func (this *Requestor) GetBody() (bodyLength int64, body io.Reader, err error) {
 	err = this.err
 	if err != nil {
@@ -719,7 +713,7 @@ func (this *Requestor) GetBody() (bodyLength int64, body io.Reader, err error) {
 		body = this.Response.Body
 		bodyLength = this.Response.ContentLength
 	} else {
-		err = errNoResp
+		err = errNoResp_
 	}
 	return
 }
@@ -801,7 +795,7 @@ func (this *Requestor) DoRetriably(
 	times int,
 	delay time.Duration,
 	onResp func(*Requestor, int) (retry bool, err error),
-) (rv *Requestor) {
+) *Requestor {
 	retry := true
 	for i := 0; (0 >= times || i < times) && retry; i++ {
 		if 0 != i && 0 != delay {
@@ -854,10 +848,10 @@ func StatusNotIn(statusen ...int) CondF {
 func (this *Requestor) IfStatusIs(
 	status int,
 	then func(c *Requestor) error,
-) (rv *Requestor) {
+) *Requestor {
 	if nil == this.err {
 		if nil == this.Response {
-			this.err = errNoResp
+			this.err = errNoResp_
 		} else if status == this.Response.StatusCode {
 			err := then(this)
 			if nil != err && nil == this.err {
@@ -872,10 +866,10 @@ func (this *Requestor) IfStatusIs(
 func (this *Requestor) IfStatusIn(
 	status []int,
 	then func(c *Requestor) error,
-) (rv *Requestor) {
+) *Requestor {
 	if nil == this.err {
 		if nil == this.Response {
-			this.err = errNoResp
+			this.err = errNoResp_
 		} else {
 			if this.IsStatusIn(status) {
 				err := then(this)
@@ -938,7 +932,7 @@ func (this *Requestor) StatusIn(status ...int) *Requestor {
 func (this *Requestor) StatusIs(status int) *Requestor {
 	if this.err == nil {
 		if nil == this.Response {
-			this.err = errNoResp
+			this.err = errNoResp_
 		} else if status != this.Response.StatusCode {
 			this.invalidStatus()
 		}
@@ -946,11 +940,11 @@ func (this *Requestor) StatusIs(status int) *Requestor {
 	return this
 }
 
-// get status if there is a response
+// get status as part of a call chain, if there is a response
 func (this *Requestor) Status(status *int) *Requestor {
 	if nil == this.Response {
 		if nil == this.err {
-			this.err = errNoResp
+			this.err = errNoResp_
 		}
 	} else {
 		*status = this.Response.StatusCode
@@ -958,11 +952,24 @@ func (this *Requestor) Status(status *int) *Requestor {
 	return this
 }
 
+// get status (only valid after response)
+func (this *Requestor) GetStatus() (status int, err error) {
+	err = this.err
+	if err != nil {
+		return
+	} else if nil == this.Response {
+		err = errNoResp_
+	} else {
+		status = this.Response.StatusCode
+	}
+	return
+}
+
 // invoke the function (only valid after response)
 func (this *Requestor) Then(f func(c *Requestor) error) *Requestor {
 	if nil == this.err {
 		if nil == this.Response { // programming error
-			this.err = errNoResp
+			this.err = errNoResp_
 		} else {
 			this.err = f(this)
 		}
