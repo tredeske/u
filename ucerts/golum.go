@@ -33,13 +33,13 @@ type Cert struct {
 // lookup the named cert
 func Lookup(name string) *Cert { return theCerts_.Get(name) }
 
-// lookup the name *tls.Config, error if not found
+// lookup the name *tls.Config, returning a clone if found, error if not found
 func LookupTlsConfig(name string) (*tls.Config, error) {
 	cert := theCerts_.Get(name)
 	if nil == cert {
 		return nil, fmt.Errorf("TLS cert %s not found", name)
 	}
-	return cert.Config, nil
+	return cert.Config.Clone(), nil
 }
 
 // manage loaded certs
