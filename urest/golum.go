@@ -102,7 +102,8 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p.NewItem("http2WriteByteTimeout", "duration",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 
-	ucerts.ShowTlsConfig("", p)
+	//ucerts.ShowTlsConfig("", p)
+	p.NewItem("tlsCert", "string", "Name of TLS cert to use").Optional()
 	return p
 }
 
@@ -117,8 +118,16 @@ func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 	tp.DialContext = dialer.DialContext
 	if nil != c {
 		var t2 *http2.Transport
+		var tlsCertN string
 		err = c.
-			Build(&tp.TLSClientConfig, ucerts.BuildTlsConfig).
+			//Build(&tp.TLSClientConfig, ucerts.BuildTlsConfig).
+			GetString("tlsCert", &tlsCertN).
+			ThenCheck(func() (err error) {
+				if 0 != len(tlsCertN) {
+					tp.TLSClientConfig, err = ucerts.LookupTlsConfig(tlsCertN)
+				}
+				return
+			}).
 			GetBool("httpDisableCompression", &tp.DisableCompression).
 			GetBool("httpDisableKeepAlives", &tp.DisableKeepAlives).
 			GetInt("httpMaxIdleConnsPerHost", &tp.MaxIdleConnsPerHost).
@@ -247,7 +256,8 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxUploadBufferPerStream", "int",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	ucerts.ShowTlsConfig("", p)
+	p.NewItem("tlsCert", "string", "Name of TLS cert to use").Optional()
+	//ucerts.ShowTlsConfig("", p)
 	return p
 }
 
@@ -261,8 +271,16 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	}
 
 	keepAlives := true
+	var tlsCertN string
 	err = c.
-		Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
+		//Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
+		GetString("tlsCert", &tlsCertN).
+		ThenCheck(func() (err error) {
+			if 0 != len(tlsCertN) {
+				httpServer.TLSConfig, err = ucerts.LookupTlsConfig(tlsCertN)
+			}
+			return
+		}).
 		GetString("httpAddress", &httpServer.Addr).
 		GetBool("httpDisableOptionsHandler",
 			&httpServer.DisableGeneralOptionsHandler).
