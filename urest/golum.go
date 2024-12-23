@@ -184,6 +184,13 @@ func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 	return
 }
 
+func ClonetHttpClient(prototype *http.Client) (rv *http.Client) {
+	rv = &http.Client{}
+	*rv = *prototype
+	rv.Transport = (prototype.Transport.(*http.Transport)).Clone()
+	return
+}
+
 func DefaultHttpTransport() (rv *http.Transport) {
 	rv = (http.DefaultTransport.(*http.Transport)).Clone()
 	rv.DialContext = defaultDialer_.DialContext
