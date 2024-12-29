@@ -611,7 +611,6 @@ func (this *MtuProber) addSizes(lowest, highest uint32) {
 		}
 		this.addSize(sz)
 	}
-	return
 }
 
 func (this *MtuProber) addSize(sz uint32) {
@@ -622,7 +621,6 @@ func (this *MtuProber) addSize(sz uint32) {
 		this.sizes = append(this.sizes, sz)
 		slices.Sort(this.sizes)
 	}
-	return
 }
 
 func (this *MtuProber) hasNextSize(sz uint32) bool {

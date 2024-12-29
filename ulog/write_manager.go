@@ -21,7 +21,6 @@ type WriteManager struct {
 	keep        int
 	name        string
 	dir         string
-	base        string
 	ext         string
 	baseNoExt   string
 	nameNoExt   string

@@ -81,7 +81,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	nurl "net/url"
 	"os"
@@ -342,7 +341,7 @@ func (this *Section) ctx(key string) string {
 
 // load the YAML file into target, which may be a ptr to map or ptr to struct
 func YamlLoad(file string, target any) (err error) {
-	content, err := ioutil.ReadFile(file)
+	content, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
@@ -352,7 +351,7 @@ func YamlLoad(file string, target any) (err error) {
 // read in the specified yaml file, performing properties on the text, then
 // unmarshal it into target (a ptr to struct)
 func (this *Section) StructFromYaml(file string, target any) error {
-	content, err := ioutil.ReadFile(file)
+	content, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
@@ -366,7 +365,7 @@ func (this *Section) ToYaml(file string) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(file, content, 0664)
+	return os.WriteFile(file, content, 0664)
 }
 
 func (this *Section) asYaml() ([]byte, error) {

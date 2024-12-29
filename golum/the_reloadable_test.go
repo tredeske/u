@@ -59,6 +59,9 @@ components:
   config:
     foo:        bar
 `))
+	if err != nil {
+		t.Fatalf("reload: %s", err)
+	}
 
 	uregistry.MustGet("reloadable", &r)
 	if r.foo != "bar" {
@@ -78,6 +81,9 @@ components:
   config:
     foo:        finally
 `))
+	if err != nil {
+		t.Fatalf("reload: %s", err)
+	}
 
 	uregistry.MustGet("reloadable", &r)
 	if r.foo != "finally" {

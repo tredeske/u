@@ -88,12 +88,12 @@ func (c *Client) glob(dir, pattern string, matches []string) (m []string, e erro
 	//sort.Strings(names)
 
 	for _, file := range files {
-		matched, err := path.Match(pattern, file.Name())
+		matched, err := path.Match(pattern, file.BaseName())
 		if err != nil {
 			return m, err
 		}
 		if matched {
-			m = append(m, path.Join(dir, file.Name()))
+			m = append(m, path.Join(dir, file.BaseName()))
 		}
 	}
 	return

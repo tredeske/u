@@ -56,7 +56,6 @@ func MustGet(key string, rv any) {
 	if err != nil {
 		panic(err)
 	}
-	return
 }
 
 // Get item matching key, setting rv to item if found

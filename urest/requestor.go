@@ -191,7 +191,7 @@ func (this *Requestor) surmiseContentLength(body io.Reader) {
 			this.Request.ContentLength = v.N
 		}
 	case *os.File:
-		pos, err := v.Seek(0, os.SEEK_CUR) // get current position in file
+		pos, err := v.Seek(0, io.SeekCurrent) // get current position in file
 		if nil == err {
 			fi, _ := v.Stat() // get size of file
 			if nil != fi {

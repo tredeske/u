@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
@@ -21,7 +20,6 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
-	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -253,7 +251,7 @@ func TestClientLstat(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-lstat")
+	f, err := os.CreateTemp("", "sftptest-lstat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +278,7 @@ func TestClientLstatIsNotExist(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-lstatisnotexist")
+	f, err := os.CreateTemp("", "sftptest-lstatisnotexist")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +295,7 @@ func TestClientMkdir(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-mkdir")
+	dir, err := os.MkdirTemp("", "sftptest-mkdir")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +314,7 @@ func TestClientMkdirAll(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-mkdirall")
+	dir, err := os.MkdirTemp("", "sftptest-mkdirall")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +338,7 @@ func TestClientOpen(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-open")
+	f, err := os.CreateTemp("", "sftptest-open")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +418,7 @@ func TestClientSeek(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	fOS, err := ioutil.TempFile("", "sftptest-seek")
+	fOS, err := os.CreateTemp("", "sftptest-seek")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +463,7 @@ func TestClientCreate(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-create")
+	f, err := os.CreateTemp("", "sftptest-create")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +482,7 @@ func TestClientAppend(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-append")
+	f, err := os.CreateTemp("", "sftptest-append")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +501,7 @@ func TestClientCreateFailed(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-createfailed")
+	f, err := os.CreateTemp("", "sftptest-createfailed")
 	require.NoError(t, err)
 
 	defer f.Close()
@@ -521,7 +519,7 @@ func TestClientFileName(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-filename")
+	f, err := os.CreateTemp("", "sftptest-filename")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +541,7 @@ func TestClientFileStat(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-filestat")
+	f, err := os.CreateTemp("", "sftptest-filestat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +575,7 @@ func TestClientStatLink(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-statlink")
+	f, err := os.CreateTemp("", "sftptest-statlink")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +635,7 @@ func TestClientRemove(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-remove")
+	f, err := os.CreateTemp("", "sftptest-remove")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,18 +656,18 @@ func TestClientRemoveAll(t *testing.T) {
 	defer sftp.Close()
 
 	// Create a temporary directory for testing
-	tempDir, err := ioutil.TempDir("", "sftptest-removeAll")
+	tempDir, err := os.MkdirTemp("", "sftptest-removeAll")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tempDir)
 
 	// Create a directory tree
-	dir1, err := ioutil.TempDir(tempDir, "foo")
+	dir1, err := os.MkdirTemp(tempDir, "foo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir2, err := ioutil.TempDir(dir1, "bar")
+	dir2, err := os.MkdirTemp(dir1, "bar")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,15 +676,15 @@ func TestClientRemoveAll(t *testing.T) {
 	file1 := tempDir + "/file1.txt"
 	file2 := dir1 + "/file2.txt"
 	file3 := dir2 + "/file3.txt"
-	err = ioutil.WriteFile(file1, []byte("File 1"), 0644)
+	err = os.WriteFile(file1, []byte("File 1"), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create file: %v", err)
 	}
-	err = ioutil.WriteFile(file2, []byte("File 2"), 0644)
+	err = os.WriteFile(file2, []byte("File 2"), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create file: %v", err)
 	}
-	err = ioutil.WriteFile(file3, []byte("File 3"), 0644)
+	err = os.WriteFile(file3, []byte("File 3"), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create file: %v", err)
 	}
@@ -720,7 +718,7 @@ func TestClientRemoveDir(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-removedir")
+	dir, err := os.MkdirTemp("", "sftptest-removedir")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +737,7 @@ func TestClientRemoveFailed(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-removefailed")
+	f, err := os.CreateTemp("", "sftptest-removefailed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +756,7 @@ func TestClientRename(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-rename")
+	dir, err := os.MkdirTemp("", "sftptest-rename")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 	f, err := os.Create(filepath.Join(dir, "old"))
@@ -782,7 +780,7 @@ func TestClientPosixRename(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-posixrename")
+	dir, err := os.MkdirTemp("", "sftptest-posixrename")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 	f, err := os.Create(filepath.Join(dir, "old"))
@@ -832,7 +830,7 @@ func TestClientReadLink(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-readlink")
+	dir, err := os.MkdirTemp("", "sftptest-readlink")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 	f, err := os.Create(filepath.Join(dir, "file"))
@@ -855,7 +853,7 @@ func TestClientLink(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-link")
+	dir, err := os.MkdirTemp("", "sftptest-link")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -889,7 +887,7 @@ func TestClientSymlink(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	dir, err := ioutil.TempDir("", "sftptest-symlink")
+	dir, err := os.MkdirTemp("", "sftptest-symlink")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 	f, err := os.Create(filepath.Join(dir, "file"))
@@ -913,7 +911,7 @@ func TestClientChmod(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-chmod")
+	f, err := os.CreateTemp("", "sftptest-chmod")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -945,7 +943,7 @@ func TestClientChmodReadonly(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-chmodreadonly")
+	f, err := os.CreateTemp("", "sftptest-chmodreadonly")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -967,7 +965,7 @@ func TestClientSetuid(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-setuid")
+	f, err := os.CreateTemp("", "sftptest-setuid")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1038,7 +1036,7 @@ func TestClientChown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f, err := ioutil.TempFile("", "sftptest-chown")
+	f, err := os.CreateTemp("", "sftptest-chown")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1099,7 +1097,7 @@ func TestClientChownReadonly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f, err := ioutil.TempFile("", "sftptest-chownreadonly")
+	f, err := os.CreateTemp("", "sftptest-chownreadonly")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1116,7 +1114,7 @@ func TestClientChtimes(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-chtimes")
+	f, err := os.CreateTemp("", "sftptest-chtimes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1140,7 +1138,7 @@ func TestClientChtimesReadonly(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-chtimesreadonly")
+	f, err := os.CreateTemp("", "sftptest-chtimesreadonly")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1159,7 +1157,7 @@ func TestClientTruncate(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-truncate")
+	f, err := os.CreateTemp("", "sftptest-truncate")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1186,7 +1184,7 @@ func TestClientTruncateReadonly(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-truncreadonly")
+	f, err := os.CreateTemp("", "sftptest-truncreadonly")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1220,13 +1218,13 @@ func TestClientReadSimple(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-readsimple")
+	d, err := os.MkdirTemp("", "sftptest-readsimple")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(d)
 
-	f, err := ioutil.TempFile(d, "read-test")
+	f, err := os.CreateTemp(d, "read-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1257,12 +1255,12 @@ func TestClientReadSequential(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-readsequential")
+	d, err := os.MkdirTemp("", "sftptest-readsequential")
 	require.NoError(t, err)
 
 	defer os.RemoveAll(d)
 
-	f, err := ioutil.TempFile(d, "read-sequential-test")
+	f, err := os.CreateTemp(d, "read-sequential-test")
 	require.NoError(t, err)
 	fname := f.Name()
 	content := []byte("hello world")
@@ -1312,6 +1310,7 @@ func TestClientReadSequential(t *testing.T) {
 	}
 }
 
+/*
 // this writer requires maxPacket = 3 and always returns an error for the second write call
 type lastChunkErrSequentialWriter struct {
 	counter int
@@ -1328,18 +1327,17 @@ func (w *lastChunkErrSequentialWriter) Write(b []byte) (int, error) {
 	return 1, errors.New("this writer fails after the first write")
 }
 
-/*
 func TestClientWriteSequentialWriterErr(t *testing.T) {
 	client, cmd := testClient(t, READONLY, NODELAY, MaxPacketChecked(3))
 	defer cmd.Wait()
 	defer client.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-writesequential-writeerr")
+	d, err := os.MkdirTemp("", "sftptest-writesequential-writeerr")
 	require.NoError(t, err)
 
 	defer os.RemoveAll(d)
 
-	f, err := ioutil.TempFile(d, "write-sequential-writeerr-test")
+	f, err := os.CreateTemp(d, "write-sequential-writeerr-test")
 	require.NoError(t, err)
 	fname := f.Name()
 	_, err = f.Write([]byte("12345"))
@@ -1459,7 +1457,7 @@ func TestClientReadHash(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-read")
+	d, err := os.MkdirTemp("", "sftptest-read")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1467,7 +1465,7 @@ func TestClientReadHash(t *testing.T) {
 
 	//for _, disableConcurrentReads := range []bool{true, false} {
 	for _, tt := range clientReadTests {
-		f, err := ioutil.TempFile(d, "read-test")
+		f, err := os.CreateTemp(d, "read-test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1545,7 +1543,7 @@ func TestClientWrite(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-write")
+	d, err := os.MkdirTemp("", "sftptest-write")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1582,7 +1580,7 @@ func TestClientReadFrom(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-readfrom")
+	d, err := os.MkdirTemp("", "sftptest-readfrom")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1645,7 +1643,7 @@ func TestClientReadFromSizeMismatch(t *testing.T) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-readfrom-size-mismatch")
+	d, err := os.MkdirTemp("", "sftptest-readfrom-size-mismatch")
 	if err != nil {
 		t.Fatal("cannot create temp dir:", err)
 	}
@@ -1742,7 +1740,7 @@ func clientWriteDeadlock(t *testing.T, N int, badfunc func(*File)) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-writedeadlock")
+	d, err := os.MkdirTemp("", "sftptest-writedeadlock")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1804,7 +1802,7 @@ func clientReadDeadlock(t *testing.T, N int, badfunc func(*File)) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest-readdeadlock")
+	d, err := os.MkdirTemp("", "sftptest-readdeadlock")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1873,7 +1871,7 @@ func testClientSync(t *testing.T) error {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	d, err := ioutil.TempDir("", "sftptest.sync")
+	d, err := os.MkdirTemp("", "sftptest.sync")
 	require.NoError(t, err)
 	defer os.RemoveAll(d)
 
@@ -1884,6 +1882,8 @@ func testClientSync(t *testing.T) error {
 
 	return w.Sync()
 }
+
+/* TODO: convert this to use client.WalkDir and standard go fs
 
 // taken from github.com/kr/fs/walk_test.go
 
@@ -1972,7 +1972,6 @@ func mark(path string, info os.FileInfo, err error, errors *[]error, clear bool)
 	return nil
 }
 
-/*
 func TestClientWalk(t *testing.T) {
 	sftp, cmd := testClient(t, READONLY, NODELAY)
 	defer cmd.Wait()
@@ -2149,22 +2148,22 @@ var globTests = []struct {
 	{"mat?h.go", "match.go"},
 	{"ma*ch.go", "match.go"},
 	{`\m\a\t\c\h\.\g\o`, "match.go"},
-	{"../*/match.go", "../sftp/match.go"},
+	{"../*/match.go", "../usftp/match.go"},
 }
 
-type globTest struct {
-	pattern string
-	matches []string
-}
-
-func (test *globTest) buildWant(root string) []string {
-	var want []string
-	for _, m := range test.matches {
-		want = append(want, root+filepath.FromSlash(m))
-	}
-	sort.Strings(want)
-	return want
-}
+//type globTest struct {
+//	pattern string
+//	matches []string
+//}
+//
+//func (test *globTest) buildWant(root string) []string {
+//	var want []string
+//	for _, m := range test.matches {
+//		want = append(want, root+filepath.FromSlash(m))
+//	}
+//	sort.Strings(want)
+//	return want
+//}
 
 func TestMatch(t *testing.T) {
 	for _, tt := range matchTests {
@@ -2246,7 +2245,7 @@ func TestServerRoughDisconnect(t *testing.T) {
 		cmd.Process.Kill()
 	}()
 
-	_, err = io.Copy(ioutil.Discard, f)
+	_, err = io.Copy(io.Discard, f)
 	assert.Error(t, err)
 }
 
@@ -2501,7 +2500,7 @@ func benchmarkWrite(b *testing.B, bufsize int, delay time.Duration) {
 	for i := 0; i < b.N; i++ {
 		offset := 0
 
-		f, err := ioutil.TempFile("", "sftptest-benchwrite")
+		f, err := os.CreateTemp("", "sftptest-benchwrite")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -2599,7 +2598,7 @@ func benchmarkReadFrom(b *testing.B, bufsize int, delay time.Duration) {
 	b.SetBytes(int64(size))
 
 	for i := 0; i < b.N; i++ {
-		f, err := ioutil.TempFile("", "sftptest-benchreadfrom")
+		f, err := os.CreateTemp("", "sftptest-benchreadfrom")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -2675,7 +2674,7 @@ func benchmarkWriteTo(b *testing.B, bufsize int, delay time.Duration) {
 	defer cmd.Wait()
 	defer sftp.Close()
 
-	f, err := ioutil.TempFile("", "sftptest-benchwriteto")
+	f, err := os.CreateTemp("", "sftptest-benchwriteto")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -2751,7 +2750,7 @@ func BenchmarkWriteTo4MiBDelay150Msec(b *testing.B) {
 func benchmarkCopyDown(b *testing.B, fileSize int64, delay time.Duration) {
 	skipIfWindows(b)
 	// Create a temp file and fill it with zero's.
-	src, err := ioutil.TempFile("", "sftptest-benchcopydown")
+	src, err := os.CreateTemp("", "sftptest-benchcopydown")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -2779,7 +2778,7 @@ func benchmarkCopyDown(b *testing.B, fileSize int64, delay time.Duration) {
 	b.SetBytes(fileSize)
 
 	for i := 0; i < b.N; i++ {
-		dst, err := ioutil.TempFile("", "sftptest-benchcopydown")
+		dst, err := os.CreateTemp("", "sftptest-benchcopydown")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -2825,7 +2824,7 @@ func BenchmarkCopyDown10MiBDelay150Msec(b *testing.B) {
 func benchmarkCopyUp(b *testing.B, fileSize int64, delay time.Duration) {
 	skipIfWindows(b)
 	// Create a temp file and fill it with zero's.
-	src, err := ioutil.TempFile("", "sftptest-benchcopyup")
+	src, err := os.CreateTemp("", "sftptest-benchcopyup")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -2854,7 +2853,7 @@ func benchmarkCopyUp(b *testing.B, fileSize int64, delay time.Duration) {
 	b.SetBytes(fileSize)
 
 	for i := 0; i < b.N; i++ {
-		tmp, err := ioutil.TempFile("", "sftptest-benchcopyup")
+		tmp, err := os.CreateTemp("", "sftptest-benchcopyup")
 		if err != nil {
 			b.Fatal(err)
 		}

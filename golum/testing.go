@@ -26,6 +26,9 @@ func TestLoadAndStart(config any) (err error) {
 		return
 	} else if nil != dbg {
 		err = uinit.InitDebug(dbg)
+		if err != nil {
+			return
+		}
 	}
 
 	var comps *uconfig.Array

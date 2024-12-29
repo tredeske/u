@@ -290,7 +290,6 @@ func setupServer() (addr string) {
 			err = fmt.Errorf("Expected %d file parts, got %d",
 				expectParts, gotParts)
 		}
-		return
 	})
 
 	go func() {

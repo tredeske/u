@@ -315,6 +315,7 @@ Starting
 	return nil
 }
 
+/*
 // output stdout / stderr to a managed file
 func stdouter(fd int, w *ulog.WriteManager) {
 	buff := make([]byte, 4096)
@@ -340,6 +341,7 @@ func stdouter(fd int, w *ulog.WriteManager) {
 		}
 	}
 }
+*/
 
 // Continue boot process: configure from ConfigF (if avail)
 //

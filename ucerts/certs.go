@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"io/ioutil"
+	"os"
 
 	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uio"
@@ -78,7 +78,7 @@ func LoadRoots(pem string, roots *x509.CertPool) (rv *x509.CertPool, err error) 
 			return
 		}
 		var pemBytes []byte
-		pemBytes, err = ioutil.ReadFile(pem)
+		pemBytes, err = os.ReadFile(pem)
 		if err != nil {
 			err = uerr.Chainf(err, "Unable to read CA Certs PEM file %s", pem)
 			return

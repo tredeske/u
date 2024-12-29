@@ -108,7 +108,7 @@ var (
 	Errors int64
 )
 
-func TODO(format string, args ...interface{}) {
+func TODO(format string, args ...any) {
 	atomic.AddInt64(&Todos, 1)
 	if 0 == len(args) {
 		log.Printf("TODO: " + format)
@@ -117,19 +117,15 @@ func TODO(format string, args ...interface{}) {
 	}
 }
 
-func Println(args ...interface{}) {
+func Println(args ...any) {
 	log.Println(args...)
 }
 
-func Print1(s string) {
-	log.Printf(s)
-}
-
-func Printf(format string, args ...interface{}) {
+func Printf(format string, args ...any) {
 	log.Printf(format, args...)
 }
 
-func Warnf(format string, args ...interface{}) {
+func Warnf(format string, args ...any) {
 	atomic.AddInt64(&Warns, 1)
 	if 0 == len(args) {
 		log.Printf("WARN: " + format)
@@ -138,7 +134,7 @@ func Warnf(format string, args ...interface{}) {
 	}
 }
 
-func Errorf(format string, args ...interface{}) {
+func Errorf(format string, args ...any) {
 	atomic.AddInt64(&Errors, 1)
 	if 0 == len(args) {
 		log.Printf("ERROR: " + format)
@@ -148,7 +144,7 @@ func Errorf(format string, args ...interface{}) {
 }
 
 // log message and exit program with status 1
-func Fatalf(format string, args ...interface{}) {
+func Fatalf(format string, args ...any) {
 	if 0 == len(args) {
 		log.Printf("FATAL: " + format)
 	} else {
@@ -158,7 +154,7 @@ func Fatalf(format string, args ...interface{}) {
 }
 
 // cause a panic of the program with the provided message
-func Panicf(format string, args ...interface{}) {
+func Panicf(format string, args ...any) {
 	if 0 == len(args) {
 		panic(format)
 	} else {
@@ -167,7 +163,7 @@ func Panicf(format string, args ...interface{}) {
 }
 
 // If cond is false, then panic with the provided message
-func Assertf(cond bool, format string, args ...interface{}) {
+func Assertf(cond bool, format string, args ...any) {
 	if !cond {
 		if 0 == len(args) {
 			panic(format)

@@ -3,7 +3,6 @@ package ustrings
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 	"strings"
 	"unsafe"
 )
@@ -34,10 +33,12 @@ func UnsafeBytesToString(bs []byte) string {
 //
 // https://stackoverflow.com/questions/59209493/how-to-use-unsafe-get-a-byte-slice-from-a-string-without-memory-copy
 func UnsafeStringToBytes(s string) []byte {
-	const MaxInt32 = 1<<31 - 1
-	return (*[MaxInt32]byte)(unsafe.Pointer(
-		(*reflect.StringHeader)(
-			unsafe.Pointer(&s)).Data))[: len(s)&MaxInt32 : len(s)&MaxInt32]
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+	// what you used to have to do before go 1.20!
+	//const MaxInt32 = 1<<31 - 1
+	//return (*[MaxInt32]byte)(unsafe.Pointer(
+	//	(*reflect.StringHeader)(
+	//		unsafe.Pointer(&s)).Data))[: len(s)&MaxInt32 : len(s)&MaxInt32]
 }
 
 // Split the provided string, creating new strings in an array.

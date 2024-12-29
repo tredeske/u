@@ -76,10 +76,10 @@ type (
 		failed    bool
 	}
 
-	nr_ struct {
-		name string
-		r    Reloadable
-	}
+	//nr_ struct {
+	//	name string
+	//	r    Reloadable
+	//}
 )
 
 var (

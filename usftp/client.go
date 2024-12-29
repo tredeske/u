@@ -75,7 +75,7 @@ const (
 // Specify what File.WriteTo, File.Read, File.ReadAt, File.Seek should do to
 // determine the File size.  Default is LazyStat.
 func WithStatStrategy(strategy StatStrategy) ClientOption {
-	if 0 > strategy || AlwaysStat < strategy {
+	if AlwaysStat < strategy {
 		panic("impossible StatStrategy")
 	}
 	return func(client *Client) error {
