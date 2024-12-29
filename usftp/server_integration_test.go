@@ -6,14 +6,11 @@ package usftp
 
 import (
 	"flag"
-	"os"
-	"os/exec"
 	"runtime"
 	"testing"
-
-	"golang.org/x/crypto/ssh"
 )
 
+/*
 func TestMain(m *testing.M) {
 	sftpClientLocation, _ := exec.LookPath("sftp")
 	testSftpClientBin = flag.String("sftp_client", sftpClientLocation, "location of the sftp client binary")
@@ -38,6 +35,7 @@ func TestMain(m *testing.M) {
 
 	os.Exit(m.Run())
 }
+*/
 
 func skipIfWindows(t testing.TB) {
 	if runtime.GOOS == "windows" {
@@ -61,12 +59,12 @@ var testIntegration = flag.Bool("integration", true, "perform integration tests 
 // var testAllocator = flag.Bool("allocator", false, "perform tests using the allocator")
 var testSftp *string
 
-var testSftpClientBin *string
-
+//var testSftpClientBin *string
 // var sshServerDebugStream = ioutil.Discard
 // var sftpServerDebugStream = ioutil.Discard
 //var sftpClientDebugStream = ioutil.Discard
 
+/*
 const (
 	GolangSFTP  = true
 	OpenSSHSFTP = false
@@ -112,3 +110,4 @@ func init() {
 		panic(err)
 	}
 }
+*/

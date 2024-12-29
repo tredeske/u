@@ -75,10 +75,8 @@ const (
 type clientReq_ struct {
 	id         uint32 // request id filled in by writer
 	expectPkts uint32 // pkts to send
-	actualPkts uint32 // writer to reader - truncate expectPkts to this amount
 	expectType uint8  // expected resp type (status always expected)
 	cancelled  bool   // reader use
-	trunc      bool
 
 	// automatically call ensure before onResp, and onError after
 	// onError must be set
@@ -177,7 +175,6 @@ func (conn *conn_) writer() {
 		req.id = idGen
 
 		if nil == req.pumpPkts {
-			//fmt.Printf("XXX: normal %p %#v\n", req, req)
 			conn.rC <- req
 			req.pkt.setId(idGen)
 			idGen++
@@ -192,23 +189,10 @@ func (conn *conn_) writer() {
 		} else { // for File.WriteTo, Write, WriteAt, ReadFrom
 
 			var nsent uint32
-			//expectPkts := req.expectPkts // our own copy
-
 			nsent, err = req.pumpPkts(idGen, conn, buff)
 			if err != nil {
 				return
 			}
-			/*
-				if nsent < expectPkts { // ReadFrom could be more
-					truncReq := conn.client.request()
-					req.id = idGen
-					req.expectPkts = expectPkts
-					req.actualPkts = nsent
-					req.trunc = true
-					fmt.Printf("XXX: trunk %p %#v\n", truncReq, truncReq)
-					conn.rC <- truncReq
-				}
-			*/
 			idGen += nsent
 		}
 	}
@@ -287,11 +271,8 @@ func (conn *conn_) reader() {
 			return
 		}
 
-		//fmt.Printf("XXX: read id=%d\n", id)
-
 		//
-		// check for req updates.  do this before looking up the req, as the req
-		// may have since been truncated
+		// check for req updates.
 		//
 		for {
 			select {
@@ -299,29 +280,10 @@ func (conn *conn_) reader() {
 				if !alive { // chan closed
 					return
 				}
-				//fmt.Printf("XXX: got req %p, %#v\n", req, req)
 				lo := req.id
 				hi := req.id + req.expectPkts - 1
-				if req.trunc { // req didn't meet expectations
-					lo += req.actualPkts
-					for ; lo <= hi; lo++ {
-						if rmReq, rm := reqs[lo]; rm {
-							rmReq.actualPkts = req.actualPkts
-							delete(reqs, lo)
-							rmReq.expectPkts--
-							rmReq.trunc = true
-							if 0 == rmReq.expectPkts {
-								if nil != rmReq.onError {
-									rmReq.onError(errReqTrunc_)
-								}
-								rmReq.recycle()
-							}
-						}
-					}
-				} else {
-					for ; lo <= hi; lo++ {
-						reqs[lo] = req
-					}
+				for ; lo <= hi; lo++ {
+					reqs[lo] = req
 				}
 				continue
 			default: // don't wait on conn.rC
@@ -362,11 +324,6 @@ func (conn *conn_) reader() {
 				req.cancelled = true // ignore any responses still outstanding
 			} else if reqErr != nil {
 				req.cancelled = true // ignore any responses still outstanding
-
-			} else if req.trunc && // req was truncated
-				0 == req.expectPkts && // we've reached the truncated amount
-				nil != req.onError { // we can notify caller
-				req.onError(errReqTrunc_)
 			}
 
 		} else { // skip cancelled

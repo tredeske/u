@@ -295,6 +295,8 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 
 	first := true
 	var expectId uint32
+	var wError error // problem writing to w
+
 	req.onResp = func(id, length uint32, typ uint8, conn *conn_) (err error) {
 		defer func() {
 			if err != nil || 0 == expectPkts {
@@ -358,7 +360,23 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 				}
 				nwrote, err = w.Write(buff)
 				written += int64(nwrote)
-				if err != nil || int(length) == len(buff) {
+				if err != nil {
+					wError = err
+					err = nil
+					//
+					// patch in io.Discard so that we can finish getting any data
+					// from the sftp server so that we don't have to reset the
+					// connection.  io.Discard cannot fail, so wError will only be
+					// set once.
+					//
+					w = io.Discard
+					length -= uint32(nwrote)
+					if 0 != length {
+						nwrote, _ = w.Write(buff)
+						written += int64(nwrote)
+					}
+				}
+				if int(length) == len(buff) {
 					return // success if done
 				}
 				length -= uint32(len(buff))
@@ -379,6 +397,14 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 				nwrote, err = w.Write(buff)
 				written += int64(nwrote)
 				if err != nil {
+					wError = err
+					err = nil
+					w = io.Discard // see above note about patching w
+					length -= uint32(nwrote)
+					if 0 != length {
+						nwrote, _ = w.Write(buff)
+						written += int64(nwrote)
+					}
 					return
 				}
 				length -= uint32(len(buff))
@@ -400,6 +426,7 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 	if err != nil {
 		return
 	}
+	err = wError
 	f.offset += amount
 	return
 }
@@ -690,7 +717,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
 	}
-	//fmt.Printf("XXX:\n\nReadFrom\n\n")
 	//
 	// a special response handler for this special operation
 	// - conn.writer (pumpPkts) could finish first
@@ -737,7 +763,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 		if signal {
 			respCond.Signal()
 		}
-		//fmt.Printf("XXX: onResp signal %t acks=%d\n", signal, respAcks)
 		return
 	}
 
@@ -770,13 +795,10 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 			buffPos := 0
 			expectPkts := uint32(0)
 
-			//fmt.Printf("XXX: pump id=%d, max=%d, buff=%d, hdrLen=%d\n", id, maxPacket, len(buff), length)
-
 			defer func() {
 				pumpErr = readErr
 				// if not a conn err.  if it is a conn err, then conn will
 				// do the notification.
-				//fmt.Printf("XXX: defer nread=%d, err=%v\n", nread, err)
 				if nil == err && respPumpDone.CompareAndSwap(false, true) {
 					//
 					// mark that we're done and what we did.
@@ -788,7 +810,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 					signal = (nsent == respAcks)
 					respErr = errReqTrunc_
 					respLock.Unlock()
-					//fmt.Printf("XXX: signal %t nsent=%d\n", signal, nsent)
 					if signal {
 						respCond.Signal()
 					}
@@ -796,7 +817,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 			}()
 
 			for {
-				//fmt.Printf("XXX: pump top buffPos=%d\n", buffPos)
 				pkt.ID = id
 				id++
 
@@ -804,9 +824,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 				readB := pktB[4+length : maxSz]
 				var readAmount int
 				readAmount, readErr = r.Read(readB)
-
-				//fmt.Printf("XXX: pump read %d, err=%v\n", readAmount, readErr)
-
 				if 0 != readAmount {
 					nread += int64(readAmount)
 					pkt.Length = uint32(readAmount)
@@ -836,7 +853,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 					newReq := f.client.request()
 					*newReq = *pumpReq
 					pumpReq.expectPkts = expectPkts
-					//fmt.Printf("XXX: send req ptr=%p, %#v\n", pumpReq, pumpReq)
 					conn.rC <- pumpReq
 					pumpReq = newReq
 					pumpReq.id = id
@@ -854,7 +870,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 						return
 					}
 					pumpReq.expectPkts = expectPkts
-					//fmt.Printf("XXX: err ptr=%p, %#v\n", pumpReq, pumpReq)
 					conn.rC <- pumpReq
 					pumpReq = nil
 				}
@@ -867,13 +882,11 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 					err = errShortWrite
 					return
 				}
-				//fmt.Printf("XXX: wrote %d expectPkts=%d\n", nwrote, expectPkts)
 				nsent += expectPkts
 				expectPkts = 0
 				buffPos = 0
 
 				if nil != readErr || respPumpDone.Load() {
-					//fmt.Printf("XXX: end\n")
 					if io.EOF == readErr {
 						readErr = nil
 					}
@@ -905,176 +918,6 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	err = pumpErr
 	return
 }
-
-/*
-func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
-	if 0 == len(f.handle) {
-		return 0, os.ErrClosed
-	}
-	//
-	// a special response handler for this special operation
-	// - conn.writer (pumpPkts) could finish first
-	// - or, conn.reader (onResp) could finish first
-	// - or, could be a rando onError issue
-	//
-	var respLock sync.Mutex
-	var respAcks, respPkts uint32
-	var respPumpDone atomic.Bool
-	var respErr error
-	respCond := sync.Cond{L: &respLock}
-
-	onError := func(err error) {
-		respPumpDone.Store(true)
-		respLock.Lock()
-		respErr = err
-		respLock.Unlock()
-		respCond.Signal()
-	}
-
-	onResp := func(id, length uint32, typ uint8, conn *conn_) (err error) {
-		if typ != sshFxpStatus {
-			panic("impossible!")
-		}
-		err = maybeError(conn.buff) // may be nil
-		//
-		// if there was an error, or if pumpPkts is done and we've got all
-		// of the responses, then signal the response waiter
-		//
-		var signal bool
-		respLock.Lock()
-		if nil == err {
-			respAcks++
-			if respPumpDone.Load() && respAcks == respPkts {
-				respErr = errReqTrunc_
-				signal = true
-			}
-		} else {
-			respPumpDone.Store(true)
-			respErr = err
-			signal = true
-		}
-		respLock.Unlock()
-		if signal {
-			respCond.Signal()
-		}
-		return
-	}
-
-	//
-	// send 1 req at a time, but only the first req goes to the conn.writer
-	//
-	req := f.client.request()
-	req.expectType = sshFxpStatus
-	req.autoResp = manualRespond_
-	req.onError = onError
-	req.expectPkts = 1
-	req.onResp = onResp
-
-	// conn still ok after pumpErr, but we need to report to our caller
-	var pumpErr error
-
-	req.pumpPkts =
-		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
-			var readErr error
-			pumpReq := req
-			maxPacket := f.client.maxPacket
-			pkt := sshFxpWritePacket{Handle: f.handle}
-			length := pkt.sizeBeforeData()
-
-			defer func() {
-				pumpErr = readErr
-				// if not a conn err.  if it is a conn err, then conn will
-				// do the notification.
-				if nil == err && respPumpDone.CompareAndSwap(false, true) {
-					//
-					// mark that we're done and what we did.
-					// if we completed first, then signal resp waiter
-					//
-					var signal bool
-					respLock.Lock()
-					respPkts = nsent
-					signal = (nsent == respAcks)
-					respErr = errReqTrunc_
-					respLock.Unlock()
-					if signal {
-						respCond.Signal()
-					}
-				}
-			}()
-
-			for {
-				pkt.ID = id
-				id++
-				pkt.Offset = uint64(f.offset)
-
-				readB := buff[4+length : 4+length+maxPacket]
-				var readAmount int
-				readAmount, readErr = r.Read(readB)
-				nread += int64(readAmount)
-				if readErr != nil {
-					if readErr != io.EOF {
-						return
-					} else if 0 == readAmount { // eof, and no data read
-						readErr = nil
-						return
-					}
-				}
-
-				// 1st time thru, this is the originating req, which we cannot
-				// send util we know there is no failure on read.
-				if nil == pumpReq {
-					pumpReq = f.client.request()
-					pumpReq.id = pkt.ID
-					pumpReq.expectType = sshFxpStatus
-					pumpReq.autoResp = manualRespond_
-					pumpReq.onError = onError
-					pumpReq.onResp = onResp
-					pumpReq.expectPkts = 1
-				}
-				conn.rC <- pumpReq
-				pumpReq = nil
-
-				pkt.Length = uint32(readAmount)
-				bigEnd_.PutUint32(buff, uint32(length+readAmount))
-				pkt.appendTo(buff[4:4])
-
-				_, err = conn.w.Write(buff[:4+length+readAmount])
-				if err != nil {
-					return
-				}
-				f.offset += int64(readAmount)
-				nsent++
-
-				if io.EOF == readErr || respPumpDone.Load() {
-					readErr = nil
-					return
-				}
-			}
-		}
-
-	err = f.client.conn.Request(req)
-	if err != nil {
-		return
-	}
-	respLock.Lock()
-	for {
-		respCond.Wait()
-		if nil != respErr {
-			err = respErr
-			break
-		}
-	}
-	respLock.Unlock()
-	f.attrs.Size += uint64(nread)
-	if err != nil {
-		if errReqTrunc_ == err {
-			err = nil // reached EOF
-		}
-	}
-	err = pumpErr
-	return
-}
-*/
 
 // implement io.Writer.  Write bytes to file, appending at current offset.
 //

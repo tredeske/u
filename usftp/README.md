@@ -1,11 +1,27 @@
-sftp
-----
+usftp
+-----
 
-The `sftp` package provides support for file system operations on remote ssh
-servers using the SFTP subsystem. It also implements an SFTP server for serving
-files from the filesystem.
+This started out as [https://pkg.go.dev/github.com/pkg/sftp](https://pkg.go.dev/github.com/pkg/sftp), and would not exist without the great work done there.
 
-![CI Status](https://github.com/pkg/sftp/workflows/CI/badge.svg?branch=master&event=push) [![Go Reference](https://pkg.go.dev/badge/github.com/pkg/sftp.svg)](https://pkg.go.dev/github.com/pkg/sftp)
+The goals for this package are:
+* lower memory usage
+* higher throughput
+* fewer round trips (less latency)
+
+This package is greatly cut down from the original, providing only the client
+portion, and focusing on those goals.
+
+The interface is very similar to the original, except:
+* The go stdlib fs is supported instead of github.com/kr/fs
+* Asynchronous operations are supported
+* ReadDir produces a `[]*File`, not `[]os.FileInfo`
+   * Avoids having to issue a duplicate Stat when using each File
+* File
+   * May be open or closed
+   * Caches file attributes
+   * When created from ReadDir, already has attributes
+   * Operations that require size attribute do not cause a Stat by default
+   * ReadFrom does not require use with certain kinds of io.Readers
 
 usage and examples
 ------------------
@@ -13,17 +29,7 @@ usage and examples
 See [https://pkg.go.dev/github.com/pkg/sftp](https://pkg.go.dev/github.com/pkg/sftp) for
 examples and usage.
 
-The basic operation of the package mirrors the facilities of the
-[os](http://golang.org/pkg/os) package.
 
-The Walker interface for directory traversal is heavily inspired by Keith
-Rarick's [fs](https://pkg.go.dev/github.com/kr/fs) package.
-
-roadmap
--------
-
-* There is way too much duplication in the Client methods. If there was an
-  unmarshal(interface{}) method this would reduce a heap of the duplication.
 
 contributing
 ------------
