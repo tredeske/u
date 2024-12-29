@@ -42,38 +42,44 @@ func WithMaxPacket(size int) ClientOption {
 	}
 }
 
-// Strategy for File.WriteTo
-type WriteToStrategy uint8
+// Strategy for File.WriteTo, File.Read, File.ReadAt, File.Seek.
+//
+// What to do when one of these is called and the actual file size must be known.
+//
+// Files that were created from ReadDir have a cached set of attributes.  Calling
+// File.Stat also caches attributes (this includes calls caused by strategy).
+type StatStrategy uint8
 
 const (
-	// When File.WriteTo is called, if the File size is known (File was created
-	// from ReadDir, or had Stat called prior), then assume the size is correct and
-	// proceed.  Otherwise, return an error.
+	// Strategy for File.WriteTo, File.Read, File.ReadAt, File.Seek.
+	//
+	// Issue a stat call to the sftp server only if File's cached attributes are
+	// not set.
 	//
 	// This is the default strategy.
-	WriteToNeverStat WriteToStrategy = 0
+	LazyStat StatStrategy = 0
 
-	// When File.WriteTo is called, always issue a Stat call to the server to get
-	// the curent File size, even if the size is already known.
-	WriteToAlwaysStat WriteToStrategy = 1
+	// Strategy for File.WriteTo, File.Read, File.ReadAt, File.Seek.
+	//
+	// Never issue a stat call, even if the File has no cached attributes.
+	// Instead error if size is needed but unknown.
+	NeverStat StatStrategy = 1
 
-	// When File.WriteTo is called, if the File size is not known, issue a Stat
-	// call to the server to get it before proceeding.  Otherwise, use the cached
-	// size.
-	WriteToLazyStat WriteToStrategy = 2
+	// Strategy for File.WriteTo, File.Read, File.ReadAt, File.Seek.
+	//
+	// Always issue a Stat call to the sftp server to get the curent File size,
+	// even if the size is already cached.
+	AlwaysStat StatStrategy = 2
 )
 
-// Specify what File.WriteTo should do to determine the File size.  Default is
-// WriteToNever, which is to return an errof if the File's attributes are not
-// known before the call.
-//
-// refer to [File.WriteTo]
-func WithWriteToStrategy(strategy WriteToStrategy) ClientOption {
-	if WriteToLazyStat < strategy {
-		panic("impossible WriteToStrategy")
+// Specify what File.WriteTo, File.Read, File.ReadAt, File.Seek should do to
+// determine the File size.  Default is LazyStat.
+func WithStatStrategy(strategy StatStrategy) ClientOption {
+	if 0 > strategy || AlwaysStat < strategy {
+		panic("impossible StatStrategy")
 	}
 	return func(client *Client) error {
-		client.writeToStrategy = strategy
+		client.statStrategy = strategy
 		return nil
 	}
 }
@@ -103,7 +109,7 @@ type Client struct {
 
 	maxPacket int // max packet size read or written.
 
-	writeToStrategy WriteToStrategy
+	statStrategy StatStrategy
 
 	onError func(error)
 }

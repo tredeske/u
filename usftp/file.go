@@ -16,6 +16,8 @@ import (
 
 const ErrOpenned = uerr.Const("file already openned")
 
+const errStat_ = uerr.Const("file has no attrs, size needed, but NeverStat set")
+
 // Provide access to a remote file.
 //
 // Files obtained via Client.ReadDir are not in an open state.  They must be opened
@@ -78,6 +80,12 @@ func (f *File) ModTime() time.Time { return time.Unix(int64(f.attrs.Mtime), 0) }
 
 // if attrs are populated, mode bits of file.  otherwise, bits are zero.
 func (f *File) Mode() FileMode { return f.attrs.FileMode() }
+
+// if attrs are populated, mode bits of file.  otherwise, bits are zero.
+func (f *File) OsFileMode() os.FileMode { return f.attrs.OsFileMode() }
+
+// return the internal FileStat to a go os.FileInfo
+func (f *File) OsFileInfo() os.FileInfo { return f.attrs.AsFileInfo(f.pathN) }
 
 // return true if attributes are populated
 func (f *File) AttrsCached() bool { return 0 != f.attrs.Mode }
@@ -255,23 +263,19 @@ func (f *File) PosixRenameAsync(newN string, req any, onComplete AsyncFunc) erro
 //
 // copy contents (from current offset to end) of file to w
 //
-// If File is not known (File was not built from ReadDir, or no Stat call was
-// placed prior to this), then WriteTo might return an error, depending
-// on the WriteToStrategy ClientOption set on the Client.
+// If File size is not known (File was not built from ReadDir, or no Stat call was
+// placed prior to this), then the StatStrategy set on Client will be followed.
 //
 // synchronize i/o ops
 func (f *File) WriteTo(w io.Writer) (written int64, err error) {
-
-	const errStat = uerr.Const("file has no attrs - run Stat prior to WriteTo")
 
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
 	}
 
-	if 0 == f.attrs.Mode && WriteToNeverStat == f.client.writeToStrategy {
-		err = errStat
-		return 0, errStat
-	} else if 0 == f.attrs.Mode || WriteToAlwaysStat == f.client.writeToStrategy {
+	if 0 == f.attrs.Mode && NeverStat == f.client.statStrategy {
+		return 0, errStat_
+	} else if 0 == f.attrs.Mode || AlwaysStat == f.client.statStrategy {
 		_, err := f.Stat()
 		if err != nil {
 			return 0, err
@@ -414,16 +418,19 @@ func (f *File) buildReadReq(
 	req *clientReq_,
 ) {
 	maxPkt := int64(f.client.maxPacket)
+	if amount > int64(f.attrs.Size)-offset {
+		amount = int64(f.attrs.Size) - offset
+	}
+	chunkSz = uint32(maxPkt)
+	if maxPkt > amount {
+		chunkSz = uint32(amount)
+	}
 	expectPkts := amount / maxPkt
 	if amount != expectPkts*maxPkt {
-		if 0 == expectPkts {
-			chunkSz = uint32(amount)
-			lastChunkSz = chunkSz
-		} else {
-			chunkSz = uint32(maxPkt)
-			lastChunkSz = uint32(amount - expectPkts*maxPkt)
-		}
+		lastChunkSz = uint32(amount - expectPkts*maxPkt)
 		expectPkts++
+	} else {
+		lastChunkSz = chunkSz
 	}
 
 	req = f.client.request()
@@ -495,6 +502,18 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 		return
 	}
 
+	if 0 == f.attrs.Mode && NeverStat == f.client.statStrategy {
+		return 0, errStat_
+	} else if 0 == f.attrs.Mode || AlwaysStat == f.client.statStrategy {
+		_, err := f.Stat()
+		if err != nil {
+			return 0, err
+		}
+	}
+	if offset >= int64(f.attrs.Size) {
+		return 0, nil
+	}
+
 	chunkSz, lastChunkSz, req := f.buildReadReq(int64(len(toBuff)), offset)
 	responder := f.client.responder()
 	req.onError = responder.onError
@@ -510,6 +529,7 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 				responder.onError(err)
 			}
 		}()
+
 		if 0 == expectPkts {
 			return // ignore any pkts after error
 		}
@@ -635,6 +655,9 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 func (f *File) Read(b []byte) (nread int, err error) {
 	nread, err = f.ReadAt(b, f.offset)
 	f.offset += int64(nread)
+	if nil == err && f.offset == int64(f.attrs.Size) {
+		err = io.EOF
+	}
 	return
 }
 
@@ -663,6 +686,227 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 // Copy from io.Reader into this file starting at current offset.
 //
 // synchronize i/o ops
+func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
+	if 0 == len(f.handle) {
+		return 0, os.ErrClosed
+	}
+	//fmt.Printf("XXX:\n\nReadFrom\n\n")
+	//
+	// a special response handler for this special operation
+	// - conn.writer (pumpPkts) could finish first
+	// - or, conn.reader (onResp) could finish first
+	// - or, could be a rando onError issue
+	//
+	var respLock sync.Mutex
+	var respAcks, respPkts uint32
+	var respPumpDone atomic.Bool
+	var respErr error
+	respCond := sync.Cond{L: &respLock}
+
+	onError := func(err error) {
+		respPumpDone.Store(true)
+		respLock.Lock()
+		respErr = err
+		respLock.Unlock()
+		respCond.Signal()
+	}
+
+	onResp := func(id, length uint32, typ uint8, conn *conn_) (err error) {
+		if typ != sshFxpStatus {
+			panic("impossible!")
+		}
+		err = maybeError(conn.buff) // may be nil
+		//
+		// if there was an error, or if pumpPkts is done and we've got all
+		// of the responses, then signal the response waiter
+		//
+		var signal bool
+		respLock.Lock()
+		if nil == err {
+			respAcks++
+			if respPumpDone.Load() && respAcks == respPkts {
+				respErr = errReqTrunc_
+				signal = true
+			}
+		} else {
+			respPumpDone.Store(true)
+			respErr = err
+			signal = true
+		}
+		respLock.Unlock()
+		if signal {
+			respCond.Signal()
+		}
+		//fmt.Printf("XXX: onResp signal %t acks=%d\n", signal, respAcks)
+		return
+	}
+
+	//
+	// send 1 req at a time, but only the first req goes to the conn.writer
+	//
+	req := f.client.request()
+	req.expectType = sshFxpStatus
+	req.autoResp = manualRespond_
+	req.onError = onError
+	req.expectPkts = 1
+	req.onResp = onResp
+
+	// conn still ok after pumpErr, but we need to report to our caller
+	var pumpErr error
+
+	req.pumpPkts =
+		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
+			const errShortWrite = uerr.Const("SSH did not accept full write")
+			var readErr error
+			pumpReq := req
+			pumpReq.id = id
+			maxPacket := f.client.maxPacket // max data payload
+			pkt := sshFxpWritePacket{
+				Handle: f.handle,
+				Offset: uint64(f.offset),
+			}
+			length := pkt.sizeBeforeData()  // of sshFxpWritePacket w/o payload
+			maxSz := 4 + length + maxPacket // + sftp packet size header
+			buffPos := 0
+			expectPkts := uint32(0)
+
+			//fmt.Printf("XXX: pump id=%d, max=%d, buff=%d, hdrLen=%d\n", id, maxPacket, len(buff), length)
+
+			defer func() {
+				pumpErr = readErr
+				// if not a conn err.  if it is a conn err, then conn will
+				// do the notification.
+				//fmt.Printf("XXX: defer nread=%d, err=%v\n", nread, err)
+				if nil == err && respPumpDone.CompareAndSwap(false, true) {
+					//
+					// mark that we're done and what we did.
+					// if we completed first, then signal resp waiter
+					//
+					var signal bool
+					respLock.Lock()
+					respPkts = nsent
+					signal = (nsent == respAcks)
+					respErr = errReqTrunc_
+					respLock.Unlock()
+					//fmt.Printf("XXX: signal %t nsent=%d\n", signal, nsent)
+					if signal {
+						respCond.Signal()
+					}
+				}
+			}()
+
+			for {
+				//fmt.Printf("XXX: pump top buffPos=%d\n", buffPos)
+				pkt.ID = id
+				id++
+
+				pktB := buff[buffPos:]
+				readB := pktB[4+length : maxSz]
+				var readAmount int
+				readAmount, readErr = r.Read(readB)
+
+				//fmt.Printf("XXX: pump read %d, err=%v\n", readAmount, readErr)
+
+				if 0 != readAmount {
+					nread += int64(readAmount)
+					pkt.Length = uint32(readAmount)
+					bigEnd_.PutUint32(pktB, uint32(length+readAmount))
+					pkt.appendTo(pktB[4:4])
+
+					pkt.Offset += uint64(readAmount)
+					expectPkts++
+					buffPos += 4 + length + readAmount
+				} else if nil == readErr { // impossible?
+					id--
+					continue
+				}
+
+				if nil == readErr {
+					//
+					// if we can do another read, do it
+					//
+					if len(buff) >= buffPos+maxSz {
+						continue
+					}
+
+					//
+					// we've filled up the buffer as much as we can, so tell the
+					// reader about what to expect, and write out the buffer
+					//
+					newReq := f.client.request()
+					*newReq = *pumpReq
+					pumpReq.expectPkts = expectPkts
+					//fmt.Printf("XXX: send req ptr=%p, %#v\n", pumpReq, pumpReq)
+					conn.rC <- pumpReq
+					pumpReq = newReq
+					pumpReq.id = id
+					pumpReq.expectPkts = 0
+
+				} else {
+					//
+					// we've reached EOF or there was a read problem.
+					// flush out any data we have on hand
+					//
+					if 0 == expectPkts {
+						if readErr == io.EOF {
+							readErr = nil
+						}
+						return
+					}
+					pumpReq.expectPkts = expectPkts
+					//fmt.Printf("XXX: err ptr=%p, %#v\n", pumpReq, pumpReq)
+					conn.rC <- pumpReq
+					pumpReq = nil
+				}
+
+				var nwrote int
+				nwrote, err = conn.w.Write(buff[:buffPos])
+				if err != nil {
+					return
+				} else if nwrote != buffPos {
+					err = errShortWrite
+					return
+				}
+				//fmt.Printf("XXX: wrote %d expectPkts=%d\n", nwrote, expectPkts)
+				nsent += expectPkts
+				expectPkts = 0
+				buffPos = 0
+
+				if nil != readErr || respPumpDone.Load() {
+					//fmt.Printf("XXX: end\n")
+					if io.EOF == readErr {
+						readErr = nil
+					}
+					return
+				}
+			}
+		}
+
+	err = f.client.conn.Request(req)
+	if err != nil {
+		return
+	}
+	respLock.Lock()
+	for {
+		respCond.Wait()
+		if nil != respErr {
+			err = respErr
+			break
+		}
+	}
+	respLock.Unlock()
+	f.attrs.Size += uint64(nread)
+	f.offset += int64(nread)
+	if err != nil {
+		if errReqTrunc_ == err {
+			err = nil // reached EOF
+		}
+	}
+	err = pumpErr
+	return
+}
+
+/*
 func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
@@ -830,6 +1074,7 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	err = pumpErr
 	return
 }
+*/
 
 // implement io.Writer.  Write bytes to file, appending at current offset.
 //
@@ -945,6 +1190,8 @@ func (f *File) WriteAt(dataB []byte, offset int64) (written int, err error) {
 // Seeking relative to the end will call Stat if file has no cached attributes,
 // otherwise, it will use the cached attributes.
 //
+// Seeking relative to the end of the file will follow the Client StatStrategy.
+//
 // synchronize i/o ops
 func (f *File) Seek(offset int64, whence int) (int64, error) {
 	if 0 == len(f.handle) {
@@ -956,7 +1203,9 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		offset += f.offset
 	case io.SeekEnd:
-		if 0 == f.attrs.Mode {
+		if 0 == f.attrs.Mode && NeverStat == f.client.statStrategy {
+			return f.offset, errStat_
+		} else if 0 == f.attrs.Mode || AlwaysStat == f.client.statStrategy {
 			_, err := f.Stat()
 			if err != nil {
 				return f.offset, err

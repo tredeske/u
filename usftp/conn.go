@@ -140,9 +140,15 @@ func (conn *conn_) Request(req *clientReq_) (err error) {
 }
 
 func (conn *conn_) writer() {
+	const defaultSz = 16 * 1024 * 1024
 	var err error
-	idGen := uint32(1)                       // generate req ids
-	buff := make([]byte, conn.maxPacket+256) // account for header
+	idGen := uint32(1) // generate req ids
+	var buff []byte
+	if defaultSz <= conn.maxPacket+256 {
+		buff = make([]byte, conn.maxPacket+256) // account for header
+	} else {
+		buff = make([]byte, defaultSz)
+	}
 
 	defer func() { // cleanup
 		wasClosed := conn.closeConn()
@@ -171,6 +177,7 @@ func (conn *conn_) writer() {
 		req.id = idGen
 
 		if nil == req.pumpPkts {
+			//fmt.Printf("XXX: normal %p %#v\n", req, req)
 			conn.rC <- req
 			req.pkt.setId(idGen)
 			idGen++
@@ -185,20 +192,23 @@ func (conn *conn_) writer() {
 		} else { // for File.WriteTo, Write, WriteAt, ReadFrom
 
 			var nsent uint32
-			expectPkts := req.expectPkts // our own copy
+			//expectPkts := req.expectPkts // our own copy
 
 			nsent, err = req.pumpPkts(idGen, conn, buff)
 			if err != nil {
 				return
 			}
-			if nsent < expectPkts { // ReadFrom could be more
-				truncReq := conn.client.request()
-				req.id = idGen
-				req.expectPkts = expectPkts
-				req.actualPkts = nsent
-				req.trunc = true
-				conn.rC <- truncReq
-			}
+			/*
+				if nsent < expectPkts { // ReadFrom could be more
+					truncReq := conn.client.request()
+					req.id = idGen
+					req.expectPkts = expectPkts
+					req.actualPkts = nsent
+					req.trunc = true
+					fmt.Printf("XXX: trunk %p %#v\n", truncReq, truncReq)
+					conn.rC <- truncReq
+				}
+			*/
 			idGen += nsent
 		}
 	}
@@ -277,6 +287,8 @@ func (conn *conn_) reader() {
 			return
 		}
 
+		//fmt.Printf("XXX: read id=%d\n", id)
+
 		//
 		// check for req updates.  do this before looking up the req, as the req
 		// may have since been truncated
@@ -287,6 +299,7 @@ func (conn *conn_) reader() {
 				if !alive { // chan closed
 					return
 				}
+				//fmt.Printf("XXX: got req %p, %#v\n", req, req)
 				lo := req.id
 				hi := req.id + req.expectPkts - 1
 				if req.trunc { // req didn't meet expectations

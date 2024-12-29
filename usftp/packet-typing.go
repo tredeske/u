@@ -1,9 +1,6 @@
 package usftp
 
-import (
-	"encoding"
-)
-
+/*
 // all incoming packets
 type requestPacket interface {
 	encoding.BinaryUnmarshaler
@@ -79,7 +76,6 @@ func (p *sshFxpHandlePacket) id() uint32 { return p.ID }
 func (p *StatVFS) id() uint32            { return p.ID }
 func (p *sshFxVersionPacket) id() uint32 { return 0 }
 
-/*
 // take raw incoming packet data and build packet objects
 func makePacket(p rxPacket) (requestPacket, error) {
 	var pkt requestPacket

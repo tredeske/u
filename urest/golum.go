@@ -120,7 +120,6 @@ func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 		var t2 *http2.Transport
 		var tlsCertN string
 		err = c.
-			//Build(&tp.TLSClientConfig, ucerts.BuildTlsConfig).
 			GetString("tlsCert", &tlsCertN).
 			ThenCheck(func() (err error) {
 				if 0 != len(tlsCertN) {
@@ -264,7 +263,6 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p.NewItem("http2MaxUploadBufferPerStream", "int",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("tlsCert", "string", "Name of TLS cert to use").Optional()
-	//ucerts.ShowTlsConfig("", p)
 	return p
 }
 
@@ -280,7 +278,6 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	keepAlives := true
 	var tlsCertN string
 	err = c.
-		//Build(&httpServer.TLSConfig, ucerts.BuildTlsConfig).
 		GetString("tlsCert", &tlsCertN).
 		ThenCheck(func() (err error) {
 			if 0 != len(tlsCertN) {

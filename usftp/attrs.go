@@ -15,8 +15,9 @@ const (
 	sshFileXferAttrACmodTime   = 0x00000008
 	sshFileXferAttrExtended    = 0x80000000
 
-	sshFileXferAttrAll = sshFileXferAttrSize | sshFileXferAttrUIDGID | sshFileXferAttrPermissions |
-		sshFileXferAttrACmodTime | sshFileXferAttrExtended
+	//sshFileXferAttrAll = sshFileXferAttrSize |
+	//	sshFileXferAttrUIDGID | sshFileXferAttrPermissions |
+	//	sshFileXferAttrACmodTime | sshFileXferAttrExtended
 )
 
 // fileInfo is an artificial type designed to satisfy os.FileInfo.
@@ -89,6 +90,10 @@ func (fs *FileStat) AccessTime() time.Time {
 // returns the Mode SFTP file attribute converted to an os.FileMode
 func (fs *FileStat) OsFileMode() os.FileMode {
 	return toFileMode(fs.Mode)
+}
+
+func (fs *FileStat) AsFileInfo(name string) os.FileInfo {
+	return FileInfoFromStat(fs, name)
 }
 
 // StatExtended contains additional, extended information for a FileStat.

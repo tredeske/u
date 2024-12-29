@@ -191,16 +191,15 @@ func (u *unexpectedPacketErr) Error() string {
 	return fmt.Sprintf("sftp: unexpected packet: want %v, got %v", fxp(u.want), fxp(u.got))
 }
 
-func unimplementedPacketErr(u uint8) error {
-	return fmt.Errorf("sftp: unimplemented packet type: got %v", fxp(u))
-}
-
-type unexpectedIDErr struct{ want, got uint32 }
-
-func (u *unexpectedIDErr) Error() string {
-	return fmt.Sprintf("sftp: unexpected id: want %d, got %d", u.want, u.got)
-}
-
+//	func unimplementedPacketErr(u uint8) error {
+//		return fmt.Errorf("sftp: unimplemented packet type: got %v", fxp(u))
+//	}
+//
+// type unexpectedIDErr struct{ want, got uint32 }
+//
+//	func (u *unexpectedIDErr) Error() string {
+//		return fmt.Sprintf("sftp: unexpected id: want %d, got %d", u.want, u.got)
+//	}
 func unimplementedSeekWhence(whence int) error {
 	return fmt.Errorf("sftp: unimplemented seek whence %d", whence)
 }
@@ -226,12 +225,10 @@ func (s *StatusError) Error() string {
 	return fmt.Sprintf("sftp: %q (%v)", s.msg, fx(s.Code))
 }
 
-/*
 // FxCode returns the error code typed to match against the exported codes
 func (s *StatusError) FxCode() fxerr {
 	return fxerr(s.Code)
 }
-*/
 
 func getSupportedExtensionByName(extensionName string) (sshExtensionPair, error) {
 	for _, supportedExtension := range supportedSFTPExtensions {
