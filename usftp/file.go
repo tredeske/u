@@ -90,6 +90,16 @@ func (f *File) OsFileInfo() os.FileInfo { return f.attrs.AsFileInfo(f.pathN) }
 // return true if attributes are populated
 func (f *File) AttrsCached() bool { return 0 != f.attrs.Mode }
 
+func (f *File) ensureAttrs() (err error) {
+	if !f.AttrsCached() || AlwaysStat == f.client.statStrategy {
+		if NeverStat == f.client.statStrategy {
+			return errStat_
+		}
+		_, err = f.Stat()
+	}
+	return
+}
+
 // if attrs are populated, size of the file
 func (f *File) Size() uint64 { return f.attrs.Size }
 
@@ -273,13 +283,12 @@ func (f *File) WriteTo(w io.Writer) (written int64, err error) {
 		return 0, os.ErrClosed
 	}
 
-	if 0 == f.attrs.Mode && NeverStat == f.client.statStrategy {
-		return 0, errStat_
-	} else if 0 == f.attrs.Mode || AlwaysStat == f.client.statStrategy {
-		_, err := f.Stat()
-		if err != nil {
-			return 0, err
-		}
+	err = f.ensureAttrs()
+	if err != nil {
+		return 0, err
+	} else if !f.attrs.IsRegular() {
+		// we don't currently support things like /dev/zero
+		return 0, errors.New("WriteTo only works with regular files")
 	}
 
 	amount := int64(f.attrs.Size) - f.offset
@@ -445,7 +454,7 @@ func (f *File) buildReadReq(
 	req *clientReq_,
 ) {
 	maxPkt := int64(f.client.maxPacket)
-	if amount > int64(f.attrs.Size)-offset {
+	if f.attrs.IsRegular() && amount > int64(f.attrs.Size)-offset {
 		amount = int64(f.attrs.Size) - offset
 	}
 	chunkSz = uint32(maxPkt)
@@ -517,6 +526,8 @@ func (f *File) buildReadReq(
 // implement io.ReaderAt.  Read up to len toBuff bytes from file at current offset,
 // leaving offset unchanged.
 //
+// This call may cause a Stat call, depending on the Client StatStrategy.
+//
 // synchronize i/o ops
 func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 	const errMissing = uerr.Const(
@@ -524,20 +535,14 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
-	}
-	if 0 == len(toBuff) {
+	} else if 0 == len(toBuff) {
 		return
 	}
 
-	if 0 == f.attrs.Mode && NeverStat == f.client.statStrategy {
-		return 0, errStat_
-	} else if 0 == f.attrs.Mode || AlwaysStat == f.client.statStrategy {
-		_, err := f.Stat()
-		if err != nil {
-			return 0, err
-		}
-	}
-	if offset >= int64(f.attrs.Size) {
+	err = f.ensureAttrs()
+	if err != nil {
+		return
+	} else if f.attrs.IsRegular() && offset >= int64(f.attrs.Size) {
 		return 0, nil
 	}
 
@@ -678,11 +683,13 @@ func (f *File) ReadAt(toBuff []byte, offset int64) (nread int, err error) {
 // If transfering to an io.Writer, use WriteTo for best performance.  io.Copy
 // will do this automatically.
 //
+// This call may cause a Stat call, depending on the Client StatStrategy.
+//
 // synchronize i/o ops
 func (f *File) Read(b []byte) (nread int, err error) {
 	nread, err = f.ReadAt(b, f.offset)
 	f.offset += int64(nread)
-	if nil == err && f.offset == int64(f.attrs.Size) {
+	if nil == err && f.attrs.IsRegular() && f.offset == int64(f.attrs.Size) {
 		err = io.EOF
 	}
 	return
@@ -1046,13 +1053,9 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		offset += f.offset
 	case io.SeekEnd:
-		if 0 == f.attrs.Mode && NeverStat == f.client.statStrategy {
-			return f.offset, errStat_
-		} else if 0 == f.attrs.Mode || AlwaysStat == f.client.statStrategy {
-			_, err := f.Stat()
-			if err != nil {
-				return f.offset, err
-			}
+		err := f.ensureAttrs()
+		if err != nil {
+			return f.offset, err
 		}
 		offset += int64(f.attrs.Size)
 	default:
