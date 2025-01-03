@@ -105,7 +105,7 @@ func CommonNameFromConfig(tlsc *tls.Config) string {
 	if nil != tlsc && 0 != len(tlsc.Certificates) {
 		if nil != tlsc.Certificates[0].Leaf {
 			return tlsc.Certificates[0].Leaf.Subject.CommonName
-		} else if 0 != tlsc.Certificates[0].Certificate {
+		} else if 0 != len(tlsc.Certificates[0].Certificate) {
 			x509Cert, err := x509.ParseCertificate(
 				tlsc.Certificates[0].Certificate[0])
 			if err != nil {
