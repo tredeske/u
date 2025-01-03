@@ -25,9 +25,10 @@ func AddManagers() {
 }
 
 type Cert struct {
-	Config     *tls.Config
-	Name       string
-	PublicCert string
+	Config      *tls.Config
+	Name        string
+	PrivateKeyF string
+	PublicCertF string
 }
 
 // lookup the named cert
@@ -84,7 +85,8 @@ func (this *certs_) Reload(
 			cert := &Cert{}
 			return c.
 				GetString("name", &cert.Name, uconfig.StringNotBlank()).
-				GetString("publicCert", &cert.PublicCert).
+				GetString("privateKey", &cert.PrivateKeyF).
+				GetString("publicCert", &cert.PublicCertF).
 				Build(&cert.Config, BuildTlsConfig).
 				ThenCheck(func() (err error) {
 					if _, exists := this.certs[cert.Name]; exists {
