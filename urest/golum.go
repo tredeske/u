@@ -276,6 +276,7 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	}
 
 	keepAlives := true
+	http2Configured := false
 	var tlsCertN string
 	err = c.
 		GetString("tlsCert", &tlsCertN).
@@ -297,6 +298,7 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 		IfHasKeysMatching(
 			func(c *uconfig.Chain) (err error) {
 				s2 := http2.Server{}
+				http2Configured = true
 				err = c.
 					GetInt("http2MaxHandlers", &s2.MaxHandlers).
 					GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
@@ -325,6 +327,12 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	}
 	if !keepAlives {
 		httpServer.SetKeepAlivesEnabled(keepAlives)
+	}
+	if !http2Configured {
+		err = http2.ConfigureServer(httpServer, nil)
+		if err != nil {
+			return
+		}
 	}
 	rv = httpServer
 	return
