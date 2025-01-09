@@ -258,6 +258,12 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2IdleTimeout", "duration",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
+	p.NewItem("http2ReadIdleTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Default("37s")
+	p.NewItem("http2PingTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
+	p.NewItem("http2WriteByteTimeout", "duration",
+		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Default("37s")
 	p.NewItem("http2MaxUploadBufferPerConnection", "int",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxUploadBufferPerStream", "int",
@@ -297,11 +303,13 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 		GetBool("httpKeepAlives", &keepAlives).
 		IfHasKeysMatching(
 			func(c *uconfig.Chain) (err error) {
-				s2 := http2.Server{}
+				s2 := http2.Server{
+					ReadIdleTimeout:  37 * time.Second,
+					WriteByteTimeout: 37 * time.Second,
+				}
 				http2Configured = true
 				err = c.
 					GetInt("http2MaxHandlers", &s2.MaxHandlers).
-					GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
 					GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
 					GetUInt("http2MaxDecoderHeaderTableSize",
 						&s2.MaxDecoderHeaderTableSize).
@@ -311,6 +319,9 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 					GetBool("http2PermitProhibitedCipherSuites",
 						&s2.PermitProhibitedCipherSuites).
 					GetDuration("http2IdleTimeout", &s2.IdleTimeout).
+					GetDuration("http2ReadIdleTimeout", &s2.ReadIdleTimeout).
+					GetDuration("http2PingTimeout", &s2.PingTimeout).
+					GetDuration("http2WriteByteTimeout", &s2.WriteByteTimeout).
 					GetInt("http2MaxUploadBufferPerConnection",
 						&s2.MaxUploadBufferPerConnection).
 					GetInt("http2MaxUploadBufferPerStream",
@@ -329,7 +340,12 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 		httpServer.SetKeepAlivesEnabled(keepAlives)
 	}
 	if !http2Configured {
-		err = http2.ConfigureServer(httpServer, nil)
+		err = http2.ConfigureServer(httpServer,
+			&http2.Server{
+				// enable pings to help http/2 conn cleanup
+				ReadIdleTimeout:  37 * time.Second,
+				WriteByteTimeout: 37 * time.Second,
+			})
 		if err != nil {
 			return
 		}
