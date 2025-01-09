@@ -138,22 +138,22 @@ TLS 1.2 ciphers to choose from: %s`,
   - requireAnyClientCert
   - verifyClientCertIfGiven
   - requireAndVerifyClientCert`).Default("noClientCert")
-	p.NewItem("privateKey", "string", `
-(client) PEM file containing client private key.
-(server) PEM file containing server private key.`).Optional()
-	p.NewItem("publicCert", "string", `
-(client) PEM file containing client public cert.
-(server) PEM file containing server public cert.`).Optional()
+	p.NewItem("privateKey", "string", "PEM file containing private key.").
+		Optional()
+	p.NewItem("publicCert", "string", "PEM file containing public cert.").
+		Optional()
 	p.NewItem("caCerts", "string", `
 (client) PEM file with CA certs client uses to verify server certs.
-(server) PEM file with CA certs server uses to verify client certs.`).Optional()
+(server) PEM file with CA certs server uses to verify client certs.`).
+		Optional()
 	p.NewItem("clientCaCerts", "string", `
 (server) PEM file containing CA certs that server should use to verify
-client certs.  If 'caCerts' is set, then this defaults to the same PEM.`).Optional()
+client certs.  If 'caCerts' is set, then this defaults to the same PEM.`).
+		Optional()
 	p.NewItem("tlsMin", "string", `
 One of: 1.0, 1.1, 1.2, 1.3
 1.3 is recommended for clients.  1.2 is recommended for servers.`).Default("1.2")
-	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2, 1.3").Optional()
+	p.NewItem("tlsMax", "string", "One of: 1.0, 1.1, 1.2, 1.3").Default("1.3")
 	p.NewItem("tlsServerName", "string", `
 (client) Name of server (for TLS SNI, RFC 6066)`).Optional()
 }
@@ -167,11 +167,11 @@ func BuildTlsConfig(c *uconfig.Chain) (rv any, err error) {
 		cacerts,
 		privateKey,
 		publicCert,
-		clientAuth,
-		tlsMax string
+		clientAuth string
 	var ciphers []string
 	names12, _ := cipherNames()
 	tlsMin := "1.2"
+	tlsMax := "1.3"
 	tlsConfig := &tls.Config{}
 	if nil != c {
 		err = c.
