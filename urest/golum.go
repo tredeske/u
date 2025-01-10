@@ -96,7 +96,7 @@ func ShowHttpClient(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p.NewItem("http2StrictMaxConcurrentStreams", "bool",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2ReadIdleTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
+		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Default("37s")
 	p.NewItem("http2PingTimeout", "duration",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Transport").Optional()
 	p.NewItem("http2WriteByteTimeout", "duration",
@@ -141,6 +141,7 @@ func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 			IfHasKeysMatching( // special http2 config settings
 				func(c *uconfig.Chain) (err error) {
 					t2, err = http2.ConfigureTransports(tp)
+					t2.ReadIdleTimeout = 37 * time.Second
 					if err != nil {
 						return
 					}
@@ -169,10 +170,11 @@ func BuildHttpClient(c *uconfig.Chain) (rv any, err error) {
 			// no special http2 settings are present, but we were told to ensure
 			// http2 would be used
 			//
-			err = http2.ConfigureTransport(tp)
+			t2, err = http2.ConfigureTransports(tp)
 			if err != nil {
 				return
 			}
+			t2.ReadIdleTimeout = 37 * time.Second
 		}
 	} else {
 		tp.TLSClientConfig = ucerts.DefaultTlsConfig()
@@ -200,13 +202,19 @@ func DefaultHttpClient() (rv *http.Client) {
 	return &http.Client{
 		Transport: DefaultHttpTransport(),
 	}
-	/*
-		it, err := BuildHttpClient(nil)
-		if err != nil {
-			panic(err)
-		}
-		return it.(*http.Client)
-	*/
+}
+
+func DefaultHttp2Client() (rv *http.Client) {
+	tp1 := DefaultHttpTransport()
+	rv = &http.Client{
+		Transport: tp1,
+	}
+	tp2, err := http2.ConfigureTransports(tp1)
+	if err != nil {
+		panic(err)
+	}
+	tp2.ReadIdleTimeout = 37 * time.Second
+	return
 }
 
 // show params available for building http.Server

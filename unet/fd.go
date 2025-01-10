@@ -77,6 +77,7 @@ retry:
 		this.store(0)
 		goto retry
 	}
+	//log.Printf("FD: from: %d", int(v&fdMask_))
 	return
 }
 
@@ -92,6 +93,9 @@ func (this *ManagedFd) Set(fd int) (actuallySet bool) {
 	v := this.load()
 	if 0 == (v & (openBit_ | disableBit_)) {
 		actuallySet = this.cas(v, uint64(fd)|openBit_|(v&refsMask_))
+		//if actuallySet {
+		//	log.Printf("FD set %d", fd)
+		//}
 	}
 	return
 }
@@ -198,6 +202,7 @@ retry:
 		// try to clear the fd and open bit, but preserve the disable bit and refs
 		if this.cas(v, v&(disableBit_|refsMask_)) {
 			err = syscall.Close(int(v & fdMask_))
+			//log.Printf("FD: Closed %d: %s", int(v&fdMask_), err)
 			closed = true
 		} else {
 			goto retry
