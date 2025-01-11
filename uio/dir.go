@@ -3,12 +3,11 @@ package uio
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path"
 	"sort"
 )
 
+/* these don't appear to have much utility anymore
 //
 // compute the amount of space used by the files rooted at dir
 //
@@ -65,11 +64,10 @@ func DirCopy(src, dst string) (err error) {
 	}
 	return
 }
+*/
 
-//
 // Get the names of files contained by dir.  If max is specified, only
 // return up to max names.
-//
 func DirFilenames(dir string, max ...int) (files []string, err error) {
 	f, err := os.Open(dir)
 	if err != nil {
@@ -104,17 +102,13 @@ func DirList(dir string) (rv string, err error) {
 	return
 }
 
-//
 // Is the dir empty?
-//
 func DirEmpty(dir string) bool {
 	files, _ := DirFilenames(dir, 1)
 	return 1 != len(files)
 }
 
-//
 // is it a directory?
-//
 func FileIsDir(file string) bool {
 	fi, err := os.Stat(file)
 	return nil == err && fi.IsDir()
@@ -135,9 +129,7 @@ func SortByModTime(files []os.FileInfo) {
 	}
 }
 
-//
 // Get listing of dir, sorted by mtime (oldest to youngest)
-//
 func FilesByModTime(dir string) (files []os.FileInfo, err error) {
 	dirF, err := os.Open(dir)
 	if err != nil {

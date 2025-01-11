@@ -225,13 +225,13 @@ func FileExists(file string) bool {
 	return err == nil
 }
 
-// get the size of the file, or the files contained by file if file is a dir
+// get the size of the file, if it is a regular file
 func FileSize(file string) (int64, error) {
 	fi, err := os.Stat(file)
 	if err != nil {
 		return 0, err
-	} else if fi.IsDir() {
-		return DiskUsage(file)
+		//} else if fi.IsDir() {
+		//	return DiskUsage(file)
 	} else {
 		return fi.Size(), nil
 	}
