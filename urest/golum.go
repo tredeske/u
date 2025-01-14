@@ -3,6 +3,8 @@ package urest
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"regexp"
@@ -280,11 +282,67 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	return p
 }
 
-// build a http.Server using uconfig
+type Option func(*Options) error
+
+type Options struct {
+	maxVersion    uint8
+	defaultServer *http.Server
+}
+
+func WithDefault(server *http.Server) Option {
+	return func(opts *Options) error {
+		opts.defaultServer = server
+		return nil
+	}
+}
+
+func MaxHttpVersion(version string) Option {
+	return func(opts *Options) error {
+		switch version {
+		case "1", "1.0":
+			opts.maxVersion = 10
+		case "1.1":
+			opts.maxVersion = 11
+		case "2", "2.0":
+			opts.maxVersion = 20
+		case "3", "3.0":
+			opts.maxVersion = 30
+		default:
+			return fmt.Errorf("HTTP version (%s) not one of 1, 1.1, 2, 3",
+				version)
+		}
+		return nil
+	}
+}
+
+// obtain a HTTP Server builder for uconfig
 //
-// if c is nil, then build default http.Server
-func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
-	httpServer := &http.Server{}
+// Use:
+//
+//	var c *uconfig.Chain
+//	var httpServer *http.Server
+//	builder, err = urest.ServerBuilder(MaxHttpVerion("1.1"))
+//	if err != nil { ... }
+//	err = c.Build(&httpServer, builder). ... .Done()
+func ServerBuilder(options ...Option) (b uconfig.Builder, err error) {
+	opts := &Options{
+		maxVersion: 20,
+	}
+	for _, option := range options {
+		err = option(opts)
+		if err != nil {
+			return
+		}
+	}
+	return opts.buildHttpServer, nil
+}
+
+// implement uconfig.Builder, return built http.Server
+func (opts *Options) buildHttpServer(c *uconfig.Chain) (rv any, err error) {
+	httpServer := opts.defaultServer
+	if nil == httpServer {
+		httpServer = &http.Server{}
+	}
 	if nil == c {
 		return httpServer, nil
 	}
@@ -311,6 +369,9 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 		GetBool("httpKeepAlives", &keepAlives).
 		IfHasKeysMatching(
 			func(c *uconfig.Chain) (err error) {
+				if opts.maxVersion < 20 {
+					return errors.New("HTTP/2 not allowed here")
+				}
 				s2 := http2.Server{
 					ReadIdleTimeout:  37 * time.Second,
 					WriteByteTimeout: 37 * time.Second,
@@ -347,7 +408,7 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	if !keepAlives {
 		httpServer.SetKeepAlivesEnabled(keepAlives)
 	}
-	if !http2Configured {
+	if !http2Configured && opts.maxVersion >= 20 {
 		err = http2.ConfigureServer(httpServer,
 			&http2.Server{
 				// enable pings to help http/2 conn cleanup
@@ -360,6 +421,17 @@ func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	}
 	rv = httpServer
 	return
+}
+
+// build a http.Server using uconfig and default options
+//
+// if c is nil, then build default http.Server
+func BuildHttpServer(c *uconfig.Chain) (rv any, err error) {
+	b, err := ServerBuilder()
+	if err != nil {
+		return
+	}
+	return b(c)
 }
 
 // is the httpServer configured for TLS?
