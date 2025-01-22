@@ -41,6 +41,7 @@ import (
 
 	"github.com/tredeske/u/golum"
 	"github.com/tredeske/u/uconfig"
+	"github.com/tredeske/u/uerr"
 	"github.com/tredeske/u/uexit"
 	"github.com/tredeske/u/uinit"
 	"github.com/tredeske/u/ulog"
@@ -64,14 +65,15 @@ func SimpleBoot() (rv Boot, err error) {
 
 // Control process boot
 type Boot struct {
-	Name     string           // what program calls itself
-	InstallD string           // where program is installed
-	ConfigF  string           // abs path to config file
-	LogF     string           // path to log file, or empty/"stdout"
-	LogSize  int64            // size of log file before rotate
-	LogKeep  int              // logs to keep around
-	Config   *uconfig.Section // the loaded config
-	DryRun   bool             // is this a dry run (config check)?
+	Name      string           // what program calls itself
+	InstallD  string           // where program is installed
+	ConfigF   string           // abs path to config file
+	LogF      string           // path to log file, or empty/"stdout"
+	LogSize   int64            // size of log file before rotate
+	LogKeep   int              // logs to keep around
+	Config    *uconfig.Section // the loaded config
+	DryRun    bool             // is this a dry run (config check)?
+	RedirectF string           // file to redirect stderr to
 
 	//
 	// set by build system.  examples:
@@ -128,6 +130,9 @@ func (this *Boot) Boot() (err error) {
 
 	flag.StringVar(&this.LogF, "log", "",
 		"Set to 'stdout' or to path of log file (default: log/[NAME].log)")
+
+	flag.StringVar(&this.RedirectF, "redirect", "",
+		"Set to path of file to redirect stderr to. (default: no redirect")
 
 	flag.StringVar(&logSzStr, "log-size", logSzStr,
 		"Size of log file before rotation.  K,M,G,Ki,Mi,Gi suffixes supported.")
@@ -257,9 +262,29 @@ func (this *Boot) Redirect() (err error) {
 	}
 
 	//
-	// redirect stdout, stderr to file, if necessary
+	// redirect stderr to file, if necessary
 	//
 
+	if 0 != len(this.RedirectF) {
+		var stderrF *os.File
+		stderrF, err = os.OpenFile(
+			this.RedirectF,
+			os.O_CREATE|os.O_APPEND|os.O_RDWR,
+			0664)
+		if err != nil {
+			err = uerr.Chainf(err, "open stderr file")
+			return
+		}
+		err = syscall.Dup2(int(stderrF.Fd()), 2)
+		if err != nil {
+			err = uerr.Chainf(err, "dup to stderr")
+			return err
+		}
+		// add a marker to the stdout so we can triage panics
+		fmt.Fprintf(os.Stderr, "\n\n%s: Process started.  Name=%s, Version=%s\n\n",
+			time.Now().UTC().Format("2006/01/02 15:04:05Z"), this.Name,
+			this.Version)
+	}
 	/*
 		if "stdout" != this.LogF {
 
