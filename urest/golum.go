@@ -221,6 +221,22 @@ func DefaultHttp2Client() (rv *http.Client) {
 
 // show params available for building http.Server
 func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
+	return ShowHttpServerDefault(name, descr, help, nil, nil)
+}
+
+// show params available for building http.Server
+func ShowHttpServerDefault(
+	name, descr string,
+	help *uconfig.Help,
+	default1 *http.Server,
+	default2 *http2.Server,
+) *uconfig.Help {
+	if nil == default1 {
+		default1 = &http.Server{}
+	}
+	if nil == default2 {
+		default2 = &http2.Server{}
+	}
 	p := help
 	if 0 != len(name) {
 		if 0 == len(descr) {
@@ -239,45 +255,88 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 	p.NewItem("httpMaxHeaderBytes",
 		"int",
 		"Max number of bytes allowed in request headers").Optional()
-	p.NewItem("httpIdleTimeout",
-		"duration",
-		"How long to wait for next req").Optional()
-	p.NewItem("httpReadTimeout",
-		"duration",
-		"Max time to read entire request").Optional()
+	p.NewItem("httpIdleTimeout", "duration", `
+IdleTimeout is the maximum amount of time to wait for the next request when
+keep-alives are enabled. If zero, the value of ReadTimeout is used. If negative,
+or if zero and ReadTimeout is zero or negative, there is no timeout.`).
+		Default(default1.IdleTimeout)
+	p.NewItem("httpReadTimeout", "duration", `
+The maximum duration for reading the entire request, including the body. A zero
+or negative value means there will be no timeout.
+
+Because ReadTimeout does not let Handlers make per-request decisions on each
+request body's acceptable deadline or upload rate, most users will prefer to use
+ReadHeaderTimeout. It is valid to use them both.`).
+		Default(default1.ReadTimeout)
 	p.NewItem("httpReadHeaderTimeout",
-		"duration",
-		"Max time to read headers in request").Optional()
+		"duration", `
+The amount of time allowed to read request headers. The connection's read deadline
+is reset after reading the headers and the Handler can decide what is considered
+too slow for the body. If zero, the value of ReadTimeout is used. If negative,
+or if zero and ReadTimeout is zero or negative, there is no timeout.`).
+		Default(default1.ReadHeaderTimeout)
 	p.NewItem("httpWriteTimeout",
-		"duration",
-		"How long to wait for client to accept response").Optional()
+		"duration", `
+The maximum duration before timing out writes of the response.  It is reset
+whenever a new request's header is read. Like ReadTimeout, it does not let
+Handlers make decisions on a per-request basis.  A zero or negative value means
+there will be no timeout.`).
+		Default(default1.WriteTimeout)
 	p.NewItem("httpKeepAlives",
 		"bool",
 		"Enable keepalives?").Default("true")
-	p.NewItem("http2MaxHandlers", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	p.NewItem("http2MaxConcurrentStreams", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
+
+	p.NewItem("http2MaxHandlers", "int", `
+Limit the number of http.Handler ServeHTTP goroutines which may run at a time over
+all connections.  Negative or zero no limit.`).
+		Default(default2.MaxHandlers)
+	p.NewItem("http2MaxConcurrentStreams", "int", `
+Optionally specify the number of concurrent streams that each client may have
+open at a time. This is unrelated to the number of http.Handler goroutines which
+may be active globally, which is MaxHandlers.  If zero, defaults to at least 100,
+per the HTTP/2 spec's recommendations.`).
+		Default(default2.MaxConcurrentStreams)
 	p.NewItem("http2MaxDecoderHeaderTableSize", "int",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
 	p.NewItem("http2MaxEncoderHeaderTableSize", "int",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	p.NewItem("http2MaxReadFrameSize", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
+	p.NewItem("http2MaxReadFrameSize", "int", `
+Optionally specify the largest frame this server is willing to read. A valid
+value is between 16k and 16M, inclusive. If zero or otherwise invalid, a default
+value is used.`).
+		Default(default2.MaxReadFrameSize)
 	p.NewItem("http2PermitProhibitedCipherSuites", "bool",
 		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	p.NewItem("http2IdleTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	p.NewItem("http2ReadIdleTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Default("37s")
-	p.NewItem("http2PingTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	p.NewItem("http2WriteByteTimeout", "duration",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Default("37s")
-	p.NewItem("http2MaxUploadBufferPerConnection", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
-	p.NewItem("http2MaxUploadBufferPerStream", "int",
-		"see https://pkg.go.dev/golang.org/x/net/http2#Server").Optional()
+	p.NewItem("http2IdleTimeout", "duration", `
+Specify how long until idle clients should be closed with a GOAWAY frame. PING
+frames are not considered activity for the purposes of IdleTimeout.  If zero or
+negative, there is no timeout.`).
+		Default(default2.IdleTimeout)
+	p.NewItem("http2ReadIdleTimeout", "duration", `
+The timeout after which a health check using a ping frame will be carried out if
+no frame is received on the connection.  If zero, no health check is performed.
+
+If this is not set, then connections may never be cleaned up.`).
+		Default(default2.ReadIdleTimeout)
+	p.NewItem("http2PingTimeout", "duration", `
+The timeout after which the connection will be closed if a response to a ping is
+not received.  If zero, a default of 15 seconds is used.`).
+		Default(default2.PingTimeout)
+	p.NewItem("http2WriteByteTimeout", "duration", `
+The timeout after which a connection will be closed if no data can be written to
+it. The timeout begins when data is available to write, and is extended whenever
+any bytes are written.  If zero or negative, there is no timeout.`).
+		Default(default2.WriteByteTimeout)
+	p.NewItem("http2MaxUploadBufferPerConnection", "int", `
+The size of the initial flow control window for each connection. The HTTP/2 spec
+does not allow this to be smaller than 65535 or larger than 2^32-1.  If the
+value is outside this range, a default value will be used instead.`).
+		Default(default2.MaxUploadBufferPerConnection)
+	p.NewItem("http2MaxUploadBufferPerStream", "int", `
+The size of the initial flow control window for each stream. The HTTP/2 spec does
+not allow this to be larger than 2^32-1. If the value is zero or larger than the
+maximum, a default value will be used instead.`).
+		Default(default2.MaxUploadBufferPerStream)
 	p.NewItem("tlsCert", "string", "Name of TLS cert to use").Optional()
 	return p
 }
@@ -285,13 +344,15 @@ func ShowHttpServer(name, descr string, help *uconfig.Help) *uconfig.Help {
 type Option func(*Options) error
 
 type Options struct {
-	maxVersion    uint8
-	defaultServer *http.Server
+	maxVersion uint8
+	default1   *http.Server
+	default2   *http2.Server
 }
 
-func WithDefault(server *http.Server) Option {
+func WithDefaults(server1 *http.Server, server2 *http2.Server) Option {
 	return func(opts *Options) error {
-		opts.defaultServer = server
+		opts.default1 = server1
+		opts.default2 = server2
 		return nil
 	}
 }
@@ -339,87 +400,87 @@ func ServerBuilder(options ...Option) (b uconfig.Builder, err error) {
 
 // implement uconfig.Builder, return built http.Server
 func (opts *Options) buildHttpServer(c *uconfig.Chain) (rv any, err error) {
-	httpServer := opts.defaultServer
-	if nil == httpServer {
-		httpServer = &http.Server{}
+	server1 := &http.Server{}
+	if nil != opts.default1 {
+		*server1 = *opts.default1
+	}
+	var s2 *http2.Server
+	if opts.maxVersion >= 20 {
+		s2 = &http2.Server{}
+		if nil != opts.default2 {
+			*s2 = *opts.default2
+		}
 	}
 	if nil == c {
-		return httpServer, nil
+		if nil != s2 {
+			err = http2.ConfigureServer(server1, s2)
+		}
+		return server1, err
 	}
 
 	keepAlives := true
-	http2Configured := false
 	var tlsCertN string
 	err = c.
 		GetString("tlsCert", &tlsCertN).
 		ThenCheck(func() (err error) {
 			if 0 != len(tlsCertN) {
-				httpServer.TLSConfig, err = ucerts.LookupTlsConfig(tlsCertN)
+				server1.TLSConfig, err = ucerts.LookupTlsConfig(tlsCertN)
 			}
 			return
 		}).
-		GetString("httpAddress", &httpServer.Addr).
+		GetString("httpAddress", &server1.Addr).
 		GetBool("httpDisableOptionsHandler",
-			&httpServer.DisableGeneralOptionsHandler).
-		GetDuration("httpIdleTimeout", &httpServer.IdleTimeout).
-		GetDuration("httpReadTimeout", &httpServer.ReadTimeout).
-		GetDuration("httpReadHeaderTimeout", &httpServer.ReadHeaderTimeout).
-		GetDuration("httpWriteTimeout", &httpServer.WriteTimeout).
-		GetInt("httpMaxHeaderBytes", &httpServer.MaxHeaderBytes).
+			&server1.DisableGeneralOptionsHandler).
+		GetDuration("httpIdleTimeout", &server1.IdleTimeout).
+		GetDuration("httpReadTimeout", &server1.ReadTimeout).
+		GetDuration("httpReadHeaderTimeout", &server1.ReadHeaderTimeout).
+		GetDuration("httpWriteTimeout", &server1.WriteTimeout).
+		GetInt("httpMaxHeaderBytes", &server1.MaxHeaderBytes).
 		GetBool("httpKeepAlives", &keepAlives).
-		IfHasKeysMatching(
-			func(c *uconfig.Chain) (err error) {
-				if opts.maxVersion < 20 {
-					return errors.New("HTTP/2 not allowed here")
-				}
-				s2 := http2.Server{
-					ReadIdleTimeout:  37 * time.Second,
-					WriteByteTimeout: 37 * time.Second,
-				}
-				http2Configured = true
-				err = c.
-					GetInt("http2MaxHandlers", &s2.MaxHandlers).
-					GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
-					GetUInt("http2MaxDecoderHeaderTableSize",
-						&s2.MaxDecoderHeaderTableSize).
-					GetUInt("http2MaxEncoderHeaderTableSize",
-						&s2.MaxEncoderHeaderTableSize).
-					GetUInt("http2MaxReadFrameSize", &s2.MaxReadFrameSize).
-					GetBool("http2PermitProhibitedCipherSuites",
-						&s2.PermitProhibitedCipherSuites).
-					GetDuration("http2IdleTimeout", &s2.IdleTimeout).
-					GetDuration("http2ReadIdleTimeout", &s2.ReadIdleTimeout).
-					GetDuration("http2PingTimeout", &s2.PingTimeout).
-					GetDuration("http2WriteByteTimeout", &s2.WriteByteTimeout).
-					GetInt("http2MaxUploadBufferPerConnection",
-						&s2.MaxUploadBufferPerConnection).
-					GetInt("http2MaxUploadBufferPerStream",
-						&s2.MaxUploadBufferPerStream).
-					Error
-				if err != nil {
-					return
-				}
-				return http2.ConfigureServer(httpServer, &s2)
-			}, regexp.MustCompile("^http2")).
+		IfHasKeysMatching(func(c *uconfig.Chain) (err error) {
+			if opts.maxVersion < 20 {
+				return errors.New("HTTP/2 not allowed here")
+			}
+			if nil == s2 {
+				s2 = &http2.Server{}
+			}
+			err = c.
+				GetInt("http2MaxHandlers", &s2.MaxHandlers).
+				GetUInt("http2MaxConcurrentStreams", &s2.MaxConcurrentStreams).
+				GetUInt("http2MaxDecoderHeaderTableSize",
+					&s2.MaxDecoderHeaderTableSize).
+				GetUInt("http2MaxEncoderHeaderTableSize",
+					&s2.MaxEncoderHeaderTableSize).
+				GetUInt("http2MaxReadFrameSize", &s2.MaxReadFrameSize,
+					uconfig.UIntZeroOr(uconfig.UIntRange(1<<14, 1<<24))).
+				GetBool("http2PermitProhibitedCipherSuites",
+					&s2.PermitProhibitedCipherSuites).
+				GetDuration("http2IdleTimeout", &s2.IdleTimeout).
+				GetDuration("http2ReadIdleTimeout", &s2.ReadIdleTimeout).
+				GetDuration("http2PingTimeout", &s2.PingTimeout).
+				GetDuration("http2WriteByteTimeout", &s2.WriteByteTimeout).
+				GetInt("http2MaxUploadBufferPerConnection",
+					&s2.MaxUploadBufferPerConnection,
+					uconfig.IntZeroOr(uconfig.IntRange(65535, (1<<32)-1))).
+				GetInt("http2MaxUploadBufferPerStream",
+					&s2.MaxUploadBufferPerStream, uconfig.IntRange(0, (1<<32)-1)).
+				Error
+			return
+		}, regexp.MustCompile("^http2")).
 		Error
 	if err != nil {
 		return
 	}
 	if !keepAlives {
-		httpServer.SetKeepAlivesEnabled(keepAlives)
+		server1.SetKeepAlivesEnabled(keepAlives)
 	}
-	if !http2Configured && opts.maxVersion >= 20 {
-		err = http2.ConfigureServer(httpServer,
-			&http2.Server{
-				// enable pings to help http/2 conn cleanup
-				ReadIdleTimeout:  37 * time.Second,
-				WriteByteTimeout: 37 * time.Second,
-			})
+	if nil != s2 {
+		err = http2.ConfigureServer(server1, s2)
 		if err != nil {
 			return
 		}
 	}
-	rv = httpServer
+	rv = server1
 	return
 }
 

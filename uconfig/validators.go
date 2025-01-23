@@ -131,6 +131,16 @@ func UIntRange(min, max uint64) UIntValidator {
 	}
 }
 
+// create a UintValidator to verify value is 0 or valid
+func UIntZeroOr(validator UIntValidator) UIntValidator {
+	return func(v uint64) (err error) {
+		if 0 != v {
+			err = validator(v)
+		}
+		return
+	}
+}
+
 // return a validator to error if v is not positive
 func IntPos() IntValidator {
 	return func(v int64) (err error) {
@@ -166,6 +176,16 @@ func IntPow2() IntValidator {
 	return func(v int64) (err error) {
 		if 1 > v || 1 != bits.OnesCount64(uint64(v)) {
 			err = fmt.Errorf("int (%d) is not a power of 2 > 0", v)
+		}
+		return
+	}
+}
+
+// create a IntValidator to verify value is 0 or valid
+func IntZeroOr(validator IntValidator) IntValidator {
+	return func(v int64) (err error) {
+		if 0 != v {
+			err = validator(v)
 		}
 		return
 	}
