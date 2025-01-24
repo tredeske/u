@@ -88,7 +88,7 @@ GIVEN: tcp listener
 			resultC <- err
 			return
 		}
-		conn, err := sender.Conn()
+		conn, err := sender.AsConn()
 		if err != nil {
 			resultC <- err
 			return
@@ -108,17 +108,11 @@ GIVEN: tcp listener
 		close(resultC)
 	}()
 
-	receiver := Socket{}
-	err = listener.Accept(&receiver)
+	conn, err := listener.AcceptConn()
 	if err != nil {
 		t.Fatalf("Unable to accept: %s", err)
 	}
-	receiver.SetDeadline(deadline)
-
-	conn, err := receiver.Conn()
-	if err != nil {
-		t.Fatalf("Unable to get conn: %s", err)
-	}
+	conn.SetDeadline(deadline)
 
 	buff := [512]byte{}
 	nread, err := conn.Read(buff[:])
