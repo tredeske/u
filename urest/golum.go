@@ -402,7 +402,21 @@ func ServerBuilder(options ...Option) (b uconfig.Builder, err error) {
 func (opts *Options) buildHttpServer(c *uconfig.Chain) (rv any, err error) {
 	server1 := &http.Server{}
 	if nil != opts.default1 {
-		*server1 = *opts.default1
+		// http.Server cannot by directly copied and has no clone method
+		server1.Addr = opts.default1.Addr
+		server1.Handler = opts.default1.Handler
+		server1.DisableGeneralOptionsHandler = opts.default1.DisableGeneralOptionsHandler
+		server1.TLSConfig = opts.default1.TLSConfig
+		server1.ReadTimeout = opts.default1.ReadTimeout
+		server1.ReadHeaderTimeout = opts.default1.ReadHeaderTimeout
+		server1.WriteTimeout = opts.default1.WriteTimeout
+		server1.IdleTimeout = opts.default1.IdleTimeout
+		server1.MaxHeaderBytes = opts.default1.MaxHeaderBytes
+		server1.TLSNextProto = opts.default1.TLSNextProto
+		server1.ConnState = opts.default1.ConnState
+		server1.ErrorLog = opts.default1.ErrorLog
+		server1.BaseContext = opts.default1.BaseContext
+		server1.ConnContext = opts.default1.ConnContext
 	}
 	var s2 *http2.Server
 	if opts.maxVersion >= 20 {

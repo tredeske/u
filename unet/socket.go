@@ -852,6 +852,7 @@ func (this *Socket) RemoteAddr() net.Addr {
 	return addr
 }
 
+// implement io.reader
 func (this *Socket) Read(buff []byte) (nread int, err error) {
 	fd, good := this.goodFd()
 	if good {
@@ -865,12 +866,21 @@ func (this *Socket) Read(buff []byte) (nread int, err error) {
 	return
 }
 
+// implement io.Writer
 func (this *Socket) Write(buff []byte) (nwrote int, err error) {
 	fd, good := this.goodFd()
-	if good {
-		nwrote, err = syscall.Write(fd, buff)
-	} else {
+	if !good {
 		err = this.Error
+		return
+	}
+again:
+	n, err := syscall.Write(fd, buff)
+	nwrote += n
+	if err != nil {
+		return
+	} else if n != len(buff) {
+		buff = buff[n:]
+		goto again
 	}
 	return
 }

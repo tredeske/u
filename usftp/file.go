@@ -720,7 +720,7 @@ func (f *File) Stat() (attrs *FileStat, err error) {
 // Copy from io.Reader into this file starting at current offset.
 //
 // synchronize i/o ops
-func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
+func (f *File) ReadFrom(fromR io.Reader) (nread int64, err error) {
 	if 0 == len(f.handle) {
 		return 0, os.ErrClosed
 	}
@@ -786,121 +786,124 @@ func (f *File) ReadFrom(r io.Reader) (nread int64, err error) {
 	// conn still ok after pumpErr, but we need to report to our caller
 	var pumpErr error
 
-	req.pumpPkts =
-		func(id uint32, conn *conn_, buff []byte) (nsent uint32, err error) {
-			const errShortWrite = uerr.Const("SSH did not accept full write")
-			var readErr error
-			pumpReq := req
-			pumpReq.id = id
-			maxPacket := f.client.maxPacket // max data payload
-			pkt := sshFxpWritePacket{
-				Handle: f.handle,
-				Offset: uint64(f.offset),
-			}
-			length := pkt.sizeBeforeData()  // of sshFxpWritePacket w/o payload
-			maxSz := 4 + length + maxPacket // + sftp packet size header
-			buffPos := 0
-			expectPkts := uint32(0)
+	req.pumpPkts = func(
+		id uint32, conn *conn_, buff []byte,
+	) (
+		nsent uint32, err error,
+	) {
+		const errShortWrite = uerr.Const("SSH did not accept full write")
+		var readErr error
+		pumpReq := req
+		pumpReq.id = id
+		maxPacket := f.client.maxPacket // max data payload
+		pkt := sshFxpWritePacket{
+			Handle: f.handle,
+			Offset: uint64(f.offset),
+		}
+		length := pkt.sizeBeforeData()  // of sshFxpWritePacket w/o payload
+		maxSz := 4 + length + maxPacket // + sftp packet size header
+		buffPos := 0
+		expectPkts := uint32(0)
 
-			defer func() {
-				pumpErr = readErr
-				// if not a conn err.  if it is a conn err, then conn will
-				// do the notification.
-				if nil == err && respPumpDone.CompareAndSwap(false, true) {
-					//
-					// mark that we're done and what we did.
-					// if we completed first, then signal resp waiter
-					//
-					var signal bool
-					respLock.Lock()
-					respPkts = nsent
-					signal = (nsent == respAcks)
-					respErr = errReqTrunc_
-					respLock.Unlock()
-					if signal {
-						respCond.Signal()
-					}
+		defer func() {
+			pumpErr = readErr
+			// if not a conn err.  if it is a conn err, then conn will
+			// do the notification.
+			if nil == err && respPumpDone.CompareAndSwap(false, true) {
+				//
+				// mark that we're done and what we did.
+				// if we completed first, then signal resp waiter
+				//
+				var signal bool
+				respLock.Lock()
+				respPkts = nsent
+				signal = (nsent == respAcks)
+				respErr = errReqTrunc_
+				respLock.Unlock()
+				if signal {
+					respCond.Signal()
 				}
-			}()
+			}
+		}()
 
-			for {
-				pkt.ID = id
-				id++
+		for {
+			pkt.ID = id
+			id++
 
-				pktB := buff[buffPos:]
-				readB := pktB[4+length : maxSz]
-				var readAmount int
-				readAmount, readErr = r.Read(readB)
-				if 0 != readAmount {
-					nread += int64(readAmount)
-					pkt.Length = uint32(readAmount)
-					bigEnd_.PutUint32(pktB, uint32(length+readAmount))
-					pkt.appendTo(pktB[4:4])
+			pktB := buff[buffPos:]
+			readB := pktB[4+length : maxSz]
+			var readAmount int
+			readAmount, readErr = fromR.Read(readB)
+			if 0 != readAmount {
+				nread += int64(readAmount)
+				pkt.Length = uint32(readAmount)
+				bigEnd_.PutUint32(pktB, uint32(length+readAmount))
+				pkt.appendTo(pktB[4:4])
 
-					pkt.Offset += uint64(readAmount)
-					expectPkts++
-					buffPos += 4 + length + readAmount
-				} else if nil == readErr { // impossible?
-					id--
+				pkt.Offset += uint64(readAmount)
+				expectPkts++
+				buffPos += 4 + length + readAmount
+			} else if nil == readErr { // impossible?
+				id--
+				continue
+			}
+
+			if nil == readErr {
+				//
+				// if we can do another read, do it
+				//
+				if len(buff) >= buffPos+maxSz {
 					continue
 				}
 
-				if nil == readErr {
-					//
-					// if we can do another read, do it
-					//
-					if len(buff) >= buffPos+maxSz {
-						continue
-					}
+				//
+				// we've filled up the buffer as much as we can, so tell the
+				// reader about what to expect, and write out the buffer
+				//
+				newReq := f.client.request()
+				*newReq = *pumpReq
+				pumpReq.expectPkts = expectPkts
+				conn.rC <- pumpReq
+				pumpReq = newReq
+				pumpReq.id = id
+				pumpReq.expectPkts = 0
 
-					//
-					// we've filled up the buffer as much as we can, so tell the
-					// reader about what to expect, and write out the buffer
-					//
-					newReq := f.client.request()
-					*newReq = *pumpReq
-					pumpReq.expectPkts = expectPkts
-					conn.rC <- pumpReq
-					pumpReq = newReq
-					pumpReq.id = id
-					pumpReq.expectPkts = 0
-
-				} else {
-					//
-					// we've reached EOF or there was a read problem.
-					// flush out any data we have on hand
-					//
-					if 0 == expectPkts {
-						if readErr == io.EOF {
-							readErr = nil
-						}
-						return
-					}
-					pumpReq.expectPkts = expectPkts
-					conn.rC <- pumpReq
-					pumpReq = nil
-				}
-
-				var nwrote int
-				nwrote, err = conn.w.Write(buff[:buffPos])
-				if err != nil {
-					return
-				} else if nwrote != buffPos {
-					err = errShortWrite
-					return
-				}
-				nsent += expectPkts
-				expectPkts = 0
-				buffPos = 0
-
-				if nil != readErr || respPumpDone.Load() {
-					if io.EOF == readErr {
+			} else {
+				//
+				// we've reached EOF or there was a read problem.
+				// flush out any data we have on hand
+				//
+				if 0 == expectPkts {
+					if readErr == io.EOF {
 						readErr = nil
 					}
 					return
 				}
+				pumpReq.expectPkts = expectPkts
+				conn.rC <- pumpReq
+				pumpReq = nil
+			}
+
+			var nwrote int
+			nwrote, err = conn.w.Write(buff[:buffPos])
+			if err != nil {
+				return
+			} else if nwrote != buffPos {
+				err = errShortWrite
+				return
+			}
+			nsent += expectPkts
+			expectPkts = 0
+			buffPos = 0
+
+			if nil != readErr || respPumpDone.Load() {
+				if io.EOF == readErr {
+					readErr = nil
+				}
+				return
 			}
 		}
+	}
 
 	err = f.client.conn.Request(req)
 	if err != nil {
