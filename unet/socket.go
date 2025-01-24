@@ -49,7 +49,7 @@ func GetSocketFd(conn *net.TCPConn) (fd int, f *os.File) {
 // needed when golang does not allow in high level interface, or for things
 // like setting socket options before bind.
 //
-// implements net.Conn, io.Closer, io.Reader, io.Writer
+// implements  io.Closer
 //
 //	sock, err := NewSocket().
 //	    ResolveFarAddr(host, port).
@@ -57,6 +57,8 @@ func GetSocketFd(conn *net.TCPConn) (fd int, f *os.File) {
 //	    SetTimeout(7*time.Second).
 //	    Connect().
 //	    Done()
+//
+//	conn, err := sock.Conn() // implements net.Conn
 type Socket struct {
 	Fd        ManagedFd
 	FarAddr   syscall.Sockaddr
@@ -683,6 +685,16 @@ func (this *Socket) Listen(depth int, unless ...bool) *Socket {
 	return this
 }
 
+// accept a connection
+func (this *Socket) AcceptConn() (conn *Conn, err error) {
+	sock := &Socket{}
+	err = this.Accept(sock)
+	if err != nil {
+		return
+	}
+	return sock.AsConn()
+}
+
 // accept a connection, storing the fd and addresses in sock
 func (this *Socket) Accept(sock *Socket) (err error) {
 	if sock.Fd.IsSet() {
@@ -819,6 +831,21 @@ func (this *Socket) Disable() {
 	}
 }
 func (this *Socket) IsDisabled() bool { return this.Fd.IsDisabled() }
+func (this *Socket) Shutdown()        { this.Disable() }
+func (this *Socket) IsShutdown() bool { return this.Fd.IsDisabled() }
+
+// obtain a net.Conn compatible conn that uses the Socket
+func (this *Socket) AsConn() (conn *Conn, err error) {
+	fd, good := this.goodFd()
+	if !good {
+		err = this.Error
+		return
+	}
+	return &Conn{
+		sock: this,
+		fd:   fd,
+	}, nil
+}
 
 //
 // implement net.Conn, io.Closer, io.Reader, io.Writer

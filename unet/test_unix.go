@@ -12,8 +12,18 @@ func TestUnixSocketPair(t *testing.T) {
 		t.Fatalf("socketpair 1 is nil!")
 	}
 
+	conn0, err := pair[0].AsConn()
+	if err != nil {
+		t.Fatalf("getting conn 0: %s", err)
+	}
+
+	conn1, err := pair[1].AsConn()
+	if err != nil {
+		t.Fatalf("getting conn 1: %s", err)
+	}
+
 	expect := "the quick brown fox"
-	nwrote, err := pair[0].Write([]byte(expect))
+	nwrote, err := conn0.Write([]byte(expect))
 	if err != nil {
 		t.Fatalf("write: %s", err)
 	} else if len(expect) != nwrote {
@@ -21,7 +31,7 @@ func TestUnixSocketPair(t *testing.T) {
 	}
 
 	recvbuff := [48]byte{}
-	nread, err := pair[1].Read(recvbuff[:])
+	nread, err := conn1.Read(recvbuff[:])
 	if err != nil {
 		t.Fatalf("read: %s", err)
 	} else if nread != nwrote {
@@ -30,11 +40,11 @@ func TestUnixSocketPair(t *testing.T) {
 		t.Fatalf("did not get expected bytes")
 	}
 
-	err = pair[0].Close()
+	err = conn0.Close()
 	if err != nil {
 		t.Fatalf("Unable to close sock 0: %s", err)
 	}
-	err = pair[1].Close()
+	err = conn1.Close()
 	if err != nil {
 		t.Fatalf("Unable to close sock 1: %s", err)
 	}

@@ -88,14 +88,19 @@ GIVEN: tcp listener
 			resultC <- err
 			return
 		}
-
-		_, err = sender.Write(data)
+		conn, err := sender.Conn()
 		if err != nil {
 			resultC <- err
 			return
 		}
 
-		err = sender.Close()
+		_, err = conn.Write(data)
+		if err != nil {
+			resultC <- err
+			return
+		}
+
+		err = conn.Close()
 		if err != nil {
 			resultC <- err
 			return
@@ -110,15 +115,20 @@ GIVEN: tcp listener
 	}
 	receiver.SetDeadline(deadline)
 
+	conn, err := receiver.Conn()
+	if err != nil {
+		t.Fatalf("Unable to get conn: %s", err)
+	}
+
 	buff := [512]byte{}
-	nread, err := receiver.Read(buff[:])
+	nread, err := conn.Read(buff[:])
 	if err != nil {
 		t.Fatalf("Unable to read: %s", err)
 	} else if dataString != string(buff[:nread]) {
 		t.Fatalf("Did not get expected data")
 	}
 
-	err = receiver.Close()
+	err = conn.Close()
 	if err != nil {
 		t.Fatalf("Unable to close: %s", err)
 	}
