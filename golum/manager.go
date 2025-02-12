@@ -80,4 +80,4 @@ func (this *UnhelpfulReloadable) Help(name string, help *uconfig.Help) {
 }
 
 // placeholder for disabled components
-type Disabled struct{}
+type disabled_ struct{}

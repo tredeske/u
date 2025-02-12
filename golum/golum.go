@@ -474,7 +474,7 @@ func (g *golum_) Rebuild(c *uconfig.Section) (err error) {
 
 func (g *golum_) AfterBuild() {
 	if g.disabled {
-		uregistry.Put(g.name, Disabled{})
+		uregistry.Put(g.name, disabled_{})
 	} else {
 		uregistry.Put(g.name, g.curr)
 	}
