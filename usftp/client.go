@@ -262,7 +262,7 @@ func (rdl *ReadDirLimit) Filter(fileN string, attrs *FileStat) (allow, stop bool
 // Due to SFTP, it takes at least 3 round trips with the server to get a listing
 // of the files.
 func (client *Client) ReadDir(dirN string) ([]*File, error) {
-	return client.ReadDirLimit(dirN, 0, nil)
+	return client.ReadDirLimit(dirN, 0, nil, nil)
 }
 
 // Get a list of Files in dirN.
@@ -273,8 +273,9 @@ func (client *Client) ReadDirLimit(
 	dirN string,
 	timeout time.Duration, // if positive, limit time to read dir
 	filter ReadDirFilter, // if not nil, filter entries
+	entries []*File, // append dir entries to this
 ) (
-	entries []*File,
+	rv []*File, // updated entries
 	err error,
 ) {
 	var deadline time.Time
@@ -282,10 +283,13 @@ func (client *Client) ReadDirLimit(
 		deadline = time.Now().Add(timeout)
 	}
 
+	rv = entries
+
 	handle, err := client.opendir(timeout, dirN)
 	if err != nil {
 		return
 	}
+
 	defer client.closeHandleAsync(handle, nil, nil)
 
 	if 0 < timeout && time.Now().After(deadline) {
@@ -301,6 +305,7 @@ func (client *Client) ReadDirLimit(
 		defer func() {
 			if !done && nil == err &&
 				(0 >= timeout || !time.Now().After(deadline)) {
+
 				err = conn.RequestSingle(
 					readdirPkt, sshFxpName, manualRespond_,
 					readdirF, responder.onError)
@@ -317,6 +322,7 @@ func (client *Client) ReadDirLimit(
 			}
 			allow := true
 			count, buff := unmarshalUint32(conn.buff)
+			done = (0 == count)
 			for i := uint32(0); i < count && !done; i++ {
 				var fileN string
 				fileN, buff = unmarshalString(buff)
@@ -332,16 +338,16 @@ func (client *Client) ReadDirLimit(
 				if fileN == "." || fileN == ".." || !allow {
 					continue
 				}
-				entries = append(entries, &File{
+				rv = append(rv, &File{
 					client: client,
 					pathN:  path.Join(dirN, fileN),
 					attrs:  *attrs,
 				})
 			}
-			done = (0 == count)
+
 		case sshFxpStatus:
 			err = maybeError(conn.buff) // may be nil
-			if 0 != len(entries) || io.EOF == err {
+			if 0 != len(rv) || io.EOF == err {
 				err = nil // ignore any unmarshaled error if we have entries
 			}
 			done = true

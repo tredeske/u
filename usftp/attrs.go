@@ -62,7 +62,7 @@ func (fs *FileStat) FileMode() FileMode {
 	return FileMode(fs.Mode)
 }
 
-// returns the Type bits of the FileMode
+// returns the Perm and Type bits of the FileMode
 func (fs *FileStat) FileType() FileMode {
 	return FileMode(fs.Mode) & ModeType
 }
