@@ -451,8 +451,8 @@ func (client *Client) asyncExpect(
 				respErr = maybeError(conn.buff)        // may be nil
 				if 0 != expectType && nil == respErr { // not expecting status
 					respErr = fmt.Errorf(
-						"req %d (%#v) did not get expected response type %d",
-						id, pkt, expectType)
+						"req %d (%#v) unexpected response type (%d), not %d",
+						id, pkt, typ, expectType)
 				}
 			default:
 				panic("impossible!")
@@ -483,8 +483,8 @@ func (client *Client) invokeExpect(
 				respErr = maybeError(conn.buff)        // may be nil
 				if 0 != expectType && nil == respErr { // not expecting status
 					respErr = fmt.Errorf(
-						"req %d (%#v) did not get expected response type %d",
-						id, pkt, expectType)
+						"req %d (%#v) unexpected response type (%d), not %d",
+						id, pkt, typ, expectType)
 				}
 			default:
 				panic("impossible!")
