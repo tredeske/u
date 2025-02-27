@@ -19,8 +19,8 @@ type (
 )
 
 // convert a string to an int64, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -30,8 +30,8 @@ func IntFromSiString[I Int](s string, rv *I) (err error) {
 }
 
 // convert a string to an int64 byte size, taking into account SI prefixes:
-// K, M, G, T, P: treat as base 1024 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: treat as base 1024 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -41,7 +41,7 @@ func IntFromByteSizeString[I Int](s string, rv *I) (err error) {
 }
 
 // convert a string to an int64 bit rate, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -51,8 +51,8 @@ func IntFromBitRateString[I Int](s string, rv *I) (err error) {
 }
 
 // convert a string to an int64, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -94,7 +94,7 @@ func intFromSiString[I Int](s string, rv *I, kind multKind_) (err error) {
 }
 
 // convert a string to an uint64 bit rate, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -104,8 +104,8 @@ func UIntFromBitRateString[U UInt](s string, rv *U) (err error) {
 }
 
 // convert a string to an uint64 byte size, taking into account SI prefixes:
-// K, M, G, T, P: treat as base 1024 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: treat as base 1024 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -115,8 +115,8 @@ func UIntFromByteSizeString[U UInt](s string, rv *U) (err error) {
 }
 
 // convert a string to an uint64, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -126,8 +126,8 @@ func UIntFromSiString[U UInt](s string, rv *U) (err error) {
 }
 
 // convert a string to an uint64, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 //
 // also handled:
 // - if string begins with "0x", then it is hex
@@ -173,29 +173,29 @@ func uintFromSiString[U UInt](s string, rv *U, kind multKind_) (err error) {
 	return
 }
 
-// convert a string to an float64 bit rate, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
+// convert a string to a float64 bit rate, taking into account SI prefixes:
+// K, M, G, T, P, E: base 1000 multipliers
 func Float64FromBitRateString(s string) (rv float64, err error) {
 	return float64FromSiString(s, mkRate_)
 }
 
-// convert a string to an float64 byte size, taking into account SI prefixes:
-// K, M, G, T, P: treat as base 1024 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// convert a string to a float64 byte size, taking into account SI prefixes:
+// K, M, G, T, P, E: treat as base 1024 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 func Float64FromByteSizeString(s string) (rv float64, err error) {
 	return float64FromSiString(s, mkSize_)
 }
 
-// convert a string to an float64, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// convert a string to a float64, taking into account SI prefixes:
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 func Float64FromSiString(s string) (rv float64, err error) {
 	return float64FromSiString(s, mkAny_)
 }
 
-// convert a string to an float64, taking into account SI prefixes:
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// convert a string to a float64, taking into account SI prefixes:
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 func float64FromSiString(s string, kind multKind_) (rv float64, err error) {
 	var mult int64
 	mult, s, err = multiplier(s, kind)
@@ -218,8 +218,8 @@ const (
 	mkSize_ multKind_ = 2 // interpret/enforce for byte amount
 )
 
-// K, M, G, T, P: base 1000 multipliers
-// Ki, Mi, Gi, Ti, Pi: base 1024 multipliers
+// K, M, G, T, P, E: base 1000 multipliers
+// Ki, Mi, Gi, Ti, Pi, Ei: base 1024 multipliers
 // if kind is mkRate, then Ki, Mi, etc are not allowed
 // if kind is mkSize, then K, M, etc are interpretted as Ki, Mi, etc
 func multiplier(s string, kind multKind_) (mult int64, rv string, err error) {
@@ -267,15 +267,17 @@ func multiplier(s string, kind multKind_) (mult int64, rv string, err error) {
 
 	if mkSize_ == kind {
 		switch last {
-		case 'p', 'P':
+		case 'e', 'E': // exa
+			mult = 1 << 60
+		case 'p', 'P': // peta
 			mult = 1 << 50
-		case 't', 'T':
+		case 't', 'T': // tera
 			mult = 1 << 40
-		case 'g', 'G':
+		case 'g', 'G': // giga
 			mult = 1 << 30
-		case 'm', 'M':
+		case 'm', 'M': // mega
 			mult = 1 << 20
-		case 'k', 'K':
+		case 'k', 'K': // kilo
 			mult = 1 << 10
 		default:
 			err = fmt.Errorf("Unknown SI unit in string: %s", s)
@@ -284,6 +286,8 @@ func multiplier(s string, kind multKind_) (mult int64, rv string, err error) {
 
 	} else {
 		switch last {
+		case 'e', 'E':
+			mult = 1_000_000_000_000_000_000
 		case 'p', 'P':
 			mult = 1_000_000_000_000_000
 		case 't', 'T':

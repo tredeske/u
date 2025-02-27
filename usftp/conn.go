@@ -429,20 +429,18 @@ func (conn *conn_) Start() (exts map[string]string, err error) {
 		return
 	}
 
-	if 0 != length {
-		exts = make(map[string]string)
-		for 0 != length {
-			var ext extensionPair
-			var data []byte
-			ext, data, err = unmarshalExtensionPair(conn.buff)
-			if err != nil {
-				return
-			}
-			exts[ext.Name] = ext.Data
-			amount := len(conn.buff) - len(data)
-			conn.bump(amount)
-			length -= uint32(amount)
+	exts = make(map[string]string)
+	for 0 != length {
+		var ext extensionPair
+		var data []byte
+		ext, data, err = unmarshalExtensionPair(conn.buff)
+		if err != nil {
+			return
 		}
+		exts[ext.Name] = ext.Data
+		amount := len(conn.buff) - len(data)
+		conn.bump(amount)
+		length -= uint32(amount)
 	}
 
 	//
