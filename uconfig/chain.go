@@ -2,6 +2,7 @@ package uconfig
 
 import (
 	"fmt"
+	"math"
 	nurl "net/url"
 	"os"
 	"regexp"
@@ -205,6 +206,27 @@ func (this *Chain) GetFloat64(
 ) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetFloat64(key, value, validators...)
+	}
+	return this
+}
+
+func (this *Chain) GetFloat32(
+	key string,
+	value *float32,
+	validators ...FloatValidator,
+) *Chain {
+	var f64 float64
+	if nil == this.Error {
+		this.Error = this.Section.GetFloat64(key, &f64, validators...)
+	}
+	if nil == this.Error {
+		if math.MaxFloat32 < f64 {
+			this.Error = fmt.Errorf("value of %s too large for float32",
+				this.Section.ctx(key))
+
+		} else {
+			*value = float32(f64)
+		}
 	}
 	return this
 }

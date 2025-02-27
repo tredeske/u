@@ -1,11 +1,5 @@
 package usftp
 
-import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-)
-
 /*
 func TestErrFxCode(t *testing.T) {
 	table := []struct {
@@ -26,6 +20,9 @@ func TestErrFxCode(t *testing.T) {
 	}
 }
 */
+
+/*
+server side test
 
 func TestSupportedExtensions(t *testing.T) {
 	for _, supportedExtension := range supportedSFTPExtensions {
@@ -74,3 +71,4 @@ func TestExtensions(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, supportedSFTPExtensions, sftpExtensions)
 }
+*/

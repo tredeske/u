@@ -987,7 +987,7 @@ func (p *sshFxpStatvfsPacket) appendTo(inB []byte) (outB []byte, err error) {
 	return
 }
 
-// A StatVFS contains statistics about a filesystem.
+// Statistics about a filesystem.
 type StatVFS struct {
 	ID      uint32
 	Bsize   uint64 // file system block size

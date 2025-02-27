@@ -750,24 +750,40 @@ func (client *Client) fstat(handle string) (attr *FileStat, err error) {
 	return
 }
 
+// does server support StatVFS?
+func (client *Client) HasStatVFS() (yes bool) {
+	_, yes = client.HasExtension("statvfs@openssh.com")
+	return
+}
+
 // get VFS (file system) statistics from a remote host.
 //
 // Implement the statvfs@openssh.com SSH_FXP_EXTENDED feature from
 // http://www.opensource.apple.com/source/OpenSSH/OpenSSH-175/openssh/PROTOCOL?txt.
 func (client *Client) StatVFS(pathN string) (rv *StatVFS, err error) {
-	err = client.invokeExpect(
+	rv = &StatVFS{}
+	err = client.StatVFS2(pathN, rv)
+	if err != nil {
+		rv = nil
+	}
+	return
+}
+
+// get VFS (file system) statistics from a remote host, less allocation.
+//
+// Implement the statvfs@openssh.com SSH_FXP_EXTENDED feature from
+// http://www.opensource.apple.com/source/OpenSSH/OpenSSH-175/openssh/PROTOCOL?txt.
+func (client *Client) StatVFS2(pathN string, rv *StatVFS) (err error) {
+	return client.invokeExpect(
 		&sshFxpStatvfsPacket{Path: pathN},
 		sshFxpExtendedReply,
 		func(buff []byte) (err error) {
-			rv = &StatVFS{}
 			err = binary.Read(bytes.NewReader(buff), binary.BigEndian, rv)
 			if err != nil {
-				rv = nil
-				err = errors.New("can not parse StatVFS reply")
+				err = uerr.Chainf(err, "parse StatVFS response")
 			}
 			return
 		})
-	return
 }
 
 // Remove pathN.  Return error if pathN does not exist, or if pathN is a non-empty
@@ -822,6 +838,12 @@ func (client *Client) RenameAsync(
 ) (err error) {
 	return client.asyncExpectStatus(
 		&sshFxpRenamePacket{Oldpath: oldN, Newpath: newN}, nil, req, onComplete)
+}
+
+// does server support PosixRename?
+func (client *Client) HasPosixRename() (yes bool) {
+	_, yes = client.HasExtension("posix-rename@openssh.com")
+	return
 }
 
 // Rename oldN to newN, replacing newN if it exists.

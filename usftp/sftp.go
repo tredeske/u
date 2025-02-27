@@ -83,6 +83,7 @@ const (
 	sshFxfExcl   = 0x00000020
 )
 
+/*
 var (
 	// supportedSFTPExtensions defines the supported extensions
 	supportedSFTPExtensions = []sshExtensionPair{
@@ -92,6 +93,7 @@ var (
 	}
 	sftpExtensions = supportedSFTPExtensions
 )
+*/
 
 type fxp uint8
 
@@ -230,6 +232,7 @@ func (s *StatusError) FxCode() fxerr {
 	return fxerr(s.Code)
 }
 
+/*
 func getSupportedExtensionByName(extensionName string) (sshExtensionPair, error) {
 	for _, supportedExtension := range supportedSFTPExtensions {
 		if supportedExtension.Name == extensionName {
@@ -255,3 +258,4 @@ func SetSFTPExtensions(extensions ...string) error {
 	sftpExtensions = tempExtensions
 	return nil
 }
+*/
