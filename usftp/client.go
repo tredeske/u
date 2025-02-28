@@ -1,8 +1,6 @@
 package usftp
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -778,7 +776,7 @@ func (client *Client) StatVFS2(pathN string, rv *StatVFS) (err error) {
 		&sshFxpStatvfsPacket{Path: pathN},
 		sshFxpExtendedReply,
 		func(buff []byte) (err error) {
-			err = binary.Read(bytes.NewReader(buff), binary.BigEndian, rv)
+			err = rv.unmarshal(buff)
 			if err != nil {
 				err = uerr.Chainf(err, "parse StatVFS response")
 			}

@@ -1031,6 +1031,24 @@ func (p *StatVFS) appendTo(inB []byte) (outB []byte, err error) {
 	return
 }
 
+func (p *StatVFS) unmarshal(b []byte) error {
+	if 88 < len(b) {
+		return errShortPacket
+	}
+	p.Bsize, b = unmarshalUint64(b)
+	p.Frsize, b = unmarshalUint64(b)
+	p.Blocks, b = unmarshalUint64(b)
+	p.Bfree, b = unmarshalUint64(b)
+	p.Bavail, b = unmarshalUint64(b)
+	p.Files, b = unmarshalUint64(b)
+	p.Ffree, b = unmarshalUint64(b)
+	p.Favail, b = unmarshalUint64(b)
+	p.Fsid, b = unmarshalUint64(b)
+	p.Flag, b = unmarshalUint64(b)
+	p.Namemax, b = unmarshalUint64(b)
+	return nil
+}
+
 type sshFxpFsyncPacket struct {
 	idPkt_
 	Handle string
