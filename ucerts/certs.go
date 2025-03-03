@@ -100,21 +100,39 @@ func HasTlsCerts(tlsc *tls.Config) (rv bool) {
 	return nil != tlsc && 0 != len(tlsc.Certificates)
 }
 
-// Get CommonName from configured certs
-func CommonNameFromConfig(tlsc *tls.Config) string {
+// Get X509Cert from configured certs
+func X509FromConfig(tlsc *tls.Config) (*x509.Certificate, error) {
 	if nil != tlsc && 0 != len(tlsc.Certificates) {
 		if nil != tlsc.Certificates[0].Leaf {
-			return tlsc.Certificates[0].Leaf.Subject.CommonName
+			return tlsc.Certificates[0].Leaf, nil
 		} else if 0 != len(tlsc.Certificates[0].Certificate) {
 			x509Cert, err := x509.ParseCertificate(
 				tlsc.Certificates[0].Certificate[0])
 			if err != nil {
-				return ""
+				return nil, err
 			}
-			return x509Cert.Subject.CommonName
+			return x509Cert, nil
 		}
 	}
-	return ""
+	return nil, errors.New("no certificates")
+}
+
+// Get CommonName from configured certs
+func CommonNameFromConfig(tlsc *tls.Config) string {
+	cert, _ := X509FromConfig(tlsc)
+	if nil == cert {
+		return ""
+	}
+	return cert.Subject.CommonName
+}
+
+// Get SANs (subject alt names) from configured certs
+func SansFromConfig(tlsc *tls.Config) []string {
+	cert, _ := X509FromConfig(tlsc)
+	if nil == cert {
+		return nil
+	}
+	return cert.DNSNames
 }
 
 func cipherNames() (names12, names13 []string) {

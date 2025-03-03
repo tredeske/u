@@ -1045,7 +1045,7 @@ func (p *StatVFS) unmarshal(b []byte) error {
 	p.Favail, b = unmarshalUint64(b)
 	p.Fsid, b = unmarshalUint64(b)
 	p.Flag, b = unmarshalUint64(b)
-	p.Namemax, b = unmarshalUint64(b)
+	p.Namemax, _ = unmarshalUint64(b)
 	return nil
 }
 
