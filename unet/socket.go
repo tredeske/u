@@ -542,6 +542,7 @@ func (this *Socket) GetOptRcvBuf(size *int) *Socket {
 	return this.GetOptInt(syscall.SOL_SOCKET, syscall.SO_RCVBUF, size)
 }
 
+// if size positive and not unless, then set sockets receive buffer
 func (this *Socket) SetOptRcvBuf(size int, unless ...bool) *Socket {
 	if 0 < size && this.canDo(unless) {
 		this.SetOptInt(syscall.SOL_SOCKET, syscall.SO_RCVBUF, size)
@@ -559,6 +560,7 @@ func (this *Socket) GetOptSndBuf(size *int) *Socket {
 	return this.GetOptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF, size)
 }
 
+// if size positive and not unless, then set sockets send buffer
 func (this *Socket) SetOptSndBuf(size int, unless ...bool) *Socket {
 	if 0 < size && this.canDo(unless) {
 		this.SetOptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF, size)

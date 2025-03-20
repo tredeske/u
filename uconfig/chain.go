@@ -92,6 +92,7 @@ func (this *Chain) GetArrayIf(key string, value **Array) *Chain {
 	return this
 }
 
+/*
 // deprecated - use Each().
 //
 // get the array specified by key and iterate through the contained sections
@@ -147,6 +148,7 @@ func (this *Chain) IfSection(key string, visitor Visitor) *Chain {
 	}
 	return this
 }
+*/
 
 // deprecated
 func (this *Chain) GetSection(key string, value **Section) *Chain {
@@ -156,6 +158,7 @@ func (this *Chain) GetSection(key string, value **Section) *Chain {
 	return this
 }
 
+/*
 // deprecated
 func (this *Chain) GetSectionIf(key string, value **Section) *Chain {
 	if nil == this.Error {
@@ -163,6 +166,7 @@ func (this *Chain) GetSectionIf(key string, value **Section) *Chain {
 	}
 	return this
 }
+*/
 
 func (this *Chain) GetChain(key string, value **Chain) *Chain {
 	if nil == this.Error {
@@ -470,6 +474,18 @@ func (this *Chain) ThenCheck(fn func() (err error)) *Chain {
 func (this *Chain) Then(fn func()) *Chain {
 	if nil == this.Error {
 		fn()
+	}
+	return this
+}
+
+// if the section exists, add elements of it as properties to this section
+func (this *Chain) AddPropsIf(key string) *Chain {
+	if nil == this.Error {
+		var props map[string]string
+		this.Error = this.Section.GetStringMap(key, &props)
+		if nil == this.Error && 0 != len(props) {
+			this.Section.AddProps(props)
+		}
 	}
 	return this
 }

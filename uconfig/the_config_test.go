@@ -47,8 +47,7 @@ subbed:         "{{.one}}"
 	//
 	// watch out for tabs in this string - no tabs!
 	//
-	config, err := globals.NewChild(
-		`
+	config, err := globals.NewChild(`
 properties:
     one:        oneVal
     two:        twoVal
@@ -507,6 +506,12 @@ func TestDetectBadConfig(t *testing.T) {
 
 func TestGet(t *testing.T) {
 	m := map[string]any{
+		"props": map[string]any{
+			"prop1": 1,
+			"prop2": "two",
+		},
+		"sub1":     "{{.prop1}}",
+		"sub2":     "{{.prop2}}",
 		"string":   "stringV",
 		"int":      1,
 		"float64":  2.0,
@@ -534,8 +539,18 @@ func TestGet(t *testing.T) {
 	var url *nurl.URL
 	var urlExists *nurl.URL
 	var urlNotExists *nurl.URL
+	var sub1, sub2 string
 
 	err = s.Chain().
+		AddPropsIf("props").
+		GetString("sub1", &sub1).
+		GetString("sub2", &sub2).
+		ThenCheck(func() (err error) {
+			if sub1 != "1" || sub2 != "two" {
+				return fmt.Errorf("sub1 %s vs 1, sub2: %s vs two", sub1, sub2)
+			}
+			return nil
+		}).
 		GetString("string", &stringV).
 		GetInt("int", &intV, nil).
 		GetBool("bool", &boolV).

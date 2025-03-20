@@ -53,10 +53,10 @@ func (this *thing_) Reload(
 		GetInt("g.j", &g.j).
 
 		//
-		EachSection("stuff",
-			func(s *uconfig.Section) (err error) {
+		Each("stuff",
+			func(c *uconfig.Chain) (err error) {
 				aStuff := stuff_{}
-				return s.Chain().
+				return c.
 					GetString("foo", &aStuff.foo).
 					GetBool("bar", &aStuff.bar).
 					Then(func() { g.mystuff = append(g.mystuff, aStuff) }).
