@@ -179,6 +179,14 @@ func (this *Chain) GetChain(key string, value **Chain) *Chain {
 	return this
 }
 
+// does the config contain the named item?
+func (this *Chain) Contains(key string, yes *bool) *Chain {
+	if nil == this.Error {
+		*yes = this.Section.Contains(key)
+	}
+	return this
+}
+
 func (this *Chain) GetBool(key string, value *bool) *Chain {
 	if nil == this.Error {
 		this.Error = this.Section.GetBool(key, value)

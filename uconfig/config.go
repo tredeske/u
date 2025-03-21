@@ -387,8 +387,9 @@ func (this *Section) Len() int {
 	return len(this.section)
 }
 
+// does the config contain the named item?
 func (this *Section) Contains(key string) (found bool) {
-	_, found = this.getIt(key, true)
+	_, found = this.section[key]
 	return
 }
 
