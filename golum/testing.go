@@ -95,6 +95,7 @@ func TestReloadComponent(name string) (err error) {
 // for test - put this in a defer() to unload all components at end of test
 func TestStop() {
 	ulog.Debugf("G: TestStop")
+	prototypes_.Clear()
 	golums_.Range(
 		func(k, v any) (cont bool) {
 			ulog.Debugf("G: stopping %s", k)
@@ -103,5 +104,6 @@ func TestStop() {
 			delGolum(g)
 			return true
 		})
+	golums_.Clear()
 	uregistry.TestClearAll()
 }
