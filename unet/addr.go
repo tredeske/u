@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strconv"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/tredeske/u/uerr"
@@ -251,8 +252,10 @@ func (this *Address) SetAddrFrom(that Address) {
 
 // try to parse hostOrIp, and then try to lookup hostOrIp if that fails.
 // so, if hostOrIp is an IP addr, no lookup will occur
-func (this *Address) ResolveIp(hostOrIp string) (err error) {
-	ip, err := ResolveIp(hostOrIp)
+func (this *Address) ResolveIp(
+	hostOrIp string, timeout ...time.Duration,
+) (err error) {
+	ip, err := ResolveIp(hostOrIp, timeout...)
 	if nil == err {
 		this.SetIp(ip)
 	}
