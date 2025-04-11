@@ -74,7 +74,7 @@ func (this *Proc) Async(closure ProcF) (ok bool) {
 // wait for service to invoke
 //
 // return true if backend accepted the call (it's not dead)
-func (this *Proc) Call(closure ProcF) (ok bool, err error) {
+func (this *Proc) Call(closure ProcF) (ok bool) {
 	defer func() {
 		ok = !uerr.IfClosedChanPanic(recover())
 	}()
@@ -121,7 +121,7 @@ func (this *ProcAny) Async(closure ProcF) (ok bool) {
 	return true
 }
 
-func (this *ProcAny) Call(closure ProcF) (ok bool, err error) {
+func (this *ProcAny) Call(closure ProcF) (ok bool) {
 	defer func() {
 		ok = !uerr.IfClosedChanPanic(recover())
 	}()

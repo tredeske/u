@@ -49,14 +49,12 @@ func (ps *procSvc_) AsyncAdd(amount int) {
 }
 
 func (ps *procSvc_) SyncAddGet(amount int) (rv int) {
-	ok, err := ps.proc.Call(func() (svcErr error) {
+	ok := ps.proc.Call(func() (svcErr error) {
 		ps.result += amount
 		rv = ps.result
 		return nil
 	})
-	if err != nil {
-		ps.t.Fatalf("sync call failed! %s", err)
-	} else if !ok {
+	if !ok {
 		ps.t.Fatalf("sync call not accepted!")
 	}
 	return
