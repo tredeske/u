@@ -515,8 +515,14 @@ func IsTlsServer(s *http.Server) bool {
 }
 
 // start listening on a server
-func StartServer(svr *http.Server, onDone func(err error)) {
+func StartServer(
+	svr *http.Server,
+	listenSock net.Listener, // nil or listener to use
+	onDone func(err error), // if nil, then just log
+) {
 	go func() {
+
+		var err error
 
 		if nil == onDone {
 			onDone = func(err error) {
@@ -528,21 +534,26 @@ func StartServer(svr *http.Server, onDone func(err error)) {
 			}
 		}
 
+		defer func() {
+			onDone(err)
+		}()
+
 		//
 		// start serving reqs
 		//
 
-		var err error
-		if IsTlsServer(svr) {
-			var l net.Listener
-			l, err = tls.Listen("tcp", svr.Addr, svr.TLSConfig)
-			if nil == err {
-				err = svr.Serve(l)
+		if nil == listenSock {
+			listenSock, err = net.Listen("tcp", svr.Addr)
+			if err != nil {
+				return
 			}
-			//err = svr.ListenAndServeTLS("", "")
-		} else {
-			err = svr.ListenAndServe()
 		}
+
+		if IsTlsServer(svr) {
+			listenSock = tls.NewListener(listenSock, svr.TLSConfig)
+		}
+
+		err = svr.Serve(listenSock)
 
 		//
 		// when we're told to stop, we may get a spurious error
@@ -550,7 +561,6 @@ func StartServer(svr *http.Server, onDone func(err error)) {
 		if http.ErrServerClosed == err {
 			err = nil
 		}
-		onDone(err)
 	}()
 }
 

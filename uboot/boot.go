@@ -249,8 +249,8 @@ func (this *Boot) Redirect() (err error) {
 	// ulog
 	//
 	if "stdout" != this.LogF {
-		if 10_000_000 > this.LogSize {
-			this.LogSize = 10_000_000
+		if 40_000_000 > this.LogSize {
+			this.LogSize = 40_000_000
 		}
 		if 2 > this.LogKeep {
 			this.LogKeep = 2
